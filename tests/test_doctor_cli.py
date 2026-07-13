@@ -11,7 +11,7 @@ def test_doctor_json_outputs_toolbox_diagnostics(monkeypatch, capsys):
         assert isinstance(home, Path)
         assert isinstance(env, dict)
         assert cookies_path == Path("/tmp/test-cookies.json")
-        return {"ok": True, "version": "0.7.0", "engines": {}, "skills": {}, "cookies": {}}
+        return {"ok": True, "version": "0.8.0", "capabilities": {}, "skills": {}, "cookies": {}}
 
     monkeypatch.setattr("ixf_toolbox.cli.collect_diagnostics", fake_collect_diagnostics)
 
@@ -19,13 +19,13 @@ def test_doctor_json_outputs_toolbox_diagnostics(monkeypatch, capsys):
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
-    assert payload["version"] == "0.7.0"
+    assert payload["version"] == "0.8.0"
 
 
 def test_doctor_text_outputs_toolbox_diagnostics(monkeypatch, capsys):
     monkeypatch.setattr(
         "ixf_toolbox.cli.collect_diagnostics",
-        lambda *, home, env, cookies_path: {"ok": False, "version": "0.7.0"},
+        lambda *, home, env, cookies_path: {"ok": False, "version": "0.8.0"},
     )
     monkeypatch.setattr(
         "ixf_toolbox.cli.format_diagnostics",
@@ -34,4 +34,4 @@ def test_doctor_text_outputs_toolbox_diagnostics(monkeypatch, capsys):
 
     assert main(["doctor"]) == 1
 
-    assert capsys.readouterr().out == "ixf-toolbox 0.7.0\noverall fail\n"
+    assert capsys.readouterr().out == "ixf-toolbox 0.8.0\noverall fail\n"

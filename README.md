@@ -2,12 +2,12 @@
 
 `ixf-toolbox` provides one local `ixf` command and four agent skills for authorized i讯飞 document and OKR workflows.
 
-Toolbox is migrating implementation into this repository in stages while keeping the user-facing `ixf` commands stable. Document reading and publishing, OKR reading and writing, cookie/session export, and diagnostics are now Toolbox-owned.
+Toolbox implements document reading and publishing, OKR reading and writing, cookie/session export, diagnostics, and agent skill installation behind the stable `ixf` command surface.
 
 ## Install
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.7.0/ixf_toolbox-0.7.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.8.0/ixf_toolbox-0.8.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ixf --version
 ```
@@ -15,7 +15,7 @@ ixf --version
 On Windows, use the `windows` extra:
 
 ```bash
-python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.7.0/ixf_toolbox-0.7.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.8.0/ixf_toolbox-0.8.0-py3-none-any.whl"
 ```
 
 ## Commands
@@ -83,7 +83,7 @@ Core document and OKR workflows are now implemented in Toolbox:
 - `ixf okr write`
 - `ixf cookies export`
 
-New workflows should prefer `ixf`. Legacy reader/writer packages may still be installed for compatibility diagnostics until dependency cleanup is completed.
+New workflows should prefer `ixf`. Toolbox no longer installs legacy reader/writer packages as runtime dependencies.
 
 ## Security
 

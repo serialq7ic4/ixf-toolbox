@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ixf-toolbox"
-version = "0.7.0"
+version = "0.8.0"
 description = "Unified local toolbox for authorized iXunfei document and OKR workflows."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,10 +12,6 @@ license = "Apache-2.0"
 authors = [{ name = "serialq7ic4", email = "qianch714@gmail.com" }]
 dependencies = [
   "requests>=2.31",
-  "ixunfei-docx-reader[crypto] @ https://github.com/serialq7ic4/ixunfei-docx-reader/releases/download/v0.1.6/ixunfei_docx_reader-0.1.6-py3-none-any.whl ; platform_system != 'Windows'",
-  "ixunfei-docx-reader[windows] @ https://github.com/serialq7ic4/ixunfei-docx-reader/releases/download/v0.1.6/ixunfei_docx_reader-0.1.6-py3-none-any.whl ; platform_system == 'Windows'",
-  "ixunfei-docx-writer[crypto] @ https://github.com/serialq7ic4/ixunfei-docx-writer/releases/download/v0.1.0/ixunfei_docx_writer-0.1.0-py3-none-any.whl ; platform_system != 'Windows'",
-  "ixunfei-docx-writer[windows] @ https://github.com/serialq7ic4/ixunfei-docx-writer/releases/download/v0.1.0/ixunfei_docx_writer-0.1.0-py3-none-any.whl ; platform_system == 'Windows'",
 ]
 
 [project.optional-dependencies]
@@ -24,8 +20,13 @@ dev = [
   "pytest>=8.0",
   "ruff>=0.5",
 ]
-crypto = []
-windows = []
+crypto = [
+  "cryptography>=42.0",
+]
+windows = [
+  "cryptography>=42.0",
+  "pywin32>=306",
+]
 
 [project.scripts]
 ixf = "ixf_toolbox.cli:main"
@@ -37,9 +38,6 @@ pythonpath = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ixf_toolbox"]

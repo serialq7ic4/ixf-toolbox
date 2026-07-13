@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0 - 2026-07-13
+
+- Removed legacy reader/writer runtime dependencies from the Toolbox package.
+- Changed `ixf doctor` to report native Toolbox capabilities instead of legacy engine status.
+- Removed the unused command delegation bridge now that core document, OKR, cookie, and diagnostics flows are native.
+
 ## 0.7.0 - 2026-07-13
 
 - Added Toolbox-owned document publisher core for API-only Markdown-to-docx publishing.

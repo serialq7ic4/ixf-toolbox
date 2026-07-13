@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.1.0 - 2026-07-13
+
 - Added GitHub CI and tag release workflows.
 - Added smoke and changelog extraction scripts for release validation.
 - Added security, privacy, contribution, platform, release, issue, and PR documentation.

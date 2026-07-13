@@ -8,43 +8,17 @@ from pathlib import Path
 from typing import Any
 
 from ixf_toolbox import __version__
+from ixf_toolbox.core.cookies import cookie_diagnostics
 from ixf_toolbox.setup import SKILL_NAMES, detect_runtime_targets
 
 
-DEFAULT_COOKIES = "/tmp/ixunfei_profile_explorer_cookies.json"
 ExecutableLookup = Callable[[str], str | None]
 CommandRunner = Callable[..., Any]
 
 
 def _load_cookie_diagnostics(cookie_path: Path) -> dict[str, object]:
-    try:
-        from ixunfei_docx_writer.cookies.common import cookie_diagnostics
-    except ImportError:
-        path = cookie_path.expanduser()
-        return {
-            "ok": False,
-            "exists": path.exists(),
-            "path": str(path),
-            "cookieCount": 0,
-            "cookieNames": [],
-            "hasCsrf": False,
-            "hasLgwCsrf": False,
-            "error": "ixunfei-docx-writer cookie diagnostics are unavailable.",
-        }
     path = cookie_path.expanduser()
-    try:
-        return cookie_diagnostics(path)
-    except Exception as exc:
-        return {
-            "ok": False,
-            "exists": path.exists(),
-            "path": str(path),
-            "cookieCount": 0,
-            "cookieNames": [],
-            "hasCsrf": False,
-            "hasLgwCsrf": False,
-            "error": f"{type(exc).__name__}: {exc}",
-        }
+    return cookie_diagnostics(path)
 
 
 def _engine_status(

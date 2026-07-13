@@ -41,7 +41,7 @@ def test_collect_diagnostics_reports_engines_skills_and_cookie_metadata(tmp_path
     )
 
     assert payload["ok"] is True
-    assert payload["version"] == "0.2.0"
+    assert payload["version"] == "0.3.0"
     assert payload["engines"]["ixfdoc"]["ok"] is True
     assert payload["engines"]["ixfdoc"]["path"] == "/usr/local/bin/ixfdoc"
     assert payload["engines"]["ixfwrite"]["version"] == "ixfwrite 1.2.3"
@@ -89,10 +89,40 @@ def test_collect_diagnostics_reports_invalid_cookie_file_without_crashing(tmp_pa
     assert "error" in payload["cookies"]
 
 
+def test_collect_diagnostics_uses_toolbox_cookie_core(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_cookie_diagnostics(path):
+        calls.append(path)
+        return {
+            "ok": True,
+            "exists": True,
+            "path": str(path),
+            "cookieCount": 1,
+            "cookieNames": ["_csrf_token"],
+            "hasCsrf": True,
+            "hasLgwCsrf": False,
+        }
+
+    monkeypatch.setattr("ixf_toolbox.doctor.cookie_diagnostics", fake_cookie_diagnostics)
+    cookies = tmp_path / "cookies.json"
+
+    payload = collect_diagnostics(
+        home=tmp_path,
+        env={},
+        cookies_path=cookies,
+        executable_lookup=lambda name: f"/bin/{name}",
+        command_runner=lambda command, **kwargs: subprocess.CompletedProcess(command, 0),
+    )
+
+    assert calls == [cookies]
+    assert payload["cookies"]["ok"] is True
+
+
 def test_format_diagnostics_is_human_readable_without_secret_values(tmp_path):
     payload = {
         "ok": False,
-        "version": "0.2.0",
+        "version": "0.3.0",
         "engines": {
             "ixfdoc": {"ok": True, "path": "/bin/ixfdoc", "version": "ixfdoc 1.0"},
             "ixfwrite": {"ok": False, "path": "", "version": ""},
@@ -117,7 +147,7 @@ def test_format_diagnostics_is_human_readable_without_secret_values(tmp_path):
 
     text = format_diagnostics(payload)
 
-    assert "ixf-toolbox 0.2.0" in text
+    assert "ixf-toolbox 0.3.0" in text
     assert "engine ixfdoc ok" in text
     assert "engine ixfwrite missing" in text
     assert "cookies ok count=1 csrf=true lgw_csrf=false" in text

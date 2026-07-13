@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 - 2026-07-13
+
+- Moved cookie/session export and diagnostics into Toolbox-owned core modules.
+- Changed `ixf cookies export` to use native Toolbox cookie providers instead of delegating to the legacy writer command.
+- Kept cookie diagnostics secret-safe while preserving macOS and Windows desktop session export support.
+
 ## 0.2.0 - 2026-07-13
 
 - Added native `ixf doctor` diagnostics for Toolbox version, legacy engines, installed agent skills, and cookie metadata.

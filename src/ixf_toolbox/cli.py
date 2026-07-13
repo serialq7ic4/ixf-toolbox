@@ -7,8 +7,15 @@ import sys
 from pathlib import Path
 
 from ixf_toolbox import __version__
+from ixf_toolbox.core.cookies import (
+    DEFAULT_APP_SUPPORT,
+    DEFAULT_COOKIES,
+    DEFAULT_HOST_LIKE,
+    DEFAULT_KEYCHAIN_SERVICE,
+    export_cookie_session,
+)
 from ixf_toolbox.delegate import run_command
-from ixf_toolbox.doctor import DEFAULT_COOKIES, collect_diagnostics, format_diagnostics, to_json
+from ixf_toolbox.doctor import collect_diagnostics, format_diagnostics, to_json
 from ixf_toolbox.setup import install_skill_wrappers, packaged_project_root
 from ixf_toolbox.update import DEFAULT_RELEASE_REPO, check_latest_release
 
@@ -138,6 +145,57 @@ def run_doctor(args: list[str]) -> int:
     return 0 if payload["ok"] else 1
 
 
+def run_cookies(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="ixf cookies")
+    subparsers = parser.add_subparsers(dest="cookies_command")
+    export = subparsers.add_parser("export", help="Export local LarkShell cookies.")
+    export.add_argument(
+        "--provider",
+        default="auto",
+        choices=["auto", "macos-larkshell", "windows-larkshell"],
+    )
+    export.add_argument("--output", default=DEFAULT_COOKIES)
+    export.add_argument("--app-support", default=DEFAULT_APP_SUPPORT)
+    export.add_argument("--cookies-db", default="")
+    export.add_argument("--host-like", default=DEFAULT_HOST_LIKE)
+    export.add_argument("--keychain-service", default=DEFAULT_KEYCHAIN_SERVICE)
+    export.add_argument("--keychain-account", default="")
+    export.add_argument("--app-data", default="")
+    export.add_argument("--local-state", default="")
+    parsed = parser.parse_args(args)
+    if parsed.cookies_command != "export":
+        parser.print_help(sys.stderr)
+        return 2
+    try:
+        payload = export_cookie_session(
+            provider=parsed.provider,
+            output=Path(parsed.output),
+            app_support=Path(parsed.app_support),
+            cookies_db=Path(parsed.cookies_db) if parsed.cookies_db else None,
+            host_like=parsed.host_like,
+            keychain_service=parsed.keychain_service,
+            keychain_account=parsed.keychain_account,
+            app_data=Path(parsed.app_data) if parsed.app_data else None,
+            local_state=Path(parsed.local_state) if parsed.local_state else None,
+        )
+    except Exception as exc:
+        error = {
+            "ok": False,
+            "error": {
+                "type": "cookie",
+                "subtype": "cookie_export_failed",
+                "message": str(exc),
+                "hint": "Confirm the desktop client is logged in and retry `ixf cookies export`.",
+                "retryable": False,
+            },
+        }
+        print(f"ERROR {exc}", file=sys.stderr)
+        print(json.dumps(error, ensure_ascii=False), file=sys.stderr)
+        return 6
+    print(json.dumps(payload, ensure_ascii=False))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args == ["--version"]:
@@ -153,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
     if command == "okr":
         return run_okr(rest)
     if command == "cookies":
-        return run_command("ixfwrite", ["cookies", *rest])
+        return run_cookies(rest)
     if command == "doctor":
         return run_doctor(rest)
     if command == "setup":

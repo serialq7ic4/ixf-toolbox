@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Expanded the default README into a full project landing page modeled after the archived reader documentation.
+
 ## 1.1.0 - 2026-07-13
 
 - Added GitHub CI and tag release workflows.

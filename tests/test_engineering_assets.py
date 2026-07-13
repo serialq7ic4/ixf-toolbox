@@ -76,6 +76,29 @@ def test_public_project_docs_exist_and_use_toolbox_names():
         assert "ixfwrite" not in text
 
 
+def test_default_readme_is_full_project_landing_page():
+    text = read("README.md")
+
+    for expected in [
+        "https://img.shields.io/badge/Python-3.11%2B-3776AB",
+        "## 为什么做这个",
+        "## 安装到 Codex / Claude Code",
+        "## 在 Agent 里使用",
+        "## 底层命令",
+        "## 手动读取流程",
+        "## 手动写入流程",
+        "## 支持的能力",
+        "## 支持平台",
+        "## 迁移",
+        "## 隐私与安全",
+        "## 开发",
+    ]:
+        assert expected in text
+    assert "ixf docs read" in text
+    assert "ixf docs publish" in text
+    assert "ixf okr write" in text
+
+
 def test_legacy_migration_doc_maps_old_commands_to_toolbox_commands():
     text = read("docs/migration-from-legacy.md")
 

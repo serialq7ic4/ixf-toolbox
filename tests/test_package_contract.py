@@ -26,6 +26,7 @@ def test_runtime_dependencies_do_not_install_legacy_reader_or_writer():
 def test_crypto_and_windows_extras_are_toolbox_owned():
     optional = load_pyproject()["project"]["optional-dependencies"]
 
+    assert "cryptography>=42.0" in optional["dev"]
     assert optional["crypto"] == ["cryptography>=42.0"]
     assert optional["windows"] == ["cryptography>=42.0", "pywin32>=306"]
 

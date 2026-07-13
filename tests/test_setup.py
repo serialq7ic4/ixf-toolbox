@@ -53,6 +53,26 @@ def test_docs_writer_skill_documents_api_only_ixf_command():
         assert "playwright" not in text.lower()
 
 
+def test_reader_skills_do_not_export_cookies_to_unused_custom_path():
+    for runtime in ["codex", "claude-code"]:
+        for skill_name in ["ixf-docs-reader", "ixf-okr-reader"]:
+            skill = ROOT / "skills" / runtime / skill_name / "SKILL.md"
+            text = skill.read_text(encoding="utf-8")
+
+            assert "ixf cookies export --provider auto" in text
+            assert "--output ~/.ixf/cookies.json" not in text
+
+
+def test_okr_reader_skill_documents_current_cli_shape():
+    for runtime in ["codex", "claude-code"]:
+        skill = ROOT / "skills" / runtime / "ixf-okr-reader" / "SKILL.md"
+        text = skill.read_text(encoding="utf-8")
+
+        assert 'ixf okr read "<okr-url>"' in text
+        assert "--out-dir" not in text
+        assert "--print-manifest" not in text
+
+
 def test_install_skill_wrapper_does_not_overwrite_without_force(tmp_path):
     destination = tmp_path / ".codex" / "skills" / "ixf-docs-reader"
     destination.mkdir(parents=True)

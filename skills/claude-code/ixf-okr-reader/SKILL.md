@@ -11,11 +11,11 @@ Use `ixf okr read` through the local Toolbox CLI. This skill is read-only.
 
 1. Accept only OKR links the user is authorized to access.
 2. Export cookies first if the local session is missing:
-   `ixf cookies export --provider auto --output ~/.ixf/cookies.json`
+   `ixf cookies export --provider auto`
 3. Read the OKR page:
-   `ixf okr read "<okr-url>" --out-dir <dir> --print-manifest`
+   `ixf okr read "<okr-url>"`
 4. Summarize Objective/KR content, mentions, and alignment points.
-5. Keep any generated artifacts local unless the user asks to persist them.
+5. Keep any copied output local unless the user asks to persist it.
 
 ## Safety
 

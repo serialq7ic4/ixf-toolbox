@@ -11,7 +11,7 @@ Use `ixf docs read` through the local Toolbox CLI. This skill is read-only.
 
 1. Accept only sources the user is authorized to access.
 2. Export cookies first if the local session is missing:
-   `ixf cookies export --provider auto --output ~/.ixf/cookies.json`
+   `ixf cookies export --provider auto`
 3. Read sources into a temporary output directory:
    `ixf docs read "<source>" --out-dir <dir> --print-manifest`
 4. Analyze generated Markdown/TSV artifacts.

@@ -7,7 +7,7 @@ Toolbox implements document reading and publishing, OKR reading and writing, coo
 ## Install
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.10.0/ixf_toolbox-0.10.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.0.0/ixf_toolbox-1.0.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ixf --version
 ```
@@ -15,7 +15,13 @@ ixf --version
 On Windows, use the `windows` extra:
 
 ```bash
-python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.10.0/ixf_toolbox-0.10.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.0.0/ixf_toolbox-1.0.0-py3-none-any.whl"
+```
+
+After installation, verify the local runtime:
+
+```bash
+ixf doctor --json
 ```
 
 ## Commands
@@ -79,6 +85,13 @@ ixf update self --json
 ixf update self --apply --json
 ```
 
+Refresh local session cookies if authorized document or OKR reads start failing:
+
+```bash
+ixf cookies export --provider auto
+ixf doctor --json
+```
+
 ## Skills
 
 `ixf setup skills` installs these wrappers:
@@ -90,7 +103,7 @@ ixf update self --apply --json
 
 Reader skills are read-only. Writer skills require confirmed content and should run dry-run first before real writes.
 
-## Migration Status
+## Stable Scope
 
 Core document and OKR workflows are now implemented in Toolbox:
 

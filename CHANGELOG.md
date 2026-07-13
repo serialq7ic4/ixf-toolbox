@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0 - 2026-07-13
+
+- Marked `ixf-toolbox` as the first stable Toolbox-native release.
+- Stabilized the public `ixf` command surface for docs, OKR, cookies, doctor, setup, and update workflows.
+- Confirmed legacy reader/writer packages are no longer runtime dependencies.
+- Updated install documentation to target the `v1.0.0` release wheel.
+- Aligned reader skill cookie refresh and OKR read examples with the stable `ixf` CLI.
+
 ## 0.10.0 - 2026-07-13
 
 - Added friendly `ixf --help`, `ixf docs --help`, and `ixf okr --help` command listings.

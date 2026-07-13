@@ -6,6 +6,8 @@ import os
 import sys
 from pathlib import Path
 
+import requests
+
 from ixf_toolbox import __version__
 from ixf_toolbox.core.cookies import (
     DEFAULT_APP_SUPPORT,
@@ -14,13 +16,30 @@ from ixf_toolbox.core.cookies import (
     DEFAULT_KEYCHAIN_SERVICE,
     export_cookie_session,
 )
+from ixf_toolbox.core.docs import (
+    DEFAULT_SPACE_API,
+    build_outline,
+    cleanup_outputs,
+    inspect_source,
+    read_sources,
+    render_chunk,
+    write_outputs,
+)
 from ixf_toolbox.delegate import run_command
 from ixf_toolbox.doctor import collect_diagnostics, format_diagnostics, to_json
 from ixf_toolbox.setup import install_skill_wrappers, packaged_project_root
 from ixf_toolbox.update import DEFAULT_RELEASE_REPO, check_latest_release
 
 
-DOCS_READ_COMMANDS = {"read", "outline", "chunk", "cleanup", "inspect"}
+EXIT_CODES = {
+    "bad_args": 2,
+    "cookie_file_missing": 5,
+    "cookie_export_failed": 6,
+    "cookie_file_invalid": 7,
+    "cookie_csrf_missing": 8,
+    "remote_read_failed": 9,
+    "update_check_failed": 10,
+}
 
 
 def print_usage() -> None:
@@ -31,13 +50,292 @@ def print_usage() -> None:
     )
 
 
+def structured_error(
+    *,
+    error_type: str,
+    subtype: str,
+    message: str,
+    hint: str,
+    retryable: bool = False,
+) -> int:
+    print(f"ERROR {message}", file=sys.stderr)
+    if hint:
+        print(f"HINT {hint}", file=sys.stderr)
+    print(
+        json.dumps(
+            {
+                "ok": False,
+                "error": {
+                    "type": error_type,
+                    "subtype": subtype,
+                    "message": message,
+                    "hint": hint,
+                    "retryable": retryable,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        file=sys.stderr,
+    )
+    return EXIT_CODES.get(subtype, 1)
+
+
+def run_docs_read(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="ixf docs read")
+    parser.add_argument("sources", nargs="*")
+    parser.add_argument("--out-dir", default="")
+    parser.add_argument("--expand-sheets", action="store_true")
+    parser.add_argument("--download-images", action="store_true")
+    parser.add_argument("--print-manifest", action="store_true")
+    parser.add_argument("--cleanup", action="store_true")
+    parser.add_argument("--cookies", default=DEFAULT_COOKIES)
+    parser.add_argument("--space-api", default=DEFAULT_SPACE_API)
+    parsed = parser.parse_args(args)
+    if not parsed.sources:
+        return structured_error(
+            error_type="usage",
+            subtype="bad_args",
+            message="read requires at least one source.",
+            hint="Run `ixf docs read <url-or-file>... --out-dir <dir>`.",
+        )
+    if parsed.download_images and not parsed.out_dir:
+        return structured_error(
+            error_type="usage",
+            subtype="bad_args",
+            message="--download-images requires --out-dir.",
+            hint="Pass `--out-dir <dir>` so image assets can be written locally.",
+        )
+    out_dir = Path(parsed.out_dir).expanduser() if parsed.out_dir else None
+    try:
+        results = read_sources(
+            parsed.sources,
+            cookies_path=Path(parsed.cookies).expanduser(),
+            space_api=parsed.space_api,
+            expand_sheets=parsed.expand_sheets,
+            download_images=parsed.download_images,
+            output_root=out_dir,
+        )
+    except FileNotFoundError as exc:
+        message = str(exc)
+        if message.startswith("Cookie file not found:"):
+            return structured_error(
+                error_type="cookie",
+                subtype="cookie_file_missing",
+                message=message,
+                hint="Run `ixf cookies export --provider auto --output <path>` or pass --cookies.",
+            )
+        return structured_error(
+            error_type="usage",
+            subtype="bad_args",
+            message=message,
+            hint="Pass an existing local file path or a supported i讯飞 document URL.",
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if message == "Cookie jar does not contain _csrf_token.":
+            return structured_error(
+                error_type="cookie",
+                subtype="cookie_csrf_missing",
+                message=message,
+                hint="Run `ixf cookies export --provider auto --output <path>` to refresh the local desktop session cookies.",
+            )
+        return structured_error(
+            error_type="cookie",
+            subtype="cookie_file_invalid",
+            message=message,
+            hint="Run `ixf cookies export --provider auto --output <path>` or pass a valid --cookies file.",
+        )
+    except (requests.RequestException, RuntimeError) as exc:
+        return structured_error(
+            error_type="remote",
+            subtype="remote_read_failed",
+            message=str(exc),
+            hint="Check network access, document permissions, and whether the local desktop session is still valid.",
+            retryable=True,
+        )
+    if out_dir is not None:
+        manifest = write_outputs(results, out_dir)
+        if parsed.print_manifest:
+            print(json.dumps(manifest, ensure_ascii=False, indent=2))
+        if parsed.cleanup:
+            cleanup_outputs(manifest, out_dir)
+        return 0
+
+    multiple = len(results) > 1
+    for result in results:
+        if multiple:
+            print(f"=== {result['source']} ({result['kind']}) ===")
+        sys.stdout.write(str(result["content"]))
+        if not str(result["content"]).endswith("\n"):
+            print()
+    return 0
+
+
+def run_docs_cleanup(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="ixf docs cleanup")
+    parser.add_argument("out_dir")
+    parsed = parser.parse_args(args)
+    out_dir = Path(parsed.out_dir).expanduser()
+    manifest_path = out_dir / "manifest.json"
+    if not manifest_path.exists():
+        return structured_error(
+            error_type="usage",
+            subtype="bad_args",
+            message=f"manifest not found: {manifest_path}",
+            hint="Pass the output directory created by `ixf docs read --out-dir`.",
+        )
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return structured_error(
+            error_type="usage",
+            subtype="bad_args",
+            message=f"invalid manifest: {manifest_path}",
+            hint="Pass an intact output directory created by `ixf docs read --out-dir`.",
+        )
+    if not isinstance(manifest, dict) or not all(
+        isinstance(key, str) and isinstance(value, dict)
+        for key, value in manifest.items()
+    ):
+        return structured_error(
+            error_type="usage",
+            subtype="bad_args",
+            message=f"invalid manifest: {manifest_path}",
+            hint="Pass an intact output directory created by `ixf docs read --out-dir`.",
+        )
+    cleanup_outputs(manifest, out_dir)
+    return 0
+
+
+def read_chunk_source(source: str, target_chars: int) -> tuple[Path, str]:
+    path = Path(source).expanduser()
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(f"local file not found: {path}")
+    if target_chars <= 0:
+        raise ValueError("target_chars must be positive.")
+    return path, path.read_text(encoding="utf-8")
+
+
+def run_docs_outline(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="ixf docs outline")
+    parser.add_argument("source")
+    parser.add_argument("--target-chars", type=int, default=12000)
+    parser.add_argument("--json", action="store_true", dest="as_json")
+    parsed = parser.parse_args(args)
+    try:
+        path, markdown = read_chunk_source(parsed.source, parsed.target_chars)
+        outline = build_outline(markdown, parsed.target_chars)
+    except (FileNotFoundError, ValueError) as exc:
+        return structured_error(
+            error_type="usage",
+            subtype="bad_args",
+            message=str(exc),
+            hint="Pass a generated Markdown file and positive --target-chars.",
+        )
+    payload = {
+        "ok": True,
+        "file": str(path),
+        "selectedHeadingLevel": outline.selected_heading_level,
+        "chunks": [
+            {
+                "index": chunk.index,
+                "breadcrumb": chunk.breadcrumb,
+                "startLine": chunk.start_line,
+                "endLine": chunk.end_line,
+                "charCount": chunk.char_count,
+                "imagePaths": list(chunk.image_paths),
+            }
+            for chunk in outline.chunks
+        ],
+    }
+    if parsed.as_json:
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        for chunk in payload["chunks"]:
+            print(
+                f"{chunk['index']}\t{chunk['startLine']}-{chunk['endLine']}\t"
+                f"{chunk['breadcrumb']}"
+            )
+    return 0
+
+
+def run_docs_chunk(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="ixf docs chunk")
+    parser.add_argument("source")
+    parser.add_argument("--index", type=int, required=True)
+    parser.add_argument("--target-chars", type=int, default=12000)
+    parsed = parser.parse_args(args)
+    try:
+        _, markdown = read_chunk_source(parsed.source, parsed.target_chars)
+        outline = build_outline(markdown, parsed.target_chars)
+    except (FileNotFoundError, ValueError) as exc:
+        return structured_error(
+            error_type="usage",
+            subtype="bad_args",
+            message=str(exc),
+            hint="Pass a generated Markdown file and positive --target-chars.",
+        )
+    if parsed.index < 1 or parsed.index > len(outline.chunks):
+        return structured_error(
+            error_type="usage",
+            subtype="bad_args",
+            message=f"chunk index out of range: {parsed.index}",
+            hint=f"Pass an index from 1 to {len(outline.chunks)}.",
+        )
+    chunk = outline.chunks[parsed.index - 1]
+    breadcrumb = chunk.breadcrumb.replace("\\", "\\\\").replace('"', '\\"')
+    print(f'[chunk {chunk.index}/{len(outline.chunks)} breadcrumb="{breadcrumb}"]')
+    print()
+    sys.stdout.write(render_chunk(markdown, outline, parsed.index))
+    return 0
+
+
+def run_docs_inspect(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="ixf docs inspect")
+    parser.add_argument("source")
+    parser.add_argument("--json", action="store_true", dest="as_json")
+    parsed = parser.parse_args(args)
+    try:
+        payload = inspect_source(parsed.source)
+    except FileNotFoundError as exc:
+        return structured_error(
+            error_type="usage",
+            subtype="bad_args",
+            message=str(exc),
+            hint="Pass an existing local path or a supported i讯飞 document URL.",
+        )
+    if parsed.as_json:
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        source_key = "sourceRef" if payload["remote"] else "source"
+        print(f"source {payload[source_key]}")
+        print(f"remote {str(payload['remote']).lower()}")
+        print(f"kind {payload['kind']}")
+        if payload["remote"]:
+            print(f"host {payload['host']}")
+            print(f"route {payload['route']}")
+        else:
+            print(f"path {payload['path']}")
+            print(f"exists {str(payload['exists']).lower()}")
+            print(f"readable {str(payload['readable']).lower()}")
+    return 0
+
+
 def run_docs(args: list[str]) -> int:
     if not args:
         print("ERROR docs requires a subcommand.", file=sys.stderr)
         return 2
     command, rest = args[0], args[1:]
-    if command in DOCS_READ_COMMANDS:
-        return run_command("ixfdoc", [command, *rest])
+    if command == "read":
+        return run_docs_read(rest)
+    if command == "outline":
+        return run_docs_outline(rest)
+    if command == "chunk":
+        return run_docs_chunk(rest)
+    if command == "cleanup":
+        return run_docs_cleanup(rest)
+    if command == "inspect":
+        return run_docs_inspect(rest)
     if command == "publish":
         return run_command("ixfwrite", ["docx", "publish", *rest])
     print(f"ERROR unsupported docs subcommand: {command}", file=sys.stderr)

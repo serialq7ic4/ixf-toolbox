@@ -1,17 +1,16 @@
 from ixf_toolbox.cli import main
 
 
-def test_docs_read_delegates_to_ixfdoc(monkeypatch):
-    calls = []
-
+def test_docs_read_uses_toolbox_core(monkeypatch, tmp_path, capsys):
     def fake_run(command, args):
-        calls.append((command, args))
-        return 0
+        raise AssertionError("ixf docs read must not delegate to ixfdoc")
 
     monkeypatch.setattr("ixf_toolbox.cli.run_command", fake_run)
+    source = tmp_path / "source.md"
+    source.write_text("# Source\n\nNative docs read.\n", encoding="utf-8")
 
-    assert main(["docs", "read", "https://tenant.example.test/wiki/example"]) == 0
-    assert calls == [("ixfdoc", ["read", "https://tenant.example.test/wiki/example"])]
+    assert main(["docs", "read", str(source)]) == 0
+    assert capsys.readouterr().out == "# Source\n\nNative docs read.\n"
 
 
 def test_docs_publish_delegates_to_ixfwrite_docx_publish(monkeypatch):

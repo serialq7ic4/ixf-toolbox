@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 - 2026-07-13
+
+- Moved document reading, source inspection, Markdown chunking, artifact writing, and cleanup into Toolbox-owned docs core modules.
+- Changed `ixf docs read`, `ixf docs outline`, `ixf docs chunk`, `ixf docs inspect`, and `ixf docs cleanup` to run natively instead of delegating to `ixfdoc`.
+- Kept document publish and OKR workflows on the existing compatibility path while docs read migration continues.
+
 ## 0.3.0 - 2026-07-13
 
 - Moved cookie/session export and diagnostics into Toolbox-owned core modules.

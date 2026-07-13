@@ -2,12 +2,12 @@
 
 `ixf-toolbox` provides one local `ixf` command and four agent skills for authorized i讯飞 document and OKR workflows.
 
-Toolbox is migrating implementation into this repository in stages while keeping the user-facing `ixf` commands stable. Some document and OKR workflows still delegate to the legacy reader/writer engines; cookie/session export and diagnostics are now Toolbox-owned.
+Toolbox is migrating implementation into this repository in stages while keeping the user-facing `ixf` commands stable. Document reading, cookie/session export, and diagnostics are now Toolbox-owned; document publishing and OKR write/read workflows still delegate to the legacy writer/reader engines where needed.
 
 ## Install
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.3.0/ixf_toolbox-0.3.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.4.0/ixf_toolbox-0.4.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ixf --version
 ```
@@ -15,7 +15,7 @@ ixf --version
 On Windows, use the `windows` extra:
 
 ```bash
-python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.3.0/ixf_toolbox-0.3.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.4.0/ixf_toolbox-0.4.0-py3-none-any.whl"
 ```
 
 ## Commands
@@ -23,6 +23,10 @@ python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf
 | Command | Purpose |
 | --- | --- |
 | `ixf docs read <source>...` | Read authorized cloud document links or local Markdown files |
+| `ixf docs outline <file.md>` | Print heading-aware chunk metadata for Markdown |
+| `ixf docs chunk <file.md> --index <n>` | Print one heading-aware Markdown chunk |
+| `ixf docs inspect <source>` | Print a safe local/remote source routing summary |
+| `ixf docs cleanup <out-dir>` | Remove generated docs read artifacts |
 | `ixf docs publish <file.md> ...` | Publish Markdown as an authorized cloud document |
 | `ixf okr read <url>` | Read an authorized OKR page |
 | `ixf okr write --url <url> --input <file.json>` | Write confirmed OKR content |

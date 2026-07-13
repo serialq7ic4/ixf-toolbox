@@ -30,6 +30,8 @@ On Windows, use the `windows` extra.
 
 Reader skills are read-only. Writer skills require confirmed content and should run dry-run first before real writes.
 
+If you are migrating from the older reader/writer projects, see `docs/migration-from-legacy.md`.
+
 ## Safety
 
 Do not commit cookies, CSRF tokens, private URLs, private document IDs, OKR IDs, private response payloads, generated artifacts, or private content.

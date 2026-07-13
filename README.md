@@ -115,6 +115,8 @@ Core document and OKR workflows are now implemented in Toolbox:
 
 New workflows should prefer `ixf`. Toolbox no longer installs legacy reader/writer packages as runtime dependencies.
 
+If you are migrating from the older reader/writer projects, see `docs/migration-from-legacy.md`.
+
 ## Project Maintenance
 
 - Security and privacy guidance: `SECURITY.md`, `PRIVACY.md`.

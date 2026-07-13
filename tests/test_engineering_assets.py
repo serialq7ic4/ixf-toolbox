@@ -76,6 +76,18 @@ def test_public_project_docs_exist_and_use_toolbox_names():
         assert "ixfwrite" not in text
 
 
+def test_legacy_migration_doc_maps_old_commands_to_toolbox_commands():
+    text = read("docs/migration-from-legacy.md")
+
+    assert "`ixfdoc read`" in text
+    assert "`ixf docs read`" in text
+    assert "`ixfwrite docx publish`" in text
+    assert "`ixf docs publish`" in text
+    assert "`ixfwrite okr write`" in text
+    assert "`ixf okr write`" in text
+    assert "does not install `ixfdoc` or `ixfwrite` compatibility shims" in text
+
+
 def test_issue_and_pr_templates_exist_and_warn_about_sensitive_data():
     paths = [
         ".github/PULL_REQUEST_TEMPLATE.md",

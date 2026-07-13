@@ -7,6 +7,7 @@
 - Added security, privacy, contribution, platform, release, issue, and PR documentation.
 - Added engineering asset contract tests to keep public project scaffolding in place.
 - Added migrated reader image asset, remote client-vars, and Windows cookie provider tests.
+- Added migrated docx conversion and Markdown chunking contract tests.
 - Added `cryptography` to the dev extra so AES cookie contracts run in normal test environments.
 
 ## 1.0.0 - 2026-07-13

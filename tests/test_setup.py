@@ -1,0 +1,63 @@
+from pathlib import Path
+
+from ixf_toolbox.setup import install_skill_wrappers, normalize_runtimes
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_normalize_runtimes_supports_auto_and_aliases():
+    assert normalize_runtimes(["auto"]) == ["codex", "claude-code"]
+    assert normalize_runtimes(["all"]) == ["codex", "claude-code"]
+    assert normalize_runtimes(["codex", "claude"]) == ["codex", "claude-code"]
+    assert normalize_runtimes(["claude_code"]) == ["claude-code"]
+    assert normalize_runtimes(["none"]) == []
+
+
+def test_install_skill_wrapper_installs_four_codex_skills(tmp_path):
+    result = install_skill_wrappers(
+        project_root=ROOT,
+        home=tmp_path,
+        runtimes=["codex"],
+        force=False,
+        env={},
+    )
+
+    assert len(result["installed"]) == 4
+    assert result["skipped"] == []
+    for name in ["ixf-docs-reader", "ixf-docs-writer", "ixf-okr-reader", "ixf-okr-writer"]:
+        skill = tmp_path / ".codex" / "skills" / name / "SKILL.md"
+        assert skill.exists()
+        assert f"name: {name}" in skill.read_text(encoding="utf-8")
+
+
+def test_install_skill_wrapper_does_not_overwrite_without_force(tmp_path):
+    destination = tmp_path / ".codex" / "skills" / "ixf-docs-reader"
+    destination.mkdir(parents=True)
+    marker = destination / "marker.txt"
+    marker.write_text("keep", encoding="utf-8")
+
+    result = install_skill_wrappers(
+        project_root=ROOT,
+        home=tmp_path,
+        runtimes=["codex"],
+        force=False,
+        env={},
+    )
+
+    assert marker.read_text(encoding="utf-8") == "keep"
+    assert any(item["reason"] == "exists" for item in result["skipped"])
+
+
+def test_install_skill_wrapper_respects_env_override(tmp_path):
+    custom_dir = tmp_path / "custom-codex"
+    result = install_skill_wrappers(
+        project_root=ROOT,
+        home=tmp_path,
+        runtimes=["codex"],
+        force=False,
+        env={"IXF_TOOLBOX_CODEX_SKILLS_DIR": str(custom_dir)},
+    )
+
+    assert len(result["installed"]) == 4
+    assert (custom_dir / "ixf-docs-reader" / "SKILL.md").exists()

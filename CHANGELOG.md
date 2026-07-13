@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0 - 2026-07-13
+
+- Added Toolbox-owned OKR reader core for OKR detail API access, markdown rendering, and safe error reporting.
+- Changed `ixf okr read` to run natively instead of delegating to `ixfdoc`.
+- Kept `ixf okr write` on the existing compatibility path while OKR write migration remains separate.
+
 ## 0.4.0 - 2026-07-13
 
 - Moved document reading, source inspection, Markdown chunking, artifact writing, and cleanup into Toolbox-owned docs core modules.

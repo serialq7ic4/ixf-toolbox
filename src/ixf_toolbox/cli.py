@@ -25,6 +25,7 @@ from ixf_toolbox.core.docs import (
     render_chunk,
     write_outputs,
 )
+from ixf_toolbox.core.okr import read_okr_url
 from ixf_toolbox.delegate import run_command
 from ixf_toolbox.doctor import collect_diagnostics, format_diagnostics, to_json
 from ixf_toolbox.setup import install_skill_wrappers, packaged_project_root
@@ -342,13 +343,48 @@ def run_docs(args: list[str]) -> int:
     return 2
 
 
+def run_okr_read(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="ixf okr read")
+    parser.add_argument("source")
+    parser.add_argument("--cookies", default=DEFAULT_COOKIES)
+    parsed = parser.parse_args(args)
+    try:
+        result = read_okr_url(parsed.source, cookies_path=Path(parsed.cookies).expanduser())
+    except FileNotFoundError as exc:
+        return structured_error(
+            error_type="cookie",
+            subtype="cookie_file_missing",
+            message=str(exc),
+            hint="Run `ixf cookies export --provider auto --output <path>` or pass --cookies.",
+        )
+    except ValueError as exc:
+        return structured_error(
+            error_type="usage",
+            subtype="bad_args",
+            message=str(exc),
+            hint="Pass a supported i讯飞 OKR page URL.",
+        )
+    except (requests.RequestException, RuntimeError) as exc:
+        return structured_error(
+            error_type="remote",
+            subtype="remote_read_failed",
+            message=str(exc),
+            hint="Check network access, OKR permissions, and whether the local desktop session is still valid.",
+            retryable=True,
+        )
+    sys.stdout.write(str(result["content"]))
+    if not str(result["content"]).endswith("\n"):
+        print()
+    return 0
+
+
 def run_okr(args: list[str]) -> int:
     if not args:
         print("ERROR okr requires a subcommand.", file=sys.stderr)
         return 2
     command, rest = args[0], args[1:]
     if command == "read":
-        return run_command("ixfdoc", ["read", *rest])
+        return run_okr_read(rest)
     if command == "write":
         return run_command("ixfwrite", ["okr", "write", *rest])
     print(f"ERROR unsupported okr subcommand: {command}", file=sys.stderr)

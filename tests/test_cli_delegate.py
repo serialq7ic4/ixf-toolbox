@@ -26,17 +26,25 @@ def test_docs_publish_delegates_to_ixfwrite_docx_publish(monkeypatch):
     assert calls == [("ixfwrite", ["docx", "publish", "notes.md", "--dry-run"])]
 
 
-def test_okr_read_delegates_to_ixfdoc_read(monkeypatch):
-    calls = []
-
+def test_okr_read_uses_toolbox_core(monkeypatch, capsys):
     def fake_run(command, args):
-        calls.append((command, args))
-        return 0
+        raise AssertionError("ixf okr read must not delegate to ixfdoc")
 
     monkeypatch.setattr("ixf_toolbox.cli.run_command", fake_run)
+    monkeypatch.setattr(
+        "ixf_toolbox.cli.read_okr_url",
+        lambda source, **kwargs: {
+            "source": source,
+            "kind": "okr",
+            "title": "OKR - Fixture Owner",
+            "token": "okr-fixture-200",
+            "content": "# OKR - Fixture Owner\n\n- KR1: Native read\n",
+            "counts": {"objectives": 1, "key_results": 1},
+        },
+    )
 
     assert main(["okr", "read", "https://tenant.example.test/okr/user/example"]) == 0
-    assert calls == [("ixfdoc", ["read", "https://tenant.example.test/okr/user/example"])]
+    assert capsys.readouterr().out == "# OKR - Fixture Owner\n\n- KR1: Native read\n"
 
 
 def test_okr_write_delegates_to_ixfwrite_okr_write(monkeypatch):

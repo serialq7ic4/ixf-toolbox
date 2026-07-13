@@ -7,7 +7,7 @@ Toolbox implements document reading and publishing, OKR reading and writing, coo
 ## Install
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.8.0/ixf_toolbox-0.8.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.9.0/ixf_toolbox-0.9.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ixf --version
 ```
@@ -15,7 +15,7 @@ ixf --version
 On Windows, use the `windows` extra:
 
 ```bash
-python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.8.0/ixf_toolbox-0.8.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.9.0/ixf_toolbox-0.9.0-py3-none-any.whl"
 ```
 
 ## Commands
@@ -34,6 +34,7 @@ python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf
 | `ixf doctor --json` | Inspect Toolbox prerequisites without printing cookie values |
 | `ixf setup skills --runtimes auto --json` | Install Codex and Claude Code skill wrappers |
 | `ixf update check` | Check the latest GitHub release |
+| `ixf update self --json` | Plan or apply a Toolbox package upgrade |
 | `ixf update skills --runtimes auto --json` | Refresh installed skill wrappers |
 
 ## Examples
@@ -60,6 +61,14 @@ Check local setup:
 
 ```bash
 ixf doctor --json
+```
+
+Check for updates:
+
+```bash
+ixf update check --json
+ixf update self --json
+ixf update self --apply --json
 ```
 
 ## Skills

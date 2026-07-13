@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import platform
 import re
+import subprocess
+import sys
 from typing import Any
 
 import requests
@@ -45,6 +47,26 @@ def build_upgrade_command(*, version: str, repo: str, platform_name: str) -> str
         f"https://github.com/{repo}/releases/download/v{normalized}/{wheel}\" "
         "&& ixf update skills --runtimes auto --json"
     )
+
+
+def build_upgrade_steps(
+    *,
+    version: str,
+    repo: str,
+    platform_name: str,
+    python_executable: str = sys.executable,
+) -> list[list[str]]:
+    normalized = version_string(version)
+    extra = "windows" if platform_name == "windows" else "crypto"
+    wheel = f"ixf_toolbox-{normalized}-py3-none-any.whl"
+    requirement = (
+        f"ixf-toolbox[{extra}] @ "
+        f"https://github.com/{repo}/releases/download/v{normalized}/{wheel}"
+    )
+    return [
+        [python_executable, "-m", "pip", "install", "--upgrade", requirement],
+        ["ixf", "update", "skills", "--runtimes", "auto", "--json"],
+    ]
 
 
 def get_latest_github_release(repo: str, *, session: Any = requests) -> dict[str, object]:
@@ -91,3 +113,72 @@ def check_latest_release(
             else ""
         ),
     }
+
+
+def _release_payload(
+    *,
+    repo: str,
+    current_version: str,
+    release: dict[str, object],
+    platform_name: str,
+) -> dict[str, object]:
+    latest_tag = str(release.get("tag_name") or "").strip()
+    if not latest_tag:
+        raise RuntimeError("GitHub release response did not include tag_name.")
+    latest_version = version_string(latest_tag)
+    update_available = is_newer_version(current_version, latest_version)
+    return {
+        "ok": True,
+        "currentVersion": version_string(current_version),
+        "latestVersion": latest_version,
+        "latestTag": latest_tag,
+        "updateAvailable": update_available,
+        "releaseUrl": str(release.get("html_url") or ""),
+        "installCommand": (
+            build_upgrade_command(
+                version=latest_version,
+                repo=repo,
+                platform_name=platform_name,
+            )
+            if update_available
+            else ""
+        ),
+    }
+
+
+def apply_self_update(
+    *,
+    repo: str,
+    current_version: str,
+    apply: bool,
+    session: Any = requests,
+    platform_name: str | None = None,
+    release: dict[str, object] | None = None,
+    runner: Any | None = None,
+    python_executable: str = sys.executable,
+) -> dict[str, object]:
+    selected_platform = platform_name or current_platform_name()
+    release_payload = release or get_latest_github_release(repo, session=session)
+    payload = _release_payload(
+        repo=repo,
+        current_version=current_version,
+        release=release_payload,
+        platform_name=selected_platform,
+    )
+    payload["applied"] = False
+    payload["commands"] = []
+    if not payload["updateAvailable"] or not apply:
+        return payload
+
+    command_runner = runner or (lambda command: subprocess.run(command, check=True).returncode)
+    commands = build_upgrade_steps(
+        version=str(payload["latestVersion"]),
+        repo=repo,
+        platform_name=selected_platform,
+        python_executable=python_executable,
+    )
+    for command in commands:
+        command_runner(command)
+    payload["applied"] = True
+    payload["commands"] = commands
+    return payload

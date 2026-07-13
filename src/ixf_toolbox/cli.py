@@ -30,7 +30,7 @@ from ixf_toolbox.core.docs import (
 from ixf_toolbox.core.okr import OkrWriteConfig, read_okr_url, write_okr
 from ixf_toolbox.doctor import collect_diagnostics, format_diagnostics, to_json
 from ixf_toolbox.setup import install_skill_wrappers, packaged_project_root
-from ixf_toolbox.update import DEFAULT_RELEASE_REPO, check_latest_release
+from ixf_toolbox.update import DEFAULT_RELEASE_REPO, apply_self_update, check_latest_release
 
 
 EXIT_CODES = {
@@ -503,6 +503,10 @@ def run_update(args: list[str]) -> int:
     check = subparsers.add_parser("check")
     check.add_argument("--repo", default=DEFAULT_RELEASE_REPO)
     check.add_argument("--json", action="store_true", dest="as_json")
+    self_update = subparsers.add_parser("self")
+    self_update.add_argument("--repo", default=DEFAULT_RELEASE_REPO)
+    self_update.add_argument("--apply", action="store_true")
+    self_update.add_argument("--json", action="store_true", dest="as_json")
     skills = subparsers.add_parser("skills")
     skills.add_argument("--runtimes", default="auto")
     skills.add_argument("--json", action="store_true", dest="as_json")
@@ -520,6 +524,26 @@ def run_update(args: list[str]) -> int:
             print(f"latest {payload['latestVersion']}")
             print(f"updateAvailable {str(payload['updateAvailable']).lower()}")
             if payload["installCommand"]:
+                print(payload["installCommand"])
+        return 0
+    if parsed.update_command == "self":
+        try:
+            payload = apply_self_update(
+                repo=parsed.repo,
+                current_version=__version__,
+                apply=bool(parsed.apply),
+            )
+        except Exception as exc:
+            print(f"ERROR update self failed: {exc}", file=sys.stderr)
+            return 10
+        if parsed.as_json:
+            print(json.dumps(payload, ensure_ascii=False))
+        else:
+            print(f"current {payload['currentVersion']}")
+            print(f"latest {payload['latestVersion']}")
+            print(f"updateAvailable {str(payload['updateAvailable']).lower()}")
+            print(f"applied {str(payload['applied']).lower()}")
+            if payload["installCommand"] and not payload["applied"]:
                 print(payload["installCommand"])
         return 0
     if parsed.update_command == "skills":

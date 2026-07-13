@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0 - 2026-07-13
+
+- Added `ixf update self` for one-command Toolbox package upgrades plus skill refresh.
+- Kept self-update dry-run by default; real package changes require `--apply`.
+- Changed self-update execution to use safe argument vectors instead of shell command execution.
+
 ## 0.8.0 - 2026-07-13
 
 - Removed legacy reader/writer runtime dependencies from the Toolbox package.

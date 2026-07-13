@@ -2,12 +2,12 @@
 
 `ixf-toolbox` provides one local `ixf` command and four agent skills for authorized i讯飞 document and OKR workflows.
 
-Toolbox is migrating implementation into this repository in stages while keeping the user-facing `ixf` commands stable. Document reading, OKR reading, cookie/session export, and diagnostics are now Toolbox-owned; document publishing and OKR writing still delegate to the legacy writer engine where needed.
+Toolbox is migrating implementation into this repository in stages while keeping the user-facing `ixf` commands stable. Document reading, OKR reading and writing, cookie/session export, and diagnostics are now Toolbox-owned; document publishing still delegates to the legacy writer engine where needed.
 
 ## Install
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.5.0/ixf_toolbox-0.5.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.6.0/ixf_toolbox-0.6.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ixf --version
 ```
@@ -15,7 +15,7 @@ ixf --version
 On Windows, use the `windows` extra:
 
 ```bash
-python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.5.0/ixf_toolbox-0.5.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.6.0/ixf_toolbox-0.6.0-py3-none-any.whl"
 ```
 
 ## Commands

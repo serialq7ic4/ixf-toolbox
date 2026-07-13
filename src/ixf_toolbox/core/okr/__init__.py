@@ -11,6 +11,12 @@ from ixf_toolbox.core.okr.reader import (
     read_okr_url,
     render_okr_markdown,
 )
+from ixf_toolbox.core.okr.writer import (
+    OkrWriteConfig,
+    ObjectiveSpec,
+    parse_specs,
+    write_okr,
+)
 
 __all__ = [
     "DEFAULT_OKR_CSRF_URL",
@@ -22,4 +28,8 @@ __all__ = [
     "read_okr",
     "read_okr_url",
     "render_okr_markdown",
+    "ObjectiveSpec",
+    "OkrWriteConfig",
+    "parse_specs",
+    "write_okr",
 ]

@@ -5,12 +5,13 @@ description: Use when writing approved Objective and Key Result content into an 
 
 # ixf OKR Writer
 
-Use `ixf okr write` through the local Toolbox CLI. This skill can modify published OKR content, so use dry-run-first operation and apply only after explicit approval.
+Use `ixf okr write` through the local Toolbox CLI. The command is an API-only native writer. This skill can modify published OKR content, so use dry-run-first operation and apply only after explicit approval.
 
 ## Workflow
 
 1. Confirm the OKR URL, objective index, and exact Objective/KR content.
 2. Prepare JSON input locally with only the approved content.
+   Shape: `{"objectives":[{"objective":"...","krs":["KR1","KR2","KR3"]}]}`
 3. Run dry run first:
    `ixf okr write --url "<okr-url>" --input okr.json --objective-index 3 --dry-run`
 4. Review the planned Objective/KR changes with the user.

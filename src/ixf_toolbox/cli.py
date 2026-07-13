@@ -25,7 +25,7 @@ from ixf_toolbox.core.docs import (
     render_chunk,
     write_outputs,
 )
-from ixf_toolbox.core.okr import read_okr_url
+from ixf_toolbox.core.okr import OkrWriteConfig, read_okr_url, write_okr
 from ixf_toolbox.delegate import run_command
 from ixf_toolbox.doctor import collect_diagnostics, format_diagnostics, to_json
 from ixf_toolbox.setup import install_skill_wrappers, packaged_project_root
@@ -378,6 +378,41 @@ def run_okr_read(args: list[str]) -> int:
     return 0
 
 
+def run_okr_write(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="ixf okr write")
+    parser.add_argument("--url", required=True)
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--cookies", default=DEFAULT_COOKIES)
+    parser.add_argument("--base-url", default="")
+    parser.add_argument("--objective-index", type=int)
+    parser.add_argument("--prune", action="store_true")
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parsed = parser.parse_args(args)
+    try:
+        payload = write_okr(
+            OkrWriteConfig(
+                url=parsed.url,
+                input_path=Path(parsed.input),
+                cookies_path=Path(parsed.cookies),
+                base_url=parsed.base_url,
+                objective_index=parsed.objective_index,
+                prune=parsed.prune,
+                apply=bool(parsed.apply and not parsed.dry_run),
+            )
+        )
+    except Exception as exc:
+        return structured_error(
+            error_type="remote",
+            subtype="remote_write_failed",
+            message=str(exc),
+            hint="Check the OKR URL, input JSON, local session, and edit permissions.",
+            retryable=True,
+        )
+    print(json.dumps(payload, ensure_ascii=False))
+    return 0
+
+
 def run_okr(args: list[str]) -> int:
     if not args:
         print("ERROR okr requires a subcommand.", file=sys.stderr)
@@ -386,7 +421,7 @@ def run_okr(args: list[str]) -> int:
     if command == "read":
         return run_okr_read(rest)
     if command == "write":
-        return run_command("ixfwrite", ["okr", "write", *rest])
+        return run_okr_write(rest)
     print(f"ERROR unsupported okr subcommand: {command}", file=sys.stderr)
     return 2
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0 - 2026-07-13
+
+- Added Toolbox-owned OKR writer core for API-only Objective and KR writes.
+- Changed `ixf okr write` to run natively instead of delegating to `ixfwrite`.
+- Preserved dry-run-by-default behavior, targeted `--objective-index` writes, non-target Objective protection, and publish-after-edit semantics.
+
 ## 0.5.0 - 2026-07-13
 
 - Added Toolbox-owned OKR reader core for OKR detail API access, markdown rendering, and safe error reporting.

@@ -47,19 +47,41 @@ def test_okr_read_uses_toolbox_core(monkeypatch, capsys):
     assert capsys.readouterr().out == "# OKR - Fixture Owner\n\n- KR1: Native read\n"
 
 
-def test_okr_write_delegates_to_ixfwrite_okr_write(monkeypatch):
+def test_okr_write_uses_toolbox_core(monkeypatch, capsys):
     calls = []
 
     def fake_run(command, args):
-        calls.append((command, args))
-        return 0
+        raise AssertionError("ixf okr write must not delegate to ixfwrite")
+
+    def fake_write_okr(config):
+        calls.append(config)
+        return {
+            "ok": True,
+            "dryRun": True,
+            "actions": ["target objective index: O3"],
+            "objectiveCount": 2,
+        }
 
     monkeypatch.setattr("ixf_toolbox.cli.run_command", fake_run)
+    monkeypatch.setattr("ixf_toolbox.cli.write_okr", fake_write_okr, raising=False)
 
-    assert main(["okr", "write", "--url", "https://tenant.example.test/okr", "--input", "okr.json"]) == 0
-    assert calls == [
-        ("ixfwrite", ["okr", "write", "--url", "https://tenant.example.test/okr", "--input", "okr.json"])
-    ]
+    assert main(
+        [
+            "okr",
+            "write",
+            "--url",
+            "https://tenant.example.test/okr/user/example/?okrId=example-okr",
+            "--input",
+            "okr.json",
+            "--objective-index",
+            "3",
+        ]
+    ) == 0
+    assert calls[0].url == "https://tenant.example.test/okr/user/example/?okrId=example-okr"
+    assert str(calls[0].input_path) == "okr.json"
+    assert calls[0].objective_index == 3
+    assert calls[0].apply is False
+    assert '"dryRun": true' in capsys.readouterr().out
 
 
 def test_cookies_export_uses_toolbox_core(monkeypatch, tmp_path, capsys):

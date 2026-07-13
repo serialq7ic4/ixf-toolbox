@@ -115,6 +115,14 @@ Core document and OKR workflows are now implemented in Toolbox:
 
 New workflows should prefer `ixf`. Toolbox no longer installs legacy reader/writer packages as runtime dependencies.
 
+## Project Maintenance
+
+- Security and privacy guidance: `SECURITY.md`, `PRIVACY.md`.
+- Contribution workflow: `CONTRIBUTING.md`.
+- Release checklist: `docs/release.md`.
+- Platform status: `docs/supported-platforms.md`.
+- CI and release automation live under `.github/workflows/`.
+
 ## Security
 
 Do not commit cookies, CSRF tokens, passwords, real tenant URLs, private document IDs, OKR IDs, private response payloads, or generated private artifacts unless explicitly approved.

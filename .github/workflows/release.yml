@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package and build tools
+        run: python -m pip install -e ".[dev]"
+      - name: Validate tag and package version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import tomllib
+
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          expected = f"v{version}"
+          actual = os.environ["RELEASE_TAG"]
+          if actual != expected:
+              raise SystemExit(f"tag {actual!r} does not match package version {expected!r}")
+          PY
+      - name: Compile source
+        run: python -m compileall -q src
+      - name: Run tests
+        run: python -m pytest -q
+      - name: Ruff check
+        run: python -m ruff check .
+      - name: Build distributions
+        run: python -m build
+      - name: Extract release notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/extract_changelog.py "${RELEASE_TAG#v}" CHANGELOG.md > release-notes.md
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ixf-toolbox-dist
+          path: dist/*
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          files: dist/*

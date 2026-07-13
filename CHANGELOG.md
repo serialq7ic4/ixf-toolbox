@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Added GitHub CI and tag release workflows.
+- Added smoke and changelog extraction scripts for release validation.
+- Added security, privacy, contribution, platform, release, issue, and PR documentation.
+- Added engineering asset contract tests to keep public project scaffolding in place.
+
 ## 1.0.0 - 2026-07-13
 
 - Marked `ixf-toolbox` as the first stable Toolbox-native release.

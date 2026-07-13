@@ -7,7 +7,7 @@ Toolbox implements document reading and publishing, OKR reading and writing, coo
 ## Install
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.9.0/ixf_toolbox-0.9.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.10.0/ixf_toolbox-0.10.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ixf --version
 ```
@@ -15,7 +15,7 @@ ixf --version
 On Windows, use the `windows` extra:
 
 ```bash
-python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.9.0/ixf_toolbox-0.9.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.10.0/ixf_toolbox-0.10.0-py3-none-any.whl"
 ```
 
 ## Commands
@@ -61,6 +61,14 @@ Check local setup:
 
 ```bash
 ixf doctor --json
+```
+
+Discover commands:
+
+```bash
+ixf --help
+ixf docs --help
+ixf okr --help
 ```
 
 Check for updates:

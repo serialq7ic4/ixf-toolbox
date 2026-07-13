@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0 - 2026-07-13
+
+- Added friendly `ixf --help`, `ixf docs --help`, and `ixf okr --help` command listings.
+- Changed missing `docs` and `okr` subcommands to print available subcommands while preserving usage-error exit codes.
+- Added CLI help contract tests for the most common discovery paths.
+
 ## 0.9.0 - 2026-07-13
 
 - Added `ixf update self` for one-command Toolbox package upgrades plus skill refresh.

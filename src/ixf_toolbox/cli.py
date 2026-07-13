@@ -44,12 +44,41 @@ EXIT_CODES = {
 }
 
 
-def print_usage() -> None:
-    print(
-        "usage: ixf [--version] "
-        "{docs,okr,cookies,doctor,setup,update} ...",
-        file=sys.stderr,
-    )
+ROOT_COMMANDS = (
+    ("docs", "Read, inspect, chunk, clean up, or publish authorized documents."),
+    ("okr", "Read or write confirmed OKR content."),
+    ("cookies", "Export local desktop session cookies."),
+    ("doctor", "Inspect local Toolbox setup without printing secrets."),
+    ("setup", "Install agent skill wrappers."),
+    ("update", "Check, apply, or refresh Toolbox updates."),
+)
+
+DOCS_COMMANDS = (
+    ("read", "Read authorized cloud document links or local Markdown files."),
+    ("outline", "Print heading-aware chunk metadata for Markdown."),
+    ("chunk", "Print one heading-aware Markdown chunk."),
+    ("inspect", "Print a safe local/remote source routing summary."),
+    ("cleanup", "Remove generated docs read artifacts."),
+    ("publish", "Publish Markdown as an authorized cloud document."),
+)
+
+OKR_COMMANDS = (
+    ("read", "Read an authorized OKR page."),
+    ("write", "Write confirmed OKR content."),
+)
+
+
+def print_command_help(*, prog: str, rows: tuple[tuple[str, str], ...], file) -> None:
+    print(f"usage: {prog} {{{','.join(name for name, _ in rows)}}} ...", file=file)
+    print(file=file)
+    print("commands:", file=file)
+    width = max(len(name) for name, _ in rows)
+    for name, description in rows:
+        print(f"  {name:<{width}}  {description}", file=file)
+
+
+def print_usage(*, file=sys.stderr) -> None:
+    print_command_help(prog="ixf [--version]", rows=ROOT_COMMANDS, file=file)
 
 
 def structured_error(
@@ -367,7 +396,11 @@ def run_docs_publish(args: list[str]) -> int:
 def run_docs(args: list[str]) -> int:
     if not args:
         print("ERROR docs requires a subcommand.", file=sys.stderr)
+        print_command_help(prog="ixf docs", rows=DOCS_COMMANDS, file=sys.stderr)
         return 2
+    if args[0] in {"-h", "--help"}:
+        print_command_help(prog="ixf docs", rows=DOCS_COMMANDS, file=sys.stdout)
+        return 0
     command, rest = args[0], args[1:]
     if command == "read":
         return run_docs_read(rest)
@@ -382,6 +415,7 @@ def run_docs(args: list[str]) -> int:
     if command == "publish":
         return run_docs_publish(rest)
     print(f"ERROR unsupported docs subcommand: {command}", file=sys.stderr)
+    print_command_help(prog="ixf docs", rows=DOCS_COMMANDS, file=sys.stderr)
     return 2
 
 
@@ -458,13 +492,18 @@ def run_okr_write(args: list[str]) -> int:
 def run_okr(args: list[str]) -> int:
     if not args:
         print("ERROR okr requires a subcommand.", file=sys.stderr)
+        print_command_help(prog="ixf okr", rows=OKR_COMMANDS, file=sys.stderr)
         return 2
+    if args[0] in {"-h", "--help"}:
+        print_command_help(prog="ixf okr", rows=OKR_COMMANDS, file=sys.stdout)
+        return 0
     command, rest = args[0], args[1:]
     if command == "read":
         return run_okr_read(rest)
     if command == "write":
         return run_okr_write(rest)
     print(f"ERROR unsupported okr subcommand: {command}", file=sys.stderr)
+    print_command_help(prog="ixf okr", rows=OKR_COMMANDS, file=sys.stderr)
     return 2
 
 
@@ -636,9 +675,12 @@ def main(argv: list[str] | None = None) -> int:
     if args == ["--version"]:
         print(f"ixf {__version__}")
         return 0
-    if not args or args[0] in {"-h", "--help"}:
-        print_usage()
-        return 0 if args else 2
+    if args and args[0] in {"-h", "--help"}:
+        print_usage(file=sys.stdout)
+        return 0
+    if not args:
+        print_usage(file=sys.stderr)
+        return 2
 
     command, rest = args[0], args[1:]
     if command == "docs":
@@ -654,5 +696,5 @@ def main(argv: list[str] | None = None) -> int:
     if command == "update":
         return run_update(rest)
     print(f"ERROR unsupported command: {command}", file=sys.stderr)
-    print_usage()
+    print_usage(file=sys.stderr)
     return 2

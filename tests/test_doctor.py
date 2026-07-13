@@ -41,7 +41,7 @@ def test_collect_diagnostics_reports_native_capabilities_skills_and_cookie_metad
     )
 
     assert payload["ok"] is True
-    assert payload["version"] == "0.9.0"
+    assert payload["version"] == "0.10.0"
     assert "engines" not in payload
     assert payload["capabilities"] == {
         "docsRead": True,
@@ -134,7 +134,7 @@ def test_collect_diagnostics_uses_toolbox_cookie_core(monkeypatch, tmp_path):
 def test_format_diagnostics_is_human_readable_without_secret_values(tmp_path):
     payload = {
         "ok": False,
-        "version": "0.9.0",
+        "version": "0.10.0",
         "capabilities": {
             "docsRead": True,
             "docsPublish": True,
@@ -162,7 +162,7 @@ def test_format_diagnostics_is_human_readable_without_secret_values(tmp_path):
 
     text = format_diagnostics(payload)
 
-    assert "ixf-toolbox 0.9.0" in text
+    assert "ixf-toolbox 0.10.0" in text
     assert "native docsRead=true docsPublish=true okrRead=true okrWrite=true cookiesExport=true" in text
     assert "engine ixfdoc" not in text
     assert "engine ixfwrite" not in text

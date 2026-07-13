@@ -41,7 +41,7 @@ def test_collect_diagnostics_reports_engines_skills_and_cookie_metadata(tmp_path
     )
 
     assert payload["ok"] is True
-    assert payload["version"] == "0.6.0"
+    assert payload["version"] == "0.7.0"
     assert payload["engines"]["ixfdoc"]["ok"] is True
     assert payload["engines"]["ixfdoc"]["path"] == "/usr/local/bin/ixfdoc"
     assert payload["engines"]["ixfwrite"]["version"] == "ixfwrite 1.2.3"
@@ -122,7 +122,7 @@ def test_collect_diagnostics_uses_toolbox_cookie_core(monkeypatch, tmp_path):
 def test_format_diagnostics_is_human_readable_without_secret_values(tmp_path):
     payload = {
         "ok": False,
-        "version": "0.6.0",
+        "version": "0.7.0",
         "engines": {
             "ixfdoc": {"ok": True, "path": "/bin/ixfdoc", "version": "ixfdoc 1.0"},
             "ixfwrite": {"ok": False, "path": "", "version": ""},
@@ -147,7 +147,7 @@ def test_format_diagnostics_is_human_readable_without_secret_values(tmp_path):
 
     text = format_diagnostics(payload)
 
-    assert "ixf-toolbox 0.6.0" in text
+    assert "ixf-toolbox 0.7.0" in text
     assert "engine ixfdoc ok" in text
     assert "engine ixfwrite missing" in text
     assert "cookies ok count=1 csrf=true lgw_csrf=false" in text

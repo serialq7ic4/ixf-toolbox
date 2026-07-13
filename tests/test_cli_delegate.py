@@ -5,7 +5,7 @@ def test_docs_read_uses_toolbox_core(monkeypatch, tmp_path, capsys):
     def fake_run(command, args):
         raise AssertionError("ixf docs read must not delegate to ixfdoc")
 
-    monkeypatch.setattr("ixf_toolbox.cli.run_command", fake_run)
+    monkeypatch.setattr("ixf_toolbox.cli.run_command", fake_run, raising=False)
     source = tmp_path / "source.md"
     source.write_text("# Source\n\nNative docs read.\n", encoding="utf-8")
 
@@ -13,24 +13,53 @@ def test_docs_read_uses_toolbox_core(monkeypatch, tmp_path, capsys):
     assert capsys.readouterr().out == "# Source\n\nNative docs read.\n"
 
 
-def test_docs_publish_delegates_to_ixfwrite_docx_publish(monkeypatch):
+def test_docs_publish_uses_toolbox_core(monkeypatch, tmp_path, capsys):
     calls = []
 
     def fake_run(command, args):
-        calls.append((command, args))
-        return 0
+        raise AssertionError("ixf docs publish must not delegate to ixfwrite")
 
-    monkeypatch.setattr("ixf_toolbox.cli.run_command", fake_run)
+    def fake_publish_markdown(config):
+        calls.append(config)
+        return {
+            "ok": True,
+            "dryRun": True,
+            "title": "Native Publish",
+            "counts": {"text": 1},
+        }
 
-    assert main(["docs", "publish", "notes.md", "--dry-run"]) == 0
-    assert calls == [("ixfwrite", ["docx", "publish", "notes.md", "--dry-run"])]
+    monkeypatch.setattr("ixf_toolbox.cli.run_command", fake_run, raising=False)
+    monkeypatch.setattr("ixf_toolbox.cli.publish_markdown", fake_publish_markdown, raising=False)
+    source = tmp_path / "notes.md"
+    source.write_text("# Native Publish\n\nBody.\n", encoding="utf-8")
+
+    assert main(
+        [
+            "docs",
+            "publish",
+            str(source),
+            "--base-url",
+            "https://tenant.example.test",
+            "--title-suffix",
+            " - Draft",
+            "--require",
+            "Body",
+            "--dry-run",
+        ]
+    ) == 0
+    assert calls[0].markdown_path == source
+    assert calls[0].base_url == "https://tenant.example.test"
+    assert calls[0].title_suffix == " - Draft"
+    assert calls[0].required_text == ("Body",)
+    assert calls[0].apply is False
+    assert '"dryRun": true' in capsys.readouterr().out
 
 
 def test_okr_read_uses_toolbox_core(monkeypatch, capsys):
     def fake_run(command, args):
         raise AssertionError("ixf okr read must not delegate to ixfdoc")
 
-    monkeypatch.setattr("ixf_toolbox.cli.run_command", fake_run)
+    monkeypatch.setattr("ixf_toolbox.cli.run_command", fake_run, raising=False)
     monkeypatch.setattr(
         "ixf_toolbox.cli.read_okr_url",
         lambda source, **kwargs: {
@@ -62,7 +91,7 @@ def test_okr_write_uses_toolbox_core(monkeypatch, capsys):
             "objectiveCount": 2,
         }
 
-    monkeypatch.setattr("ixf_toolbox.cli.run_command", fake_run)
+    monkeypatch.setattr("ixf_toolbox.cli.run_command", fake_run, raising=False)
     monkeypatch.setattr("ixf_toolbox.cli.write_okr", fake_write_okr, raising=False)
 
     assert main(
@@ -90,7 +119,7 @@ def test_cookies_export_uses_toolbox_core(monkeypatch, tmp_path, capsys):
     def fake_run(command, args):
         raise AssertionError("ixf cookies export must not delegate to ixfwrite")
 
-    monkeypatch.setattr("ixf_toolbox.cli.run_command", fake_run)
+    monkeypatch.setattr("ixf_toolbox.cli.run_command", fake_run, raising=False)
     output = tmp_path / "cookies.json"
 
     def fake_export_cookie_session(**kwargs):

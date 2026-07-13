@@ -42,6 +42,17 @@ def test_okr_writer_skill_documents_api_only_ixf_command():
         assert "playwright" not in text.lower()
 
 
+def test_docs_writer_skill_documents_api_only_ixf_command():
+    for runtime in ["codex", "claude-code"]:
+        skill = ROOT / "skills" / runtime / "ixf-docs-writer" / "SKILL.md"
+        text = skill.read_text(encoding="utf-8")
+
+        assert "API-only" in text
+        assert "ixf docs publish" in text
+        assert "ixfwrite" not in text
+        assert "playwright" not in text.lower()
+
+
 def test_install_skill_wrapper_does_not_overwrite_without_force(tmp_path):
     destination = tmp_path / ".codex" / "skills" / "ixf-docs-reader"
     destination.mkdir(parents=True)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0 - 2026-07-13
+
+- Added Toolbox-owned document publisher core for API-only Markdown-to-docx publishing.
+- Changed `ixf docs publish` to run natively instead of delegating to `ixfwrite`.
+- Preserved dry-run-by-default behavior, Markdown block conversion, document creation, content write, and required-text verification.
+
 ## 0.6.0 - 2026-07-13
 
 - Added Toolbox-owned OKR writer core for API-only Objective and KR writes.

@@ -5,7 +5,7 @@ description: Use when publishing local Markdown into an authorized i讯飞 cloud
 
 # ixf Docs Writer
 
-Use `ixf docs publish` through the local Toolbox CLI. This skill can create or modify content, so confirm target, source, and write intent before applying.
+Use `ixf docs publish` through the local Toolbox CLI. The command is an API-only native writer. This skill can create or modify content, so confirm target, source, and write intent before applying.
 
 ## Workflow
 

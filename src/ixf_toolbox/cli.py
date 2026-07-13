@@ -18,15 +18,16 @@ from ixf_toolbox.core.cookies import (
 )
 from ixf_toolbox.core.docs import (
     DEFAULT_SPACE_API,
+    DocxPublishConfig,
     build_outline,
     cleanup_outputs,
     inspect_source,
+    publish_markdown,
     read_sources,
     render_chunk,
     write_outputs,
 )
 from ixf_toolbox.core.okr import OkrWriteConfig, read_okr_url, write_okr
-from ixf_toolbox.delegate import run_command
 from ixf_toolbox.doctor import collect_diagnostics, format_diagnostics, to_json
 from ixf_toolbox.setup import install_skill_wrappers, packaged_project_root
 from ixf_toolbox.update import DEFAULT_RELEASE_REPO, check_latest_release
@@ -322,6 +323,47 @@ def run_docs_inspect(args: list[str]) -> int:
     return 0
 
 
+def run_docs_publish(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="ixf docs publish")
+    parser.add_argument("markdown")
+    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--space-api", default=DEFAULT_SPACE_API)
+    parser.add_argument("--cookies", default=DEFAULT_COOKIES)
+    parser.add_argument("--member-id", default="")
+    parser.add_argument("--parent-token", default="")
+    parser.add_argument("--title", default="")
+    parser.add_argument("--title-suffix", default="")
+    parser.add_argument("--require", action="append", default=[])
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parsed = parser.parse_args(args)
+    try:
+        payload = publish_markdown(
+            DocxPublishConfig(
+                markdown_path=Path(parsed.markdown),
+                base_url=parsed.base_url,
+                cookies_path=Path(parsed.cookies),
+                space_api=parsed.space_api,
+                member_id=parsed.member_id,
+                parent_token=parsed.parent_token,
+                title=parsed.title,
+                title_suffix=parsed.title_suffix,
+                required_text=tuple(parsed.require),
+                apply=bool(parsed.apply and not parsed.dry_run),
+            )
+        )
+    except Exception as exc:
+        return structured_error(
+            error_type="remote",
+            subtype="remote_write_failed",
+            message=str(exc),
+            hint="Check the Markdown path, tenant URL, local session, and document permissions.",
+            retryable=True,
+        )
+    print(json.dumps(payload, ensure_ascii=False))
+    return 0
+
+
 def run_docs(args: list[str]) -> int:
     if not args:
         print("ERROR docs requires a subcommand.", file=sys.stderr)
@@ -338,7 +380,7 @@ def run_docs(args: list[str]) -> int:
     if command == "inspect":
         return run_docs_inspect(rest)
     if command == "publish":
-        return run_command("ixfwrite", ["docx", "publish", *rest])
+        return run_docs_publish(rest)
     print(f"ERROR unsupported docs subcommand: {command}", file=sys.stderr)
     return 2
 

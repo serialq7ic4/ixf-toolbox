@@ -2,12 +2,12 @@
 
 `ixf-toolbox` provides one local `ixf` command and four agent skills for authorized i讯飞 document and OKR workflows.
 
-Toolbox is migrating implementation into this repository in stages while keeping the user-facing `ixf` commands stable. Document reading, OKR reading and writing, cookie/session export, and diagnostics are now Toolbox-owned; document publishing still delegates to the legacy writer engine where needed.
+Toolbox is migrating implementation into this repository in stages while keeping the user-facing `ixf` commands stable. Document reading and publishing, OKR reading and writing, cookie/session export, and diagnostics are now Toolbox-owned.
 
 ## Install
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.6.0/ixf_toolbox-0.6.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.7.0/ixf_toolbox-0.7.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ixf --version
 ```
@@ -15,7 +15,7 @@ ixf --version
 On Windows, use the `windows` extra:
 
 ```bash
-python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.6.0/ixf_toolbox-0.6.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.7.0/ixf_toolbox-0.7.0-py3-none-any.whl"
 ```
 
 ## Commands
@@ -73,14 +73,17 @@ ixf doctor --json
 
 Reader skills are read-only. Writer skills require confirmed content and should run dry-run first before real writes.
 
-## Migration
+## Migration Status
 
-The existing projects stay available during migration:
+Core document and OKR workflows are now implemented in Toolbox:
 
-- `ixunfei-docx-reader`
-- `ixunfei-docx-writer`
+- `ixf docs read`
+- `ixf docs publish`
+- `ixf okr read`
+- `ixf okr write`
+- `ixf cookies export`
 
-New workflows should prefer `ixf`. Existing workflows using `ixfdoc` or `ixfwrite` can continue until Toolbox reaches full implementation parity.
+New workflows should prefer `ixf`. Legacy reader/writer packages may still be installed for compatibility diagnostics until dependency cleanup is completed.
 
 ## Security
 

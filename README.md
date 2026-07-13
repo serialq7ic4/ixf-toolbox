@@ -7,7 +7,7 @@ The first release is a compatibility bridge: it installs the existing reader and
 ## Install
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.1.1/ixf_toolbox-0.1.1-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.2.0/ixf_toolbox-0.2.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ixf --version
 ```
@@ -15,7 +15,7 @@ ixf --version
 On Windows, use the `windows` extra:
 
 ```bash
-python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.1.1/ixf_toolbox-0.1.1-py3-none-any.whl"
+python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v0.2.0/ixf_toolbox-0.2.0-py3-none-any.whl"
 ```
 
 ## Commands
@@ -27,7 +27,7 @@ python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf
 | `ixf okr read <url>` | Read an authorized OKR page |
 | `ixf okr write --url <url> --input <file.json>` | Write confirmed OKR content |
 | `ixf cookies export ...` | Export local desktop session cookies |
-| `ixf doctor ...` | Inspect local prerequisites without printing cookie values |
+| `ixf doctor --json` | Inspect Toolbox prerequisites without printing cookie values |
 | `ixf setup skills --runtimes auto --json` | Install Codex and Claude Code skill wrappers |
 | `ixf update check` | Check the latest GitHub release |
 | `ixf update skills --runtimes auto --json` | Refresh installed skill wrappers |
@@ -50,6 +50,12 @@ Write approved OKR content:
 
 ```bash
 ixf okr write --url "https://tenant.example.test/okr/user/example" --input okr.json --dry-run
+```
+
+Check local setup:
+
+```bash
+ixf doctor --json
 ```
 
 ## Skills

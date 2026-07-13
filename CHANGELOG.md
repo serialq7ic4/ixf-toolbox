@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0 - 2026-07-13
+
+- Added native `ixf doctor` diagnostics for Toolbox version, legacy engines, installed agent skills, and cookie metadata.
+- Kept cookie diagnostics secret-safe by reporting names and boolean flags without cookie values.
+- Changed `ixf doctor` from a writer-engine passthrough to a Toolbox-owned command.
+
 ## 0.1.1 - 2026-07-13
 
 - Rewrote delegated legacy engine output so user-facing hints use `ixf` commands instead of `ixfdoc` or `ixfwrite`.

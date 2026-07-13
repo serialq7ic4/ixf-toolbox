@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ixf_toolbox import __version__
 from ixf_toolbox.delegate import run_command
+from ixf_toolbox.doctor import DEFAULT_COOKIES, collect_diagnostics, format_diagnostics, to_json
 from ixf_toolbox.setup import install_skill_wrappers, packaged_project_root
 from ixf_toolbox.update import DEFAULT_RELEASE_REPO, check_latest_release
 
@@ -120,6 +121,23 @@ def run_update(args: list[str]) -> int:
     return 2
 
 
+def run_doctor(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="ixf doctor")
+    parser.add_argument("--cookies", default=DEFAULT_COOKIES)
+    parser.add_argument("--json", action="store_true", dest="as_json")
+    parsed = parser.parse_args(args)
+    payload = collect_diagnostics(
+        home=Path.home(),
+        env=dict(os.environ),
+        cookies_path=Path(parsed.cookies),
+    )
+    if parsed.as_json:
+        print(to_json(payload))
+    else:
+        print(format_diagnostics(payload), end="")
+    return 0 if payload["ok"] else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args == ["--version"]:
@@ -137,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     if command == "cookies":
         return run_command("ixfwrite", ["cookies", *rest])
     if command == "doctor":
-        return run_command("ixfwrite", ["doctor", *rest])
+        return run_doctor(rest)
     if command == "setup":
         return run_setup(rest)
     if command == "update":

@@ -15,6 +15,7 @@ import (
 
 	ixftoolbox "github.com/serialq7ic4/ixf-toolbox"
 	"github.com/serialq7ic4/ixf-toolbox/internal/docslocal"
+	"github.com/serialq7ic4/ixf-toolbox/internal/docspublish"
 	"github.com/serialq7ic4/ixf-toolbox/internal/markdown"
 	ixfupdate "github.com/serialq7ic4/ixf-toolbox/internal/update"
 )
@@ -221,7 +222,7 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 	case "cleanup":
 		return runDocsCleanup(args[1:], stderr)
 	case "publish":
-		return goCommandUnavailable(stderr, "docs "+args[0], "Use the Python ixf runtime until the Go remote document implementation reaches parity.")
+		return runDocsPublish(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "ERROR unsupported docs subcommand: %s\n", args[0])
 		printCommandHelp(stderr, "ixf docs", rows)
@@ -403,6 +404,31 @@ func runDocsCleanup(args []string, stderr io.Writer) int {
 	return 0
 }
 
+func runDocsPublish(args []string, stdout io.Writer, stderr io.Writer) int {
+	parsed, err := parseDocsPublishArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	if parsed.apply {
+		return goCommandUnavailable(stderr, "docs publish --apply", "Use the Python ixf runtime until Go docs publish apply reaches parity.")
+	}
+	payload, err := docspublish.PublishMarkdown(docspublish.Config{
+		MarkdownPath: parsed.markdown,
+		BaseURL:      parsed.baseURL,
+		Title:        parsed.title,
+		TitleSuffix:  parsed.titleSuffix,
+		RequiredText: parsed.requiredText,
+		Apply:        false,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	writeJSON(stdout, payload)
+	return 0
+}
+
 type outlineArgs struct {
 	source      string
 	targetChars int
@@ -418,6 +444,20 @@ type docsReadArgs struct {
 	spaceAPI       string
 	downloadImages bool
 	expandSheets   bool
+}
+
+type docsPublishArgs struct {
+	markdown     string
+	baseURL      string
+	cookiesPath  string
+	spaceAPI     string
+	memberID     string
+	parentToken  string
+	title        string
+	titleSuffix  string
+	requiredText []string
+	apply        bool
+	dryRun       bool
 }
 
 func parseDocsReadArgs(args []string) (docsReadArgs, error) {
@@ -472,6 +512,88 @@ func parseDocsReadArgs(args []string) (docsReadArgs, error) {
 	}
 	if parsed.downloadImages && parsed.outDir == "" {
 		return parsed, fmt.Errorf("--download-images requires --out-dir")
+	}
+	return parsed, nil
+}
+
+func parseDocsPublishArgs(args []string) (docsPublishArgs, error) {
+	parsed := docsPublishArgs{
+		cookiesPath: defaultCookies,
+		spaceAPI:    docslocal.DefaultSpaceAPI,
+	}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--base-url":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.baseURL = args[i]
+		case "--space-api":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.spaceAPI = args[i]
+		case "--cookies":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.cookiesPath = args[i]
+		case "--member-id":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.memberID = args[i]
+		case "--parent-token":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.parentToken = args[i]
+		case "--title":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.title = args[i]
+		case "--title-suffix":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.titleSuffix = args[i]
+		case "--require":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.requiredText = append(parsed.requiredText, args[i])
+		case "--apply":
+			parsed.apply = true
+		case "--dry-run":
+			parsed.dryRun = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return parsed, fmt.Errorf("unsupported docs publish flag: %s", arg)
+			}
+			if parsed.markdown != "" {
+				return parsed, fmt.Errorf("publish requires exactly one Markdown file")
+			}
+			parsed.markdown = arg
+		}
+	}
+	if parsed.markdown == "" {
+		return parsed, fmt.Errorf("publish requires one Markdown file")
+	}
+	if parsed.baseURL == "" {
+		return parsed, fmt.Errorf("--base-url is required")
+	}
+	if parsed.dryRun {
+		parsed.apply = false
 	}
 	return parsed, nil
 }

@@ -104,6 +104,52 @@ def test_go_ixf_docs_help_lists_local_v13_commands(tmp_path):
     assert "publish" in result.stdout
 
 
+def test_go_ixf_docs_publish_dry_run_prints_plan_without_cookie_file(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    source = tmp_path / "notes.md"
+    source.write_text(
+        "# Dry Run\n\n"
+        "Body with `inline code`.\n\n"
+        "## Section\n\n"
+        "- First bullet\n"
+        "1. First ordered item\n\n"
+        "```bash\n"
+        "echo one\n"
+        "echo two\n"
+        "```\n",
+        encoding="utf-8",
+    )
+
+    result = run_go_ixf(
+        binary,
+        "docs",
+        "publish",
+        str(source),
+        "--base-url",
+        "https://tenant.example.test",
+        "--title-suffix",
+        " - Draft",
+        "--require",
+        "Body",
+        "--dry-run",
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload == {
+        "ok": True,
+        "dryRun": True,
+        "title": "Dry Run - Draft",
+        "counts": {
+            "text": 1,
+            "heading2": 1,
+            "bullet": 1,
+            "ordered": 1,
+            "code": 1,
+        },
+    }
+    assert result.stderr == ""
+
+
 def test_go_ixf_docs_read_prints_local_markdown_without_remote_session(tmp_path):
     binary = build_go_ixf(tmp_path)
     source = tmp_path / "source.md"

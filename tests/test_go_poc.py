@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import subprocess
+import threading
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -184,20 +187,109 @@ def test_go_ixf_docs_read_writes_manifest_and_can_cleanup(tmp_path):
     assert not (out_dir / "project-plan.md").exists()
 
 
-def test_go_ixf_docs_read_remote_url_returns_safe_unavailable_error(tmp_path):
+def test_go_ixf_docs_read_remote_docx_uses_client_vars_api(tmp_path):
     binary = build_go_ixf(tmp_path)
-
-    result = run_go_ixf(
-        binary,
-        "docs",
-        "read",
-        "https://tenant.example.test/docx/doxfixturetoken",
-        check=False,
+    cookies = tmp_path / "cookies.json"
+    cookies.write_text(
+        json.dumps(
+            [
+                {"name": "_csrf_token", "value": "csrf-fixture"},
+                {"name": "session", "value": "session-fixture"},
+            ]
+        ),
+        encoding="utf-8",
     )
+    errors: list[str] = []
+    requested: list[str] = []
 
-    assert result.returncode == 9
-    assert "Go runtime does not support `docs read` yet" in result.stderr
-    assert "doxfixturetoken" not in result.stderr
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            requested.append(self.path)
+            if parsed.path != "/space/api/docx/pages/client_vars":
+                self.send_response(404)
+                self.end_headers()
+                return
+            query = parse_qs(parsed.query)
+            if self.headers.get("X-CSRFToken") != "csrf-fixture":
+                errors.append("missing csrf header")
+            if "session=session-fixture" not in self.headers.get("Cookie", ""):
+                errors.append("missing session cookie")
+            if query.get("id") != ["page_1"]:
+                errors.append(f"unexpected id query: {query.get('id')}")
+            if query.get("cursor") == ["next-cursor"]:
+                payload = {
+                    "code": 0,
+                    "data": {
+                        "block_map": {
+                            "text_2": {
+                                "data": {
+                                    "type": "text",
+                                    "parent_id": "page_1",
+                                    "text": {"initialAttributedTexts": {"text": {"0": "Later"}}},
+                                }
+                            }
+                        },
+                        "has_more": False,
+                    },
+                }
+            else:
+                payload = {
+                    "code": 0,
+                    "data": {
+                        "block_map": {
+                            "page_1": {
+                                "data": {
+                                    "type": "page",
+                                    "children": ["text_1", "text_2"],
+                                    "text": {"initialAttributedTexts": {"text": {"0": "Remote Doc"}}},
+                                }
+                            },
+                            "text_1": {
+                                "data": {
+                                    "type": "text",
+                                    "parent_id": "page_1",
+                                    "text": {"initialAttributedTexts": {"text": {"0": "First"}}},
+                                }
+                            },
+                        },
+                        "has_more": True,
+                        "cursor": "next-cursor",
+                    },
+                }
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        result = run_go_ixf(
+            binary,
+            "docs",
+            "read",
+            f"{base_url}/docx/page_1",
+            "--cookies",
+            str(cookies),
+            "--space-api",
+            base_url,
+        )
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+    assert result.stdout == "# Remote Doc\n\nFirst\n\nLater\n"
+    assert result.stderr == ""
+    assert errors == []
+    assert requested[-1] == "/space/api/docx/pages/client_vars?id=page_1&open_type=1&mode=4&cursor=next-cursor"
 
 
 def test_go_ixf_docs_outline_and_chunk_match_local_markdown_contract(tmp_path):

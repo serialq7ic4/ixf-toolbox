@@ -235,12 +235,10 @@ func runDocsRead(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
 		return 2
 	}
-	for _, source := range parsed.sources {
-		if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
-			return goCommandUnavailable(stderr, "docs read", "Use the Python ixf runtime until the Go remote document implementation reaches parity.")
-		}
-	}
-	results, err := docslocal.ReadLocalSources(parsed.sources)
+	results, err := docslocal.ReadSourcesWithOptions(parsed.sources, docslocal.ReadOptions{
+		CookiesPath: parsed.cookiesPath,
+		SpaceAPI:    parsed.spaceAPI,
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
 		return 2
@@ -413,10 +411,15 @@ type docsReadArgs struct {
 	outDir        string
 	printManifest bool
 	cleanup       bool
+	cookiesPath   string
+	spaceAPI      string
 }
 
 func parseDocsReadArgs(args []string) (docsReadArgs, error) {
-	parsed := docsReadArgs{}
+	parsed := docsReadArgs{
+		cookiesPath: defaultCookies,
+		spaceAPI:    docslocal.DefaultSpaceAPI,
+	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch arg {
@@ -432,11 +435,18 @@ func parseDocsReadArgs(args []string) (docsReadArgs, error) {
 			parsed.cleanup = true
 		case "--expand-sheets", "--download-images":
 			// Accepted for CLI parity. These options only affect remote reads.
-		case "--cookies", "--space-api":
+		case "--cookies":
 			i++
 			if i >= len(args) {
 				return parsed, fmt.Errorf("%s requires a value", arg)
 			}
+			parsed.cookiesPath = args[i]
+		case "--space-api":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.spaceAPI = args[i]
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return parsed, fmt.Errorf("unsupported docs read flag: %s", arg)

@@ -3,17 +3,24 @@ package docslocal
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/serialq7ic4/ixf-toolbox/internal/docx"
 )
 
 var (
 	remoteTokenPattern = regexp.MustCompile(`/([^/?#]+)`)
 	slugPattern        = regexp.MustCompile(`[^a-zA-Z0-9]+`)
 )
+
+const DefaultSpaceAPI = "https://internal-api-space.xfchat.iflytek.com"
 
 type Result struct {
 	Source   string           `json:"source"`
@@ -26,6 +33,11 @@ type Result struct {
 	Warnings []string         `json:"warnings"`
 }
 
+type ReadOptions struct {
+	CookiesPath string
+	SpaceAPI    string
+}
+
 func InspectSource(source string) (map[string]any, error) {
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
 		return inspectRemoteSource(source)
@@ -34,31 +46,251 @@ func InspectSource(source string) (map[string]any, error) {
 }
 
 func ReadLocalSources(sources []string) ([]Result, error) {
+	return ReadSourcesWithOptions(sources, ReadOptions{})
+}
+
+func ReadSourcesWithOptions(sources []string, options ReadOptions) ([]Result, error) {
 	results := []Result{}
+	var remoteSession *remoteReadSession
 	for _, source := range sources {
 		if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
-			return nil, fmt.Errorf("remote source is not supported by Go docs read yet")
-		}
-		path := expandUser(source)
-		content, err := os.ReadFile(path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return nil, fmt.Errorf("local file not found: %s", path)
+			if remoteSession == nil {
+				session, err := newRemoteReadSession(options)
+				if err != nil {
+					return nil, err
+				}
+				remoteSession = session
 			}
+			result, err := remoteSession.readRemote(source)
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, result)
+			continue
+		}
+		result, err := readLocalSource(source)
+		if err != nil {
 			return nil, err
 		}
-		results = append(results, Result{
-			Source:   source,
-			Kind:     "local_markdown",
-			Title:    filepath.Base(path),
-			Token:    "",
-			Content:  string(content),
-			Counts:   map[string]int{},
-			Assets:   []map[string]any{},
-			Warnings: []string{},
-		})
+		results = append(results, result)
 	}
 	return results, nil
+}
+
+func readLocalSource(source string) (Result, error) {
+	path := expandUser(source)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return Result{}, fmt.Errorf("local file not found: %s", path)
+		}
+		return Result{}, err
+	}
+	return Result{
+		Source:   source,
+		Kind:     "local_markdown",
+		Title:    filepath.Base(path),
+		Token:    "",
+		Content:  string(content),
+		Counts:   map[string]int{},
+		Assets:   []map[string]any{},
+		Warnings: []string{},
+	}, nil
+}
+
+type remoteReadSession struct {
+	client    *http.Client
+	cookies   []http.Cookie
+	csrfToken string
+	spaceAPI  string
+}
+
+type cookieObject struct {
+	Name   string `json:"name"`
+	Value  string `json:"value"`
+	Domain string `json:"domain"`
+	Path   string `json:"path"`
+}
+
+func newRemoteReadSession(options ReadOptions) (*remoteReadSession, error) {
+	cookiesPath := options.CookiesPath
+	if cookiesPath == "" {
+		cookiesPath = defaultCookiesPath()
+	}
+	cookieObjects, err := loadCookieObjects(cookiesPath)
+	if err != nil {
+		return nil, err
+	}
+	csrfToken := csrfFromCookieObjects(cookieObjects)
+	if csrfToken == "" {
+		return nil, fmt.Errorf("cookie jar does not contain _csrf_token")
+	}
+	spaceAPI := strings.TrimRight(options.SpaceAPI, "/")
+	if spaceAPI == "" {
+		spaceAPI = DefaultSpaceAPI
+	}
+	cookies := make([]http.Cookie, 0, len(cookieObjects))
+	for _, cookie := range cookieObjects {
+		if cookie.Name == "" {
+			continue
+		}
+		path := cookie.Path
+		if path == "" {
+			path = "/"
+		}
+		cookies = append(cookies, http.Cookie{
+			Name:   cookie.Name,
+			Value:  cookie.Value,
+			Domain: cookie.Domain,
+			Path:   path,
+		})
+	}
+	return &remoteReadSession{
+		client:    &http.Client{Timeout: 30 * time.Second},
+		cookies:   cookies,
+		csrfToken: csrfToken,
+		spaceAPI:  spaceAPI,
+	}, nil
+}
+
+func (session *remoteReadSession) readRemote(source string) (Result, error) {
+	parsed, err := url.Parse(source)
+	if err != nil {
+		return Result{}, err
+	}
+	token := tokenAfter(parsed.Path, "/docx/")
+	if token == "" {
+		return Result{}, fmt.Errorf("remote source is not supported by Go docs read yet")
+	}
+	data, err := session.clientVars(token, originForURL(parsed), source)
+	if err != nil {
+		return Result{}, err
+	}
+	conversion := docx.ConvertClientVars(data, token)
+	title := docxTitle(data, token)
+	return Result{
+		Source:   source,
+		Kind:     "docx",
+		Title:    title,
+		Token:    token,
+		Content:  conversion.Markdown,
+		Counts:   conversion.Counts,
+		Assets:   conversion.Assets,
+		Warnings: conversion.Warnings,
+	}, nil
+}
+
+func (session *remoteReadSession) clientVars(token string, origin string, referer string) (map[string]any, error) {
+	data := map[string]any{}
+	cursor := ""
+	for {
+		query := "id=" + url.QueryEscape(token) + "&open_type=1"
+		if cursor != "" {
+			query += "&mode=4&cursor=" + url.QueryEscape(cursor)
+		}
+		requestURL := session.spaceAPI + "/space/api/docx/pages/client_vars?" + query
+		payload, err := session.getJSON(requestURL, origin, referer)
+		if err != nil {
+			return nil, err
+		}
+		if codeNumber(payload["code"]) != 0 {
+			return nil, fmt.Errorf("client_vars failed")
+		}
+		page := asMap(payload["data"])
+		mergeClientVarsPage(data, page)
+		cursor = stringValue(page["cursor"])
+		if !readBool(page["has_more"]) || cursor == "" {
+			return data, nil
+		}
+	}
+}
+
+func (session *remoteReadSession) getJSON(requestURL string, origin string, referer string) (map[string]any, error) {
+	request, err := http.NewRequest(http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("User-Agent", "ixf-toolbox-go")
+	request.Header.Set("Origin", origin)
+	request.Header.Set("Referer", referer)
+	request.Header.Set("X-CSRFToken", session.csrfToken)
+	for _, cookie := range session.cookies {
+		request.AddCookie(&cookie)
+	}
+	response, err := session.client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("client_vars http status %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func loadCookieObjects(path string) ([]cookieObject, error) {
+	expanded := expandUser(path)
+	content, err := os.ReadFile(expanded)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("cookie file not found: %s", expanded)
+		}
+		return nil, err
+	}
+	cookies := []cookieObject{}
+	if err := json.Unmarshal(content, &cookies); err != nil {
+		return nil, fmt.Errorf("cookie file invalid: %s", expanded)
+	}
+	return cookies, nil
+}
+
+func csrfFromCookieObjects(cookies []cookieObject) string {
+	for _, cookie := range cookies {
+		if cookie.Name == "_csrf_token" && cookie.Value != "" {
+			return cookie.Value
+		}
+	}
+	return ""
+}
+
+func mergeClientVarsPage(target map[string]any, page map[string]any) {
+	for key, value := range page {
+		if key == "block_map" {
+			targetBlockMap := asMap(target["block_map"])
+			if len(targetBlockMap) == 0 {
+				targetBlockMap = map[string]any{}
+				target["block_map"] = targetBlockMap
+			}
+			for blockID, blockValue := range asMap(value) {
+				targetBlockMap[blockID] = blockValue
+			}
+			continue
+		}
+		if key != "has_more" && key != "cursor" {
+			target[key] = value
+		}
+	}
+}
+
+func docxTitle(data map[string]any, token string) string {
+	root := asMap(asMap(data["block_map"])[token])
+	rootData := asMap(root["data"])
+	if len(rootData) == 0 {
+		rootData = root
+	}
+	title := docx.ExtractText(rootData["text"])
+	if title == "" {
+		return token
+	}
+	return title
 }
 
 func WriteOutputs(results []Result, outDir string) (map[string]any, error) {
@@ -251,6 +483,69 @@ func tokenPrefix(token string) string {
 		return token
 	}
 	return token[:3]
+}
+
+func originForURL(parsed *url.URL) string {
+	return parsed.Scheme + "://" + parsed.Host
+}
+
+func codeNumber(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case float64:
+		return int(typed)
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err != nil {
+			return -1
+		}
+		return int(parsed)
+	default:
+		return -1
+	}
+}
+
+func asMap(value any) map[string]any {
+	if mapped, ok := value.(map[string]any); ok {
+		return mapped
+	}
+	return map[string]any{}
+}
+
+func readBool(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "1", "true", "yes":
+			return true
+		default:
+			return false
+		}
+	case float64:
+		return typed != 0
+	default:
+		return value != nil
+	}
+}
+
+func stringValue(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case fmt.Stringer:
+		return typed.String()
+	default:
+		return fmt.Sprint(typed)
+	}
+}
+
+func defaultCookiesPath() string {
+	return "/tmp/ixunfei_profile_explorer_cookies.json"
 }
 
 func slugify(value string) string {

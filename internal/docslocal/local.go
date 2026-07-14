@@ -187,6 +187,9 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 		if err != nil {
 			return Result{}, err
 		}
+		if isBitableWikiHTML(html) {
+			return session.readBitableWiki(source, origin, html)
+		}
 		token = extractDocTokenFromHTML(html)
 	}
 	if token == "" {

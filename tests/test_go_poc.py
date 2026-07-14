@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 from go_poc_support import GO_ENV
 from go_poc_support import ROOT
 from go_poc_support import build_go_ixf
+from go_poc_support import gzip_json
 from go_poc_support import remote_docx_parity_client_vars
 from go_poc_support import run_go_ixf
 from go_poc_support import serve_handler
@@ -320,6 +321,157 @@ def test_go_ixf_docs_read_remote_wiki_resolves_docx_token_to_manifest(tmp_path):
     assert errors == []
     assert requested[0] == "/wiki/space/page?from=copy"
     assert requested[-1] == "/space/api/docx/pages/client_vars?id=page_1&open_type=1"
+    assert result.stderr == ""
+
+
+def test_go_ixf_docs_read_remote_wiki_bitable_renders_tsv_manifest(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    cookies = tmp_path / "cookies.json"
+    write_cookie_fixture(cookies)
+    errors: list[str] = []
+    requested: list[str] = []
+    old_schema = {
+        "base": {
+            "name": "Team Tracker",
+            "timezone": "UTC",
+            "tables": ["tbl1"],
+            "tableInfos": {"tbl1": {"name": "Projects"}},
+        },
+        "data": {
+            "table": {
+                "views": ["view_grid"],
+                "viewMap": {
+                    "view_grid": {
+                        "id": "view_grid",
+                        "name": "Grid View",
+                        "type": 1,
+                        "property": {
+                            "fields": ["fld_name", "fld_status", "fld_owner", "fld_due"],
+                            "records": ["rec1", "rec2"],
+                        },
+                    }
+                },
+                "fieldMap": {
+                    "fld_name": {"name": "Name", "type": 1},
+                    "fld_status": {
+                        "name": "Status",
+                        "type": 3,
+                        "property": {
+                            "options": [
+                                {"id": "todo", "name": "To Do"},
+                                {"id": "done", "name": "Done"},
+                            ]
+                        },
+                    },
+                    "fld_owner": {"name": "Owner", "type": 11},
+                    "fld_due": {
+                        "name": "Due",
+                        "type": 5,
+                        "property": {"dateFormat": "yyyy/MM/dd", "timeFormat": "HH:mm"},
+                    },
+                },
+            },
+            "recordMap": {
+                "rec1": {
+                    "fld_name": {"value": "Alpha"},
+                    "fld_status": {"value": "todo"},
+                    "fld_owner": {"value": ["u1"]},
+                    "fld_due": {"value": 0},
+                },
+                "rec2": {
+                    "fld_name": {"value": "Beta\tLine"},
+                    "fld_status": {"value": "done"},
+                    "fld_owner": {"value": []},
+                    "fld_due": {"value": None},
+                },
+            },
+        },
+    }
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            requested.append(self.path)
+            if parsed.path == "/wiki/base/page":
+                if self.headers.get("X-CSRFToken") != "csrf-fixture":
+                    errors.append("missing wiki csrf header")
+                if "session=session-fixture" not in self.headers.get("Cookie", ""):
+                    errors.append("missing wiki session cookie")
+                wiki_info = {"obj_token": "base_1"}
+                body = (
+                    "<script>window.wiki_suite_type = 'bitable';"
+                    "current_space_wiki = Object("
+                    + json.dumps(wiki_info, ensure_ascii=False)
+                    + ")</script>"
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if parsed.path == "/space/api/v1/bitable/base_1/clientvars":
+                query = parse_qs(parsed.query)
+                if query.get("recordLimit") != ["2000"]:
+                    errors.append(f"unexpected bitable query: {parsed.query}")
+                if self.headers.get("Referer") != f"http://{self.headers.get('Host')}/wiki/base/page?from=copy":
+                    errors.append("unexpected bitable referer")
+                payload = {
+                    "code": 0,
+                    "data": {
+                        "oldSchema": {"gzipSchema": gzip_json(old_schema)},
+                        "users": {"u1": {"name": "Alice"}},
+                    },
+                }
+                write_json_response(self, payload)
+                return
+            self.send_response(404)
+            self.end_headers()
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    out_dir = tmp_path / "out"
+    with serve_handler(Handler) as base_url:
+        result = run_go_ixf(
+            binary,
+            "docs",
+            "read",
+            f"{base_url}/wiki/base/page?from=copy",
+            "--cookies",
+            str(cookies),
+            "--out-dir",
+            str(out_dir),
+            "--print-manifest",
+        )
+
+    manifest = json.loads(result.stdout)
+    item = manifest["wiki_bitable_1"]
+    assert Path(item["file"]).read_text(encoding="utf-8") == (
+        "# Team Tracker\n\n"
+        "[bitable token=base_1]\n"
+        '[bitable-meta base_token=base_1 table_id=tbl1 table_name="Projects" '
+        'view_id=view_grid view_name="Grid View" rows=2 cols=4 views=1]\n'
+        "```tsv\n"
+        "Name\tStatus\tOwner\tDue\n"
+        "Alpha\tTo Do\tAlice\t1970/01/01 00:00\n"
+        "Beta\\tLine\tDone\n"
+        "```\n"
+    )
+    assert item["kind"] == "wiki_bitable"
+    assert item["title"] == "Team Tracker"
+    assert item["token"] == "base_1"
+    assert item["counts"] == {
+        "bitable": 1,
+        "bitable_fields": 4,
+        "bitable_records": 2,
+        "bitable_views": 1,
+    }
+    assert item["assets"] == []
+    assert item["warnings"] == []
+    assert errors == []
+    assert requested[0] == "/wiki/base/page?from=copy"
+    assert requested[1].startswith("/space/api/v1/bitable/base_1/clientvars?")
     assert result.stderr == ""
 
 

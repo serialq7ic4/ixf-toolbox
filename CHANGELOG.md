@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.7.0 - 2026-07-15
+
+- Added Go-native cookie export for macOS and Windows LarkShell Chromium profiles with local SQLite cookie DB reads.
+- Added macOS Keychain AES-CBC and Windows DPAPI / AES-GCM decryption seams while keeping fixture coverage secret-safe.
+- Added Go CLI cookie export flags for explicit cookie DB, host filters, app support paths, app data, local state, and keychain selectors.
+- Updated Go diagnostics so `doctor --json` reports `cookiesExport=true`, and added `go.sum` to pin the SQLite dependency for release builds.
+
 ## 1.6.0 - 2026-07-15
 
 - Added Go-native OKR `write --apply --objective-index` for replacing one selected Objective and its KRs through the API.

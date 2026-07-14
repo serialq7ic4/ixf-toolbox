@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sqlite3
+import stat
 from urllib.parse import parse_qs, urlparse
 
 from go_poc_support import GO_ENV
@@ -29,7 +31,7 @@ def test_go_ixf_version_matches_python_release(tmp_path):
     binary = build_go_ixf(tmp_path)
     result = run_go_ixf(binary, "--version")
 
-    assert result.stdout.strip() == "ixf 1.6.0"
+    assert result.stdout.strip() == "ixf 1.7.0"
     assert result.stderr == ""
 
 
@@ -57,16 +59,68 @@ def test_go_ixf_doctor_json_is_secret_safe_and_reports_go_runtime(tmp_path):
     serialized = json.dumps(payload, ensure_ascii=False)
 
     assert payload["ok"] is True
-    assert payload["version"] == "1.6.0"
+    assert payload["version"] == "1.7.0"
     assert payload["runtime"] == "go-poc"
+    assert payload["capabilities"]["cookiesExport"] is True
     assert payload["skills"]["codex"]["ok"] is True
     assert payload["cookies"]["hasCsrf"] is True
     assert "dummy-csrf" not in serialized
     assert "dummy-session" not in serialized
 
 
-def test_go_ixf_cookies_export_has_safe_poc_failure(tmp_path):
+def create_chromium_cookie_db(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.execute(
+        """
+        CREATE TABLE cookies (
+            host_key TEXT,
+            name TEXT,
+            value TEXT,
+            encrypted_value BLOB,
+            path TEXT,
+            expires_utc INTEGER,
+            is_secure INTEGER,
+            is_httponly INTEGER,
+            samesite INTEGER
+        )
+        """
+    )
+    conn.executemany(
+        "INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (
+                ".example.test",
+                "_csrf_token",
+                "csrf-fixture",
+                b"",
+                "/",
+                0,
+                1,
+                1,
+                -1,
+            ),
+            (
+                ".example.test",
+                "session",
+                "session-fixture",
+                b"",
+                "/",
+                0,
+                1,
+                1,
+                -1,
+            ),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_go_ixf_cookies_export_reads_plain_chromium_cookie_db(tmp_path):
     binary = build_go_ixf(tmp_path)
+    db = tmp_path / "profile" / "Cookies"
+    create_chromium_cookie_db(db)
     output = tmp_path / "cookies.json"
 
     result = run_go_ixf(
@@ -74,20 +128,61 @@ def test_go_ixf_cookies_export_has_safe_poc_failure(tmp_path):
         "cookies",
         "export",
         "--provider",
-        "auto",
+        "macos-larkshell",
+        "--cookies-db",
+        str(db),
+        "--host-like",
+        "%.example.test%",
         "--output",
         str(output),
         "--json",
-        check=False,
     )
     payload = json.loads(result.stdout)
+    serialized = json.dumps(payload, ensure_ascii=False)
+    cookies = json.loads(output.read_text(encoding="utf-8"))
 
-    assert result.returncode == 6
-    assert payload["ok"] is False
-    assert payload["error"]["type"] == "cookie"
-    assert payload["error"]["subtype"] == "cookie_export_unavailable"
-    assert payload["error"]["retryable"] is False
-    assert not output.exists()
+    assert payload["ok"] is True
+    assert payload["provider"] == "macos-larkshell"
+    assert payload["cookieCount"] == 2
+    assert payload["hasCsrf"] is True
+    assert payload["output"] == str(output)
+    assert [cookie["name"] for cookie in cookies] == ["_csrf_token", "session"]
+    assert "csrf-fixture" not in serialized
+    assert "session-fixture" not in serialized
+    if os.name != "nt":
+        assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    assert result.stderr == ""
+
+
+def test_go_ixf_cookies_export_supports_windows_plain_cookie_db(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    db = tmp_path / "LarkShell" / "User Data" / "Default" / "Network" / "Cookies"
+    create_chromium_cookie_db(db)
+    output = tmp_path / "cookies.json"
+
+    result = run_go_ixf(
+        binary,
+        "cookies",
+        "export",
+        "--provider",
+        "windows-larkshell",
+        "--cookies-db",
+        str(db),
+        "--host-like",
+        "%.example.test%",
+        "--output",
+        str(output),
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    cookies = json.loads(output.read_text(encoding="utf-8"))
+
+    assert payload["ok"] is True
+    assert payload["provider"] == "windows-larkshell"
+    assert payload["cookieCount"] == 2
+    assert payload["hasCsrf"] is True
+    assert [cookie["value"] for cookie in cookies] == ["csrf-fixture", "session-fixture"]
+    assert result.stderr == ""
 
 
 def test_go_ixf_docs_help_lists_local_v13_commands(tmp_path):
@@ -1485,8 +1580,8 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     release.write_text(
         json.dumps(
             {
-                "tag_name": "v1.7.0",
-                "html_url": "https://github.example/releases/v1.7.0",
+                "tag_name": "v1.8.0",
+                "html_url": "https://github.example/releases/v1.8.0",
             }
         ),
         encoding="utf-8",
@@ -1503,9 +1598,9 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     payload = json.loads(result.stdout)
 
     assert payload["ok"] is True
-    assert payload["currentVersion"] == "1.6.0"
-    assert payload["latestVersion"] == "1.7.0"
-    assert payload["latestTag"] == "v1.7.0"
+    assert payload["currentVersion"] == "1.7.0"
+    assert payload["latestVersion"] == "1.8.0"
+    assert payload["latestTag"] == "v1.8.0"
     assert payload["updateAvailable"] is True
     assert payload["applied"] is False
     assert payload["commands"] == []
@@ -1514,7 +1609,7 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
 
 def test_go_ixf_update_self_apply_replaces_target_with_verified_asset(tmp_path):
     binary = build_go_ixf(tmp_path)
-    version = "1.7.0"
+    version = "1.8.0"
     goos = subprocess.run(
         ["go", "env", "GOOS"],
         cwd=ROOT,
@@ -1543,7 +1638,7 @@ def test_go_ixf_update_self_apply_replaces_target_with_verified_asset(tmp_path):
         json.dumps(
             {
                 "tag_name": f"v{version}",
-                "html_url": "https://github.example/releases/v1.7.0",
+                "html_url": "https://github.example/releases/v1.8.0",
                 "assets": [
                     {"name": artifact_name, "browser_download_url": artifact.as_uri()},
                     {"name": checksums.name, "browser_download_url": checksums.as_uri()},

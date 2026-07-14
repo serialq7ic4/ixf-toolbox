@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	ixftoolbox "github.com/serialq7ic4/ixf-toolbox"
+	ixfcookies "github.com/serialq7ic4/ixf-toolbox/internal/cookies"
 	"github.com/serialq7ic4/ixf-toolbox/internal/docslocal"
 	"github.com/serialq7ic4/ixf-toolbox/internal/docspublish"
 	"github.com/serialq7ic4/ixf-toolbox/internal/markdown"
@@ -23,7 +24,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "1.6.0"
+var version = "1.7.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -173,27 +174,48 @@ func runCookies(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	provider := flags.String("provider", "auto", "")
 	output := flags.String("output", defaultCookies, "")
+	appSupport := flags.String("app-support", ixfcookies.DefaultAppSupport, "")
+	cookiesDB := flags.String("cookies-db", "", "")
+	hostLike := flags.String("host-like", ixfcookies.DefaultHostLike, "")
+	keychainService := flags.String("keychain-service", ixfcookies.DefaultKeychainService, "")
+	keychainAccount := flags.String("keychain-account", "", "")
+	appData := flags.String("app-data", "", "")
+	localState := flags.String("local-state", "", "")
 	asJSON := flags.Bool("json", false, "")
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}
-	_ = output
-	payload := map[string]any{
-		"ok": false,
-		"error": map[string]any{
-			"type":      "cookie",
-			"subtype":   "cookie_export_unavailable",
-			"message":   fmt.Sprintf("Go POC cookie export is not implemented yet for provider %q.", *provider),
-			"hint":      "Use the Python ixf runtime for real cookie export until the Go exporter is ported.",
-			"retryable": false,
-		},
+	payload, err := ixfcookies.Export(ixfcookies.ExportConfig{
+		Provider:        *provider,
+		Output:          *output,
+		AppSupport:      *appSupport,
+		CookiesDB:       *cookiesDB,
+		HostLike:        *hostLike,
+		KeychainService: *keychainService,
+		KeychainAccount: *keychainAccount,
+		AppData:         *appData,
+		LocalState:      *localState,
+	})
+	if err != nil {
+		errorPayload := map[string]any{
+			"ok": false,
+			"error": map[string]any{
+				"type":      "cookie",
+				"subtype":   "cookie_export_failed",
+				"message":   err.Error(),
+				"hint":      "Confirm the desktop client is logged in and retry `ixf cookies export`.",
+				"retryable": false,
+			},
+		}
+		if *asJSON {
+			writeJSON(stdout, errorPayload)
+		} else {
+			fmt.Fprintf(stderr, "ERROR %s\n", err)
+		}
+		return 6
 	}
-	if *asJSON {
-		writeJSON(stdout, payload)
-	} else {
-		fmt.Fprintln(stderr, "ERROR Go POC cookie export is not implemented yet.")
-	}
-	return 6
+	writeJSON(stdout, payload)
+	return 0
 }
 
 func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -1084,7 +1106,7 @@ func collectDiagnostics(cookiesPath string) map[string]any {
 			"docsPublish":   true,
 			"okrRead":       true,
 			"okrWrite":      true,
-			"cookiesExport": false,
+			"cookiesExport": true,
 		},
 		"skills":  skills,
 		"cookies": cookies,

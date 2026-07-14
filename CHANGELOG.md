@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.5.0 - 2026-07-15
+
+- Added Go-native `okr read` routing with authorized OKR detail API reads, local session cookies, LGW CSRF refresh, and Markdown rendering.
+- Added Go-native `okr write` dry-run planning for approved Objective / KR JSON input without requiring cookies or remote mutation.
+- Added fixture-backed Go CLI coverage for OKR help, OKR read CSRF/session headers, Markdown rendering, and OKR write dry-run validation.
+- Kept real OKR write `--apply` on the Python reference runtime while the Go API mutation flow is migrated in a later release.
+
 ## 1.4.0 - 2026-07-15
 
 - Added Go-native `docs publish --apply` API-only document creation, content write, and verification using cookie-gated apply semantics.

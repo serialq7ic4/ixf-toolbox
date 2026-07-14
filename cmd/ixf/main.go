@@ -17,12 +17,13 @@ import (
 	"github.com/serialq7ic4/ixf-toolbox/internal/docslocal"
 	"github.com/serialq7ic4/ixf-toolbox/internal/docspublish"
 	"github.com/serialq7ic4/ixf-toolbox/internal/markdown"
+	ixfokr "github.com/serialq7ic4/ixf-toolbox/internal/okr"
 	ixfupdate "github.com/serialq7ic4/ixf-toolbox/internal/update"
 )
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "1.4.0"
+var version = "1.5.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -62,6 +63,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	switch args[0] {
 	case "docs":
 		return runDocs(args[1:], stdout, stderr)
+	case "okr":
+		return runOKR(args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(args[1:], stdout, stderr)
 	case "setup":
@@ -80,6 +83,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 func printRootHelp(w io.Writer) {
 	rows := [][2]string{
 		{"docs", "Read, inspect, chunk, clean up, or publish authorized documents."},
+		{"okr", "Read or plan approved OKR changes."},
 		{"doctor", "Inspect local Toolbox setup without printing secrets."},
 		{"setup", "Install agent skill wrappers."},
 		{"cookies", "Export local desktop session cookies."},
@@ -421,6 +425,115 @@ func runDocsPublish(args []string, stdout io.Writer, stderr io.Writer) int {
 		TitleSuffix:  parsed.titleSuffix,
 		RequiredText: parsed.requiredText,
 		Apply:        parsed.apply,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	writeJSON(stdout, payload)
+	return 0
+}
+
+func runOKR(args []string, stdout io.Writer, stderr io.Writer) int {
+	rows := [][2]string{
+		{"read", "Read an authorized OKR page as Markdown."},
+		{"write", "Validate and plan confirmed Objective / KR content."},
+	}
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "ERROR okr requires a subcommand.")
+		printCommandHelp(stderr, "ixf okr", rows)
+		return 2
+	}
+	if args[0] == "-h" || args[0] == "--help" {
+		printCommandHelp(stdout, "ixf okr", rows)
+		return 0
+	}
+	switch args[0] {
+	case "read":
+		return runOKRRead(args[1:], stdout, stderr)
+	case "write":
+		return runOKRWrite(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "ERROR unsupported okr subcommand: %s\n", args[0])
+		printCommandHelp(stderr, "ixf okr", rows)
+		return 2
+	}
+}
+
+func runOKRRead(args []string, stdout io.Writer, stderr io.Writer) int {
+	source := ""
+	cookiesPath := defaultCookies
+	csrfURL := ixfokr.DefaultCSRFURL
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--cookies":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stderr, "ERROR --cookies requires a value")
+				return 2
+			}
+			cookiesPath = args[i]
+		case "--csrf-url":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stderr, "ERROR --csrf-url requires a value")
+				return 2
+			}
+			csrfURL = args[i]
+		default:
+			if strings.HasPrefix(arg, "-") {
+				fmt.Fprintf(stderr, "ERROR unsupported okr read flag: %s\n", arg)
+				return 2
+			}
+			if source != "" {
+				fmt.Fprintln(stderr, "ERROR okr read requires exactly one OKR URL")
+				return 2
+			}
+			source = arg
+		}
+	}
+	if source == "" {
+		fmt.Fprintln(stderr, "ERROR okr read requires one OKR URL")
+		return 2
+	}
+	content, err := ixfokr.Read(ixfokr.ReadConfig{
+		Source:      source,
+		CookiesPath: cookiesPath,
+		CSRFURL:     csrfURL,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	fmt.Fprint(stdout, content)
+	return 0
+}
+
+func runOKRWrite(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("ixf okr write", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	targetURL := flags.String("url", "", "")
+	inputPath := flags.String("input", "", "")
+	objectiveIndex := flags.Int("objective-index", 0, "")
+	apply := flags.Bool("apply", false, "")
+	dryRun := flags.Bool("dry-run", false, "")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *targetURL == "" {
+		fmt.Fprintln(stderr, "ERROR --url is required")
+		return 2
+	}
+	if *inputPath == "" {
+		fmt.Fprintln(stderr, "ERROR --input is required")
+		return 2
+	}
+	payload, err := ixfokr.WriteDryRun(ixfokr.WriteConfig{
+		URL:            *targetURL,
+		InputPath:      *inputPath,
+		ObjectiveIndex: *objectiveIndex,
+		Apply:          *apply && !*dryRun,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)

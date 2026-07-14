@@ -29,7 +29,7 @@ def test_go_ixf_version_matches_python_release(tmp_path):
     binary = build_go_ixf(tmp_path)
     result = run_go_ixf(binary, "--version")
 
-    assert result.stdout.strip() == "ixf 1.4.0"
+    assert result.stdout.strip() == "ixf 1.5.0"
     assert result.stderr == ""
 
 
@@ -57,7 +57,7 @@ def test_go_ixf_doctor_json_is_secret_safe_and_reports_go_runtime(tmp_path):
     serialized = json.dumps(payload, ensure_ascii=False)
 
     assert payload["ok"] is True
-    assert payload["version"] == "1.4.0"
+    assert payload["version"] == "1.5.0"
     assert payload["runtime"] == "go-poc"
     assert payload["skills"]["codex"]["ok"] is True
     assert payload["cookies"]["hasCsrf"] is True
@@ -1137,6 +1137,153 @@ def test_go_ixf_docs_read_rejects_okr_url_before_cookie_loading(tmp_path):
     assert "okr-fixture-200" not in result.stderr
 
 
+def test_go_ixf_okr_help_lists_read_and_write(tmp_path):
+    binary = build_go_ixf(tmp_path)
+
+    result = run_go_ixf(binary, "okr", "--help")
+
+    assert "usage: ixf okr" in result.stdout
+    assert "read" in result.stdout
+    assert "write" in result.stdout
+    assert result.stderr == ""
+
+
+def test_go_ixf_okr_read_uses_lgw_csrf_and_renders_markdown(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    cookies = tmp_path / "cookies.json"
+    write_cookie_fixture(cookies)
+    events = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            parsed = urlparse(self.path)
+            if parsed.path == "/lgw/csrf_token":
+                events.append(("csrf", self.headers.get("Cookie", "")))
+                self.send_response(200)
+                self.send_header("Set-Cookie", "lgw_csrf_token=lgw-fixture; Path=/")
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+                return
+            if parsed.path == "/okrx/api/okr/owner/aggr_detail/":
+                query = parse_qs(parsed.query)
+                events.append(("detail", query, self.headers.get("x-lgw-csrf-token")))
+                assert query["okr_id"] == ["okr-fixture-200"]
+                assert query["withoutAddVisitLog"] == ["true"]
+                assert self.headers.get("x-lgw-csrf-token") == "lgw-fixture"
+                assert "session=session-fixture" in self.headers.get("Cookie", "")
+                write_json_response(
+                    self,
+                    {
+                        "code": 0,
+                        "okr_detail_data": {
+                            "name": "2026 Q3",
+                            "owner_info": {
+                                "user_info": {"locale_names": {"zh": "Fixture Owner"}}
+                            },
+                            "objective_list": [
+                                {
+                                    "id": "o1",
+                                    "name": {"blocks": [{"text": "提升平台稳定性"}]},
+                                    "kr_list": [
+                                        {
+                                            "id": "kr1",
+                                            "content": {"blocks": [{"text": "完成可观测治理"}]},
+                                            "progress_rate": {"percent": 20},
+                                        },
+                                        {
+                                            "id": "kr2",
+                                            "content_v2": {
+                                                "0": {
+                                                    "ops": [
+                                                        {"insert": "完成容量巡检自动化\n"}
+                                                    ]
+                                                }
+                                            },
+                                        },
+                                    ],
+                                }
+                            ],
+                        },
+                    },
+                )
+                return
+            self.send_error(404)
+
+    with serve_handler(Handler) as server:
+        result = run_go_ixf(
+            binary,
+            "okr",
+            "read",
+            f"{server}/okr/user/owner-fixture/?okrId=okr-fixture-200&type=leader",
+            "--cookies",
+            str(cookies),
+            "--csrf-url",
+            f"{server}/lgw/csrf_token",
+        )
+
+    assert "# OKR - Fixture Owner - 2026 Q3" in result.stdout
+    assert "[okr id=okr-fixture-200 objectives=1]" in result.stdout
+    assert "## O1 提升平台稳定性" in result.stdout
+    assert "- KR1: 完成可观测治理 _(progress: 20%)_" in result.stdout
+    assert "- KR2: 完成容量巡检自动化" in result.stdout
+    assert [event[0] for event in events] == ["csrf", "detail"]
+    assert result.stderr == ""
+
+
+def test_go_ixf_okr_write_dry_run_validates_input_without_cookie_file(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    source = tmp_path / "okr.json"
+    source.write_text(
+        json.dumps(
+            {
+                "objectives": [
+                    {
+                        "objective": "Improve platform reliability",
+                        "krs": [
+                            "Complete the first measurable reliability milestone.",
+                            "Complete the second measurable reliability milestone.",
+                            "Complete the third measurable reliability milestone.",
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_go_ixf(
+        binary,
+        "okr",
+        "write",
+        "--url",
+        "https://tenant.example.test/okr/user/example/?okrId=example-okr",
+        "--input",
+        str(source),
+        "--objective-index",
+        "3",
+        "--dry-run",
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload == {
+        "ok": True,
+        "dryRun": True,
+        "okrId": "example-okr",
+        "targetObjectiveIndex": 3,
+        "objectives": [
+            {
+                "index": 1,
+                "objective": "Improve platform reliability",
+                "krCount": 3,
+                "action": "plan",
+            }
+        ],
+        "applySupported": False,
+    }
+    assert result.stderr == ""
+
+
 def test_go_ixf_docs_cleanup_removes_only_manifest_outputs(tmp_path):
     binary = build_go_ixf(tmp_path)
     out_dir = tmp_path / "out"
@@ -1173,8 +1320,8 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     release.write_text(
         json.dumps(
             {
-                "tag_name": "v1.5.0",
-                "html_url": "https://github.example/releases/v1.5.0",
+                "tag_name": "v1.6.0",
+                "html_url": "https://github.example/releases/v1.6.0",
             }
         ),
         encoding="utf-8",
@@ -1191,9 +1338,9 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     payload = json.loads(result.stdout)
 
     assert payload["ok"] is True
-    assert payload["currentVersion"] == "1.4.0"
-    assert payload["latestVersion"] == "1.5.0"
-    assert payload["latestTag"] == "v1.5.0"
+    assert payload["currentVersion"] == "1.5.0"
+    assert payload["latestVersion"] == "1.6.0"
+    assert payload["latestTag"] == "v1.6.0"
     assert payload["updateAvailable"] is True
     assert payload["applied"] is False
     assert payload["commands"] == []
@@ -1202,7 +1349,7 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
 
 def test_go_ixf_update_self_apply_replaces_target_with_verified_asset(tmp_path):
     binary = build_go_ixf(tmp_path)
-    version = "1.5.0"
+    version = "1.6.0"
     goos = subprocess.run(
         ["go", "env", "GOOS"],
         cwd=ROOT,
@@ -1231,7 +1378,7 @@ def test_go_ixf_update_self_apply_replaces_target_with_verified_asset(tmp_path):
         json.dumps(
             {
                 "tag_name": f"v{version}",
-                "html_url": "https://github.example/releases/v1.5.0",
+                "html_url": "https://github.example/releases/v1.6.0",
                 "assets": [
                     {"name": artifact_name, "browser_download_url": artifact.as_uri()},
                     {"name": checksums.name, "browser_download_url": checksums.as_uri()},

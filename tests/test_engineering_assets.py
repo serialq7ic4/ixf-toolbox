@@ -42,7 +42,7 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         [
             sys.executable,
             "scripts/extract_changelog.py",
-            "1.4.0",
+            "1.5.0",
             "CHANGELOG.md",
         ],
         cwd=ROOT,
@@ -51,9 +51,9 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         check=True,
     )
 
-    assert "docs publish --apply" in result.stdout
-    assert "API-only" in result.stdout
-    assert "## 1.3.0" not in result.stdout
+    assert "okr read" in result.stdout
+    assert "OKR write dry-run" in result.stdout
+    assert "## 1.4.0" not in result.stdout
 
 
 def test_smoke_script_installs_toolbox_wheel_in_isolated_environment():

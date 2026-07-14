@@ -52,7 +52,7 @@
 手动命令：
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.5.0/ixf_toolbox-1.5.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.6.0/ixf_toolbox-1.6.0-py3-none-any.whl"
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
@@ -61,7 +61,7 @@ ixf doctor --json
 ### 安装到 Claude Code
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.5.0/ixf_toolbox-1.5.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.6.0/ixf_toolbox-1.6.0-py3-none-any.whl"
 ixf setup skills --runtimes claude-code --json
 ixf --version
 ixf doctor --json
@@ -70,7 +70,7 @@ ixf doctor --json
 ### 同时安装到两个 agent
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.5.0/ixf_toolbox-1.5.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.6.0/ixf_toolbox-1.6.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ixf --version
 ixf doctor --json
@@ -79,7 +79,7 @@ ixf doctor --json
 Windows 安装时将 `[crypto]` 换成 `[windows]`：
 
 ```bash
-python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.5.0/ixf_toolbox-1.5.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.6.0/ixf_toolbox-1.6.0-py3-none-any.whl"
 ```
 
 Windows cookie 导出已有 CI 覆盖，但真实桌面环境仍属于实验支持。

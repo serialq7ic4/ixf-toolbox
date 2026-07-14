@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.6.0 - 2026-07-15
+
+- Added Go-native OKR `write --apply --objective-index` for replacing one selected Objective and its KRs through the API.
+- Entered the published Objective edit/draft state before mutation, then re-published the Objective after replacement.
+- Added fixture-backed coverage for preserving non-target Objectives, deleting old KRs, creating replacement KRs, and verifying post-publish content.
+- Kept Go OKR write scoped to explicit Objective-index writes while broader OKR mutation flows continue to use the Python reference runtime.
+
 ## 1.5.0 - 2026-07-15
 
 - Added Go-native `okr read` routing with authorized OKR detail API reads, local session cookies, LGW CSRF refresh, and Markdown rendering.

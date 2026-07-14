@@ -1,6 +1,7 @@
 package okr
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,6 +24,8 @@ type ReadConfig struct {
 type WriteConfig struct {
 	URL            string
 	InputPath      string
+	CookiesPath    string
+	CSRFURL        string
 	ObjectiveIndex int
 	Apply          bool
 }
@@ -72,9 +75,6 @@ func Read(config ReadConfig) (string, error) {
 }
 
 func WriteDryRun(config WriteConfig) (map[string]any, error) {
-	if config.Apply {
-		return nil, fmt.Errorf("go okr write --apply is not implemented yet")
-	}
 	if !DetectURL(config.URL) {
 		return nil, fmt.Errorf("source is not an OKR page URL")
 	}
@@ -85,6 +85,9 @@ func WriteDryRun(config WriteConfig) (map[string]any, error) {
 	specs, err := ParseSpecs(config.InputPath)
 	if err != nil {
 		return nil, err
+	}
+	if config.Apply {
+		return WriteObjectiveIndex(config, okrID, specs)
 	}
 	items := make([]map[string]any, 0, len(specs))
 	for index, spec := range specs {
@@ -101,7 +104,135 @@ func WriteDryRun(config WriteConfig) (map[string]any, error) {
 		"okrId":                okrID,
 		"targetObjectiveIndex": config.ObjectiveIndex,
 		"objectives":           items,
-		"applySupported":       false,
+		"applySupported":       true,
+	}, nil
+}
+
+func WriteObjectiveIndex(config WriteConfig, okrID string, specs []ObjectiveSpec) (map[string]any, error) {
+	if config.ObjectiveIndex <= 0 {
+		return nil, fmt.Errorf("--objective-index is required for Go OKR write --apply")
+	}
+	if len(specs) != 1 {
+		return nil, fmt.Errorf("--objective-index requires exactly one Objective")
+	}
+	origin, err := OriginFor(config.URL)
+	if err != nil {
+		return nil, err
+	}
+	cookies, err := loadCookieObjects(config.CookiesPath)
+	if err != nil {
+		return nil, err
+	}
+	csrfURL := config.CSRFURL
+	if csrfURL == "" {
+		csrfURL = DefaultCSRFURL
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	lgwToken, cookies, err := ensureLGWCSRFToken(client, csrfURL, cookies)
+	if err != nil {
+		return nil, err
+	}
+	detail, err := getDetail(client, origin, config.URL, okrID, lgwToken, cookies)
+	if err != nil {
+		return nil, err
+	}
+	objectives := asSlice(firstValue(detail, "objective_list", "objectiveList"))
+	if config.ObjectiveIndex > len(objectives) {
+		return nil, fmt.Errorf("O%d was not found", config.ObjectiveIndex)
+	}
+	target := asMap(objectives[config.ObjectiveIndex-1])
+	objectiveID := asString(target["id"])
+	if objectiveID == "" {
+		return nil, fmt.Errorf("target Objective did not include an identifier")
+	}
+	oldKRIDs := []string{}
+	for _, rawKR := range asSlice(firstValue(target, "kr_list", "krList")) {
+		if id := asString(asMap(rawKR)["id"]); id != "" {
+			oldKRIDs = append(oldKRIDs, id)
+		}
+	}
+	version, err := currentDraftVersion(client, origin, config.URL, okrID, lgwToken, cookies)
+	if err != nil {
+		return nil, err
+	}
+	connID := fmt.Sprintf("%d", time.Now().UnixNano())
+	spec := specs[0]
+	if _, err := okrAPI(client, "POST", origin, config.URL, "/okrx/api/draft_v2/enable/"+objectiveID+"/", lgwToken, cookies, draftBody(version, connID)); err != nil {
+		return nil, err
+	}
+	if _, err := okrAPI(client, "PUT", origin, config.URL, "/okrx/api/draft_v2/objective/"+objectiveID+"/", lgwToken, cookies, map[string]any{
+		"draft_version": version,
+		"conn_uuid":     connID,
+		"name":          deltaDocJSON(spec.Objective),
+		"changesets":    "[]",
+	}); err != nil {
+		return nil, err
+	}
+	for _, krID := range oldKRIDs {
+		if _, err := okrAPI(client, "DELETE", origin, config.URL, "/okrx/api/draft_v2/kr/"+krID+"/", lgwToken, cookies, nil); err != nil {
+			return nil, err
+		}
+	}
+	for _, text := range spec.KRs {
+		createPayload, err := okrAPI(client, "POST", origin, config.URL, "/okrx/api/draft_v2/kr/", lgwToken, cookies, map[string]any{
+			"draft_version": version,
+			"conn_uuid":     connID,
+			"objective_id":  objectiveID,
+			"content":       deltaDocJSON(""),
+			"changesets":    "[]",
+		})
+		if err != nil {
+			return nil, err
+		}
+		krID := firstString(asMap(createPayload["data"]), "kr_id", "krId")
+		if krID == "" {
+			return nil, fmt.Errorf("KR creation did not return an identifier")
+		}
+		if _, err := okrAPI(client, "PUT", origin, config.URL, "/okrx/api/draft_v2/kr/"+krID+"/", lgwToken, cookies, map[string]any{
+			"draft_version": version,
+			"conn_uuid":     connID,
+			"content":       deltaDocJSON(text),
+			"changesets":    "[]",
+		}); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := okrAPI(client, "POST", origin, config.URL, "/okrx/api/draft_v2/publish/"+objectiveID+"/", lgwToken, cookies, map[string]any{
+		"draft_version":      version,
+		"conn_uuid":          connID,
+		"need_delete_kr_ids": oldKRIDs,
+		"auto_notify":        false,
+	}); err != nil {
+		return nil, err
+	}
+	finalDetail, err := getDetail(client, origin, config.URL, okrID, lgwToken, cookies)
+	if err != nil {
+		return nil, err
+	}
+	finalObjectives := asSlice(firstValue(finalDetail, "objective_list", "objectiveList"))
+	if config.ObjectiveIndex > len(finalObjectives) {
+		return nil, fmt.Errorf("O%d was not found after writing", config.ObjectiveIndex)
+	}
+	finalTarget := asMap(finalObjectives[config.ObjectiveIndex-1])
+	actualObjective := itemText(finalTarget)
+	actualKRs := []map[string]string{}
+	for _, rawKR := range asSlice(firstValue(finalTarget, "kr_list", "krList")) {
+		actualKRs = append(actualKRs, map[string]string{"text": itemText(asMap(rawKR))})
+	}
+	expectedKRs := make([]string, 0, len(spec.KRs))
+	for _, item := range actualKRs {
+		expectedKRs = append(expectedKRs, item["text"])
+	}
+	if actualObjective != spec.Objective || strings.Join(expectedKRs, "\n") != strings.Join(spec.KRs, "\n") {
+		return nil, fmt.Errorf("O%d content did not match after writing", config.ObjectiveIndex)
+	}
+	return map[string]any{
+		"ok":     true,
+		"dryRun": false,
+		"target": map[string]any{
+			"objective": actualObjective,
+			"krs":       actualKRs,
+		},
 	}, nil
 }
 
@@ -190,6 +321,76 @@ func getDetail(client *http.Client, origin string, source string, okrID string, 
 		}
 	}
 	return nil, fmt.Errorf("OKR aggr_detail returned an unexpected payload shape")
+}
+
+func currentDraftVersion(client *http.Client, origin string, source string, okrID string, lgwToken string, cookies []http.Cookie) (string, error) {
+	request, err := http.NewRequest("GET", origin+"/okrx/api/okr/"+okrID+"/version/", nil)
+	if err != nil {
+		return "", err
+	}
+	addLGWHeaders(request, origin, source, lgwToken, cookies)
+	payload, err := doJSON(client, request, "OKR draft version")
+	if err != nil {
+		return "", err
+	}
+	data := asMap(payload["data"])
+	version := firstString(data, "okr_draft_version", "okrDraftVersion", "draft_version", "draftVersion", "version")
+	if version == "" {
+		version = firstString(payload, "okr_draft_version", "okrDraftVersion", "draft_version", "draftVersion", "version")
+	}
+	if version == "" {
+		return "", fmt.Errorf("unable to determine the OKR draft version")
+	}
+	return version, nil
+}
+
+func okrAPI(client *http.Client, method string, origin string, source string, path string, lgwToken string, cookies []http.Cookie, body map[string]any) (map[string]any, error) {
+	var reader io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		reader = bytes.NewReader(raw)
+	}
+	request, err := http.NewRequest(method, origin+path, reader)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json;charset=UTF-8")
+	}
+	addLGWHeaders(request, origin, source, lgwToken, cookies)
+	payload, err := doJSON(client, request, method+" "+path)
+	if err != nil {
+		return nil, err
+	}
+	if code, ok := payload["code"]; ok && asInt(code) != 0 {
+		return nil, fmt.Errorf("%s %s failed with code %d", method, path, asInt(code))
+	}
+	if success, ok := payload["success"].(bool); ok && !success {
+		return nil, fmt.Errorf("%s %s failed", method, path)
+	}
+	return payload, nil
+}
+
+func draftBody(version string, connID string) map[string]any {
+	return map[string]any{
+		"draft_version": version,
+		"conn_uuid":     connID,
+		"token":         connID,
+	}
+}
+
+func deltaDocJSON(text string) string {
+	raw, _ := json.Marshal(map[string]any{
+		"0": map[string]any{
+			"ops":      []map[string]string{{"insert": text + "\n"}},
+			"zoneId":   "0",
+			"zoneType": "Z",
+		},
+	})
+	return string(raw)
 }
 
 func ensureLGWCSRFToken(client *http.Client, csrfURL string, cookies []http.Cookie) (string, []http.Cookie, error) {

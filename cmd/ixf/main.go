@@ -23,7 +23,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "1.5.0"
+var version = "1.6.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -515,6 +515,8 @@ func runOKRWrite(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	targetURL := flags.String("url", "", "")
 	inputPath := flags.String("input", "", "")
+	cookiesPath := flags.String("cookies", defaultCookies, "")
+	csrfURL := flags.String("csrf-url", ixfokr.DefaultCSRFURL, "")
 	objectiveIndex := flags.Int("objective-index", 0, "")
 	apply := flags.Bool("apply", false, "")
 	dryRun := flags.Bool("dry-run", false, "")
@@ -532,6 +534,8 @@ func runOKRWrite(args []string, stdout io.Writer, stderr io.Writer) int {
 	payload, err := ixfokr.WriteDryRun(ixfokr.WriteConfig{
 		URL:            *targetURL,
 		InputPath:      *inputPath,
+		CookiesPath:    *cookiesPath,
+		CSRFURL:        *csrfURL,
 		ObjectiveIndex: *objectiveIndex,
 		Apply:          *apply && !*dryRun,
 	})

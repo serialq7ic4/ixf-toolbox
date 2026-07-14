@@ -183,6 +183,102 @@ func TestConvertClientVarsRendersTodosTablesAndResourceMarkers(t *testing.T) {
 	assertStringSlice(t, result.Warnings, nil)
 }
 
+func TestConvertClientVarsResolvesImageMetadataAndRendersMarkdown(t *testing.T) {
+	token := "raw-image-token"
+	clientVars := map[string]any{
+		"block_map": map[string]any{
+			"page_1": blockData(map[string]any{
+				"type":     "page",
+				"children": []any{"image_1"},
+			}),
+			"image_1": blockData(map[string]any{
+				"type":      "image",
+				"parent_id": "page_1",
+				"image": map[string]any{
+					"token":    token,
+					"name":     "architecture.png",
+					"mimeType": "image/png",
+					"width":    1200,
+					"height":   800,
+					"size":     1234,
+					"caption":  attributedText("Architecture diagram"),
+				},
+			}),
+		},
+	}
+	received := []ImageReference{}
+
+	result := ConvertClientVarsWithOptions(clientVars, "page_1", Options{
+		ResolveImage: func(reference ImageReference) ImageResolution {
+			received = append(received, reference)
+			return ImageResolution{
+				MarkdownPath: "assets/docx_1/image-001.png",
+				AltText:      "Architecture diagram",
+				Asset: map[string]any{
+					"path":      "assets/docx_1/image-001.png",
+					"mimeType":  "image/png",
+					"width":     1200,
+					"height":    800,
+					"sizeBytes": 1234,
+					"status":    "downloaded",
+					"ordinal":   1,
+				},
+			}
+		},
+	})
+
+	if result.Markdown != "![Architecture diagram](assets/docx_1/image-001.png)\n" {
+		t.Fatalf("markdown = %q", result.Markdown)
+	}
+	if len(received) != 1 {
+		t.Fatalf("received references = %#v, want one", received)
+	}
+	reference := received[0]
+	if reference.BlockID != "image_1" || reference.Token != token || reference.Name != "architecture.png" ||
+		reference.MimeType != "image/png" || reference.Width != 1200 || reference.Height != 800 ||
+		reference.DeclaredSize != 1234 || reference.Caption != "Architecture diagram" {
+		t.Fatalf("reference = %#v", reference)
+	}
+	if len(result.Assets) != 1 || result.Assets[0]["path"] != "assets/docx_1/image-001.png" {
+		t.Fatalf("assets = %#v", result.Assets)
+	}
+	assertStringSlice(t, result.Warnings, nil)
+	if containsString(result.Markdown, token) || containsAssetValue(result.Assets, token) {
+		t.Fatalf("image token leaked in result: %#v", result)
+	}
+}
+
+func TestConvertClientVarsRejectsUnsafeImageResolverOutput(t *testing.T) {
+	token := "raw-image-token"
+	clientVars := map[string]any{
+		"block_map": map[string]any{
+			"page_1": blockData(map[string]any{"type": "page", "children": []any{"image_1"}}),
+			"image_1": blockData(map[string]any{
+				"type":      "image",
+				"parent_id": "page_1",
+				"image":     map[string]any{"token": token},
+			}),
+		},
+	}
+
+	result := ConvertClientVarsWithOptions(clientVars, "page_1", Options{
+		ResolveImage: func(_ ImageReference) ImageResolution {
+			return ImageResolution{
+				MarkdownPath: "assets/" + token + "/image-001.png",
+				AltText:      "unsafe",
+			}
+		},
+	})
+
+	if result.Markdown != "[image]\n" {
+		t.Fatalf("markdown = %q", result.Markdown)
+	}
+	assertStringSlice(t, result.Warnings, []string{"image resolution rejected unsafe output"})
+	if containsString(result.Markdown, token) || containsString(result.Warnings[0], token) {
+		t.Fatalf("image token leaked in unsafe result: %#v", result)
+	}
+}
+
 func TestConvertClientVarsPreservesUnknownBlocksAndIndentsChildren(t *testing.T) {
 	clientVars := map[string]any{
 		"block_map": map[string]any{
@@ -278,4 +374,41 @@ func assertStringSlice(t *testing.T, got []string, want []string) {
 			t.Fatalf("slice[%d] = %q, want %q; all values %#v", index, got[index], want[index], got)
 		}
 	}
+}
+
+func containsString(value string, needle string) bool {
+	return stringsContains(value, needle)
+}
+
+func containsAssetValue(values []map[string]any, needle string) bool {
+	for _, value := range values {
+		for key, item := range value {
+			if stringsContains(key, needle) || stringsContains(anyString(item), needle) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func anyString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	default:
+		return ""
+	}
+}
+
+func stringsContains(haystack string, needle string) bool {
+	return needle != "" && len(haystack) >= len(needle) && stringsIndex(haystack, needle) >= 0
+}
+
+func stringsIndex(haystack string, needle string) int {
+	for index := 0; index+len(needle) <= len(haystack); index++ {
+		if haystack[index:index+len(needle)] == needle {
+			return index
+		}
+	}
+	return -1
 }

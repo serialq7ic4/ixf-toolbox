@@ -34,8 +34,10 @@ type Result struct {
 }
 
 type ReadOptions struct {
-	CookiesPath string
-	SpaceAPI    string
+	CookiesPath    string
+	SpaceAPI       string
+	DownloadImages bool
+	OutputRoot     string
 }
 
 func InspectSource(source string) (map[string]any, error) {
@@ -50,9 +52,12 @@ func ReadLocalSources(sources []string) ([]Result, error) {
 }
 
 func ReadSourcesWithOptions(sources []string, options ReadOptions) ([]Result, error) {
+	if options.DownloadImages && options.OutputRoot == "" {
+		return nil, fmt.Errorf("download_images requires output_root")
+	}
 	results := []Result{}
 	var remoteSession *remoteReadSession
-	for _, source := range sources {
+	for index, source := range sources {
 		if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
 			if remoteSession == nil {
 				session, err := newRemoteReadSession(options)
@@ -61,7 +66,7 @@ func ReadSourcesWithOptions(sources []string, options ReadOptions) ([]Result, er
 				}
 				remoteSession = session
 			}
-			result, err := remoteSession.readRemote(source)
+			result, err := remoteSession.readRemote(source, fmt.Sprintf("docx_%d", index+1))
 			if err != nil {
 				return nil, err
 			}
@@ -99,10 +104,12 @@ func readLocalSource(source string) (Result, error) {
 }
 
 type remoteReadSession struct {
-	client    *http.Client
-	cookies   []http.Cookie
-	csrfToken string
-	spaceAPI  string
+	client         *http.Client
+	cookies        []http.Cookie
+	csrfToken      string
+	spaceAPI       string
+	downloadImages bool
+	outputRoot     string
 }
 
 type cookieObject struct {
@@ -146,14 +153,16 @@ func newRemoteReadSession(options ReadOptions) (*remoteReadSession, error) {
 		})
 	}
 	return &remoteReadSession{
-		client:    &http.Client{Timeout: 30 * time.Second},
-		cookies:   cookies,
-		csrfToken: csrfToken,
-		spaceAPI:  spaceAPI,
+		client:         &http.Client{Timeout: 30 * time.Second},
+		cookies:        cookies,
+		csrfToken:      csrfToken,
+		spaceAPI:       spaceAPI,
+		downloadImages: options.DownloadImages,
+		outputRoot:     options.OutputRoot,
 	}, nil
 }
 
-func (session *remoteReadSession) readRemote(source string) (Result, error) {
+func (session *remoteReadSession) readRemote(source string, assetGroup string) (Result, error) {
 	parsed, err := url.Parse(source)
 	if err != nil {
 		return Result{}, err
@@ -166,7 +175,13 @@ func (session *remoteReadSession) readRemote(source string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	conversion := docx.ConvertClientVars(data, token)
+	origin := originForURL(parsed)
+	conversionOptions := docx.Options{}
+	if session.downloadImages {
+		writer := newImageAssetWriter(session, origin, source, token, session.outputRoot, assetGroup)
+		conversionOptions.ResolveImage = writer.resolve
+	}
+	conversion := docx.ConvertClientVarsWithOptions(data, token, conversionOptions)
 	title := docxTitle(data, token)
 	return Result{
 		Source:   source,

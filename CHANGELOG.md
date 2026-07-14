@@ -4,10 +4,10 @@
 
 - Added the initial Go POC command surface for version, diagnostics, skill setup, and safe cookie-export failure behavior.
 - Added Go-native local document commands for `docs read`, `docs outline`, `docs chunk`, `docs inspect`, and `docs cleanup`.
-- Added Go-native remote docx `client_vars` reads with pagination merge and basic docx block-to-Markdown parity tests.
+- Added Go-native remote docx `client_vars` reads, image asset downloads, pagination merge, and basic docx block-to-Markdown parity tests.
 - Added Go `update check`, checksum-verified `update self --apply`, and `update skills` support.
 - Added release workflow generation for cross-platform Go binary artifacts and checksums.
-- Kept Python as the v1.x reference runtime for cookie export, full wiki/mindnote/sheet/image remote parity, docs publish, and OKR write parity.
+- Kept Python as the v1.x reference runtime for cookie export, full wiki/mindnote/sheet remote parity, docs publish, and OKR write parity.
 
 ## 1.2.0 - 2026-07-14
 

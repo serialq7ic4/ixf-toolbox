@@ -292,6 +292,134 @@ def test_go_ixf_docs_read_remote_docx_uses_client_vars_api(tmp_path):
     assert requested[-1] == "/space/api/docx/pages/client_vars?id=page_1&open_type=1&mode=4&cursor=next-cursor"
 
 
+def test_go_ixf_docs_read_remote_docx_downloads_images_to_manifest(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    cookies = tmp_path / "cookies.json"
+    cookies.write_text(
+        json.dumps(
+            [
+                {"name": "_csrf_token", "value": "csrf-fixture"},
+                {"name": "session", "value": "session-fixture"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    image_token = "boxr-image-token"
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+    errors: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            if parsed.path == "/space/api/docx/pages/client_vars":
+                payload = {
+                    "code": 0,
+                    "data": {
+                        "block_map": {
+                            "page_1": {
+                                "data": {
+                                    "type": "page",
+                                    "children": ["image_1"],
+                                    "text": {"initialAttributedTexts": {"text": {"0": "Image Doc"}}},
+                                }
+                            },
+                            "image_1": {
+                                "data": {
+                                    "type": "image",
+                                    "parent_id": "page_1",
+                                    "image": {
+                                        "token": image_token,
+                                        "name": "architecture.png",
+                                        "mimeType": "image/png",
+                                        "width": 1200,
+                                        "height": 800,
+                                        "size": len(png_bytes),
+                                        "caption": {
+                                            "initialAttributedTexts": {"text": {"0": "Architecture diagram"}}
+                                        },
+                                    },
+                                }
+                            },
+                        },
+                        "has_more": False,
+                    },
+                }
+                body = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if parsed.path == f"/space/api/box/stream/download/all/{image_token}/":
+                query = parse_qs(parsed.query)
+                if query.get("mount_node_token") != ["page_1"]:
+                    errors.append("missing mount_node_token")
+                if query.get("mount_point") != ["docx_image"]:
+                    errors.append("missing mount_point")
+                if self.headers.get("X-CSRFToken") != "csrf-fixture":
+                    errors.append("missing csrf header")
+                body = png_bytes
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.send_response(404)
+            self.end_headers()
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+    out_dir = tmp_path / "out"
+    try:
+        result = run_go_ixf(
+            binary,
+            "docs",
+            "read",
+            f"{base_url}/docx/page_1",
+            "--cookies",
+            str(cookies),
+            "--space-api",
+            base_url,
+            "--out-dir",
+            str(out_dir),
+            "--download-images",
+            "--print-manifest",
+        )
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+    manifest = json.loads(result.stdout)
+    item = manifest["docx_1"]
+    markdown_path = Path(item["file"])
+    assert markdown_path.read_text(encoding="utf-8") == (
+        "# Image Doc\n\n![Architecture diagram](assets/docx_1/image-001.png)\n"
+    )
+    assert item["assets"] == [
+        {
+            "path": "assets/docx_1/image-001.png",
+            "mimeType": "image/png",
+            "width": 1200,
+            "height": 800,
+            "sizeBytes": len(png_bytes),
+            "status": "downloaded",
+            "ordinal": 1,
+        }
+    ]
+    assert (out_dir / "assets" / "docx_1" / "image-001.png").read_bytes() == png_bytes
+    assert errors == []
+    serialized = json.dumps(manifest, ensure_ascii=False)
+    assert image_token not in serialized
+    assert result.stderr == ""
+
+
 def test_go_ixf_docs_outline_and_chunk_match_local_markdown_contract(tmp_path):
     binary = build_go_ixf(tmp_path)
     source = tmp_path / "source.md"

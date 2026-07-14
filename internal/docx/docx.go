@@ -15,6 +15,28 @@ type Result struct {
 	Warnings []string
 }
 
+type Options struct {
+	ResolveImage func(ImageReference) ImageResolution
+}
+
+type ImageReference struct {
+	BlockID      string
+	Token        string
+	Name         string
+	MimeType     string
+	Width        int
+	Height       int
+	DeclaredSize int
+	Caption      string
+}
+
+type ImageResolution struct {
+	MarkdownPath string
+	AltText      string
+	Asset        map[string]any
+	Warning      string
+}
+
 func ExtractText(value any) string {
 	return extractText(value)
 }
@@ -37,8 +59,13 @@ type blockTree struct {
 var headingLevelPattern = regexp.MustCompile(`(\d+)$`)
 
 func ConvertClientVars(clientVars map[string]any, objToken string) Result {
+	return ConvertClientVarsWithOptions(clientVars, objToken, Options{})
+}
+
+func ConvertClientVarsWithOptions(clientVars map[string]any, objToken string, options Options) Result {
 	tree := buildBlockTree(clientVars, objToken)
 	seen := map[string]bool{}
+	assets := []map[string]any{}
 	warnings := []string{}
 	orderedCounters := map[string]int{}
 	parts := []string{}
@@ -48,7 +75,7 @@ func ConvertClientVars(clientVars map[string]any, objToken string) Result {
 		}
 	}
 	for _, blockID := range tree.order {
-		rendered := renderBlock(tree, blockID, 0, seen, &warnings, orderedCounters)
+		rendered := renderBlock(tree, blockID, 0, seen, &assets, &warnings, options, orderedCounters)
 		if strings.TrimSpace(rendered) != "" {
 			parts = append(parts, strings.TrimRight(rendered, "\n"))
 		}
@@ -60,7 +87,7 @@ func ConvertClientVars(clientVars map[string]any, objToken string) Result {
 	return Result{
 		Markdown: markdown,
 		Counts:   countBlockTypes(tree.blocks),
-		Assets:   []map[string]any{},
+		Assets:   assets,
 		Warnings: warnings,
 	}
 }
@@ -126,7 +153,16 @@ func findRootID(blocks map[string]block, objToken string) string {
 	return ""
 }
 
-func renderBlock(tree blockTree, blockID string, depth int, seen map[string]bool, warnings *[]string, orderedCounters map[string]int) string {
+func renderBlock(
+	tree blockTree,
+	blockID string,
+	depth int,
+	seen map[string]bool,
+	assets *[]map[string]any,
+	warnings *[]string,
+	options Options,
+	orderedCounters map[string]int,
+) string {
 	if seen[blockID] {
 		return ""
 	}
@@ -137,7 +173,7 @@ func renderBlock(tree blockTree, blockID string, depth int, seen map[string]bool
 	}
 	switch {
 	case block.kind == "page":
-		return renderChildren(tree, block, depth, seen, warnings, orderedCounters)
+		return renderChildren(tree, block, depth, seen, assets, warnings, options, orderedCounters)
 	case strings.HasPrefix(block.kind, "heading"):
 		level := 1
 		if match := headingLevelPattern.FindStringSubmatch(block.kind); len(match) == 2 {
@@ -153,7 +189,7 @@ func renderBlock(tree blockTree, blockID string, depth int, seen map[string]bool
 		return block.text
 	case block.kind == "bullet":
 		line := strings.TrimRight(strings.Repeat("  ", depth)+"- "+block.text, " ")
-		children := renderChildren(tree, block, depth+1, seen, warnings, orderedCounters)
+		children := renderChildren(tree, block, depth+1, seen, assets, warnings, options, orderedCounters)
 		return joinNonEmpty("\n\n", line, children)
 	case block.kind == "ordered":
 		parentKey := block.parentID
@@ -174,7 +210,7 @@ func renderBlock(tree blockTree, blockID string, depth int, seen map[string]bool
 	case block.kind == "divider":
 		return "---"
 	case block.kind == "quote_container":
-		inner := renderChildren(tree, block, depth, seen, warnings, orderedCounters)
+		inner := renderChildren(tree, block, depth, seen, assets, warnings, options, orderedCounters)
 		if strings.TrimSpace(inner) == "" {
 			return ">"
 		}
@@ -188,7 +224,7 @@ func renderBlock(tree blockTree, blockID string, depth int, seen map[string]bool
 		}
 		return strings.Join(lines, "\n")
 	case block.kind == "callout":
-		children := renderChildren(tree, block, depth+1, seen, warnings, orderedCounters)
+		children := renderChildren(tree, block, depth+1, seen, assets, warnings, options, orderedCounters)
 		return joinNonEmpty("\n\n", "[callout]", strings.TrimRight(children, "\n"))
 	case block.kind == "sheet":
 		token := stringValue(block.raw["token"])
@@ -197,9 +233,9 @@ func renderBlock(tree blockTree, blockID string, depth int, seen map[string]bool
 		}
 		return "[sheet token=" + token + "]"
 	case block.kind == "table":
-		return renderTable(tree, block, seen, warnings, orderedCounters)
+		return renderTable(tree, block, seen, assets, warnings, options, orderedCounters)
 	case block.kind == "image":
-		return "[image]"
+		return renderImage(block, assets, warnings, options)
 	case block.kind == "table_cell" || block.kind == "whiteboard" || block.kind == "mindnote" || block.kind == "isv":
 		return "[" + block.kind + "]"
 	default:
@@ -207,7 +243,7 @@ func renderBlock(tree blockTree, blockID string, depth int, seen map[string]bool
 		if block.kind != "" {
 			childDepth++
 		}
-		children := renderChildren(tree, block, childDepth, seen, warnings, orderedCounters)
+		children := renderChildren(tree, block, childDepth, seen, assets, warnings, options, orderedCounters)
 		if block.kind != "" && block.kind != "unknown" {
 			appendWarning(warnings, "unsupported block type: "+block.kind)
 		}
@@ -215,10 +251,19 @@ func renderBlock(tree blockTree, blockID string, depth int, seen map[string]bool
 	}
 }
 
-func renderChildren(tree blockTree, block block, depth int, seen map[string]bool, warnings *[]string, orderedCounters map[string]int) string {
+func renderChildren(
+	tree blockTree,
+	block block,
+	depth int,
+	seen map[string]bool,
+	assets *[]map[string]any,
+	warnings *[]string,
+	options Options,
+	orderedCounters map[string]int,
+) string {
 	parts := []string{}
 	for _, childID := range block.children {
-		rendered := renderBlock(tree, childID, depth, seen, warnings, orderedCounters)
+		rendered := renderBlock(tree, childID, depth, seen, assets, warnings, options, orderedCounters)
 		if strings.TrimSpace(rendered) != "" {
 			parts = append(parts, strings.TrimRight(rendered, "\n"))
 		}
@@ -226,7 +271,15 @@ func renderChildren(tree blockTree, block block, depth int, seen map[string]bool
 	return strings.Join(parts, "\n\n")
 }
 
-func renderTable(tree blockTree, block block, seen map[string]bool, warnings *[]string, orderedCounters map[string]int) string {
+func renderTable(
+	tree blockTree,
+	block block,
+	seen map[string]bool,
+	assets *[]map[string]any,
+	warnings *[]string,
+	options Options,
+	orderedCounters map[string]int,
+) string {
 	rows := readChildren(block.raw["rows_id"])
 	columns := readChildren(block.raw["columns_id"])
 	cellSet := asMap(block.raw["cell_set"])
@@ -238,7 +291,7 @@ func renderTable(tree blockTree, block block, seen map[string]bool, warnings *[]
 		renderedRow := make([]string, 0, len(columns))
 		for _, columnID := range columns {
 			cellID := tableCellBlockID(cellSet, rowID, columnID)
-			renderedRow = append(renderedRow, renderTableCell(tree, cellID, seen, warnings, orderedCounters))
+			renderedRow = append(renderedRow, renderTableCell(tree, cellID, seen, assets, warnings, options, orderedCounters))
 		}
 		renderedRows = append(renderedRows, renderedRow)
 	}
@@ -273,16 +326,99 @@ func tableCellBlockID(cellSet map[string]any, rowID string, columnID string) str
 	return ""
 }
 
-func renderTableCell(tree blockTree, cellID string, seen map[string]bool, warnings *[]string, orderedCounters map[string]int) string {
+func renderTableCell(
+	tree blockTree,
+	cellID string,
+	seen map[string]bool,
+	assets *[]map[string]any,
+	warnings *[]string,
+	options Options,
+	orderedCounters map[string]int,
+) string {
 	cell, ok := tree.blocks[cellID]
 	if !ok {
 		return ""
 	}
-	rendered := renderChildren(tree, cell, 0, seen, warnings, orderedCounters)
+	rendered := renderChildren(tree, cell, 0, seen, assets, warnings, options, orderedCounters)
 	if rendered == "" {
 		rendered = cell.text
 	}
 	return normalizeTableCell(rendered)
+}
+
+func renderImage(block block, assets *[]map[string]any, warnings *[]string, options Options) string {
+	if options.ResolveImage == nil {
+		return "[image]"
+	}
+	image := asMap(block.raw["image"])
+	reference := ImageReference{
+		BlockID:      block.id,
+		Token:        stringValue(image["token"]),
+		Name:         stringValue(image["name"]),
+		MimeType:     stringValue(image["mimeType"]),
+		Width:        intValue(image["width"]),
+		Height:       intValue(image["height"]),
+		DeclaredSize: intValue(image["size"]),
+		Caption:      extractText(image["caption"]),
+	}
+	resolution, ok := resolveImageSafely(options.ResolveImage, reference)
+	if !ok {
+		appendWarning(warnings, "image resolution failed")
+		return "[image]"
+	}
+	if imageResolutionContainsToken(resolution, reference.Token) {
+		appendWarning(warnings, "image resolution rejected unsafe output")
+		return "[image]"
+	}
+	if resolution.Asset != nil && assets != nil {
+		*assets = append(*assets, resolution.Asset)
+	}
+	if resolution.Warning != "" {
+		appendWarning(warnings, resolution.Warning)
+	}
+	if resolution.MarkdownPath == "" {
+		return "[image]"
+	}
+	return "![" + resolution.AltText + "](" + resolution.MarkdownPath + ")"
+}
+
+func resolveImageSafely(resolve func(ImageReference) ImageResolution, reference ImageReference) (resolution ImageResolution, ok bool) {
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+	return resolve(reference), true
+}
+
+func imageResolutionContainsToken(resolution ImageResolution, token string) bool {
+	if token == "" {
+		return false
+	}
+	return valueContainsToken(resolution.MarkdownPath, token) ||
+		valueContainsToken(resolution.AltText, token) ||
+		valueContainsToken(resolution.Asset, token) ||
+		valueContainsToken(resolution.Warning, token)
+}
+
+func valueContainsToken(value any, token string) bool {
+	switch typed := value.(type) {
+	case string:
+		return strings.Contains(typed, token)
+	case map[string]any:
+		for key, item := range typed {
+			if valueContainsToken(key, token) || valueContainsToken(item, token) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range typed {
+			if valueContainsToken(item, token) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func extractText(value any) string {
@@ -477,6 +613,25 @@ func readBool(value any) bool {
 		}
 	default:
 		return value != nil && stringValue(value) != "" && stringValue(value) != "0"
+	}
+}
+
+func intValue(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err != nil {
+			return 0
+		}
+		return parsed
+	default:
+		return 0
 	}
 }
 

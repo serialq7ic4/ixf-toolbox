@@ -236,8 +236,10 @@ func runDocsRead(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 	results, err := docslocal.ReadSourcesWithOptions(parsed.sources, docslocal.ReadOptions{
-		CookiesPath: parsed.cookiesPath,
-		SpaceAPI:    parsed.spaceAPI,
+		CookiesPath:    parsed.cookiesPath,
+		SpaceAPI:       parsed.spaceAPI,
+		DownloadImages: parsed.downloadImages,
+		OutputRoot:     parsed.outDir,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
@@ -407,12 +409,13 @@ type outlineArgs struct {
 }
 
 type docsReadArgs struct {
-	sources       []string
-	outDir        string
-	printManifest bool
-	cleanup       bool
-	cookiesPath   string
-	spaceAPI      string
+	sources        []string
+	outDir         string
+	printManifest  bool
+	cleanup        bool
+	cookiesPath    string
+	spaceAPI       string
+	downloadImages bool
 }
 
 func parseDocsReadArgs(args []string) (docsReadArgs, error) {
@@ -433,8 +436,10 @@ func parseDocsReadArgs(args []string) (docsReadArgs, error) {
 			parsed.printManifest = true
 		case "--cleanup":
 			parsed.cleanup = true
-		case "--expand-sheets", "--download-images":
-			// Accepted for CLI parity. These options only affect remote reads.
+		case "--expand-sheets":
+			// Accepted for CLI parity. Sheet expansion remains Python-reference behavior.
+		case "--download-images":
+			parsed.downloadImages = true
 		case "--cookies":
 			i++
 			if i >= len(args) {
@@ -462,6 +467,9 @@ func parseDocsReadArgs(args []string) (docsReadArgs, error) {
 	}
 	if parsed.cleanup && parsed.outDir == "" {
 		return parsed, fmt.Errorf("--cleanup requires --out-dir")
+	}
+	if parsed.downloadImages && parsed.outDir == "" {
+		return parsed, fmt.Errorf("--download-images requires --out-dir")
 	}
 	return parsed, nil
 }

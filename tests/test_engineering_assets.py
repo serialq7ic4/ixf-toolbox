@@ -42,7 +42,7 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         [
             sys.executable,
             "scripts/extract_changelog.py",
-            "1.7.0",
+            "1.8.0",
             "CHANGELOG.md",
         ],
         cwd=ROOT,
@@ -51,9 +51,9 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         check=True,
     )
 
-    assert "Go-native cookie export" in result.stdout
-    assert "macOS and Windows" in result.stdout
-    assert "## 1.6.0" not in result.stdout
+    assert "cookie export help" in result.stdout
+    assert "OKR write apply gating" in result.stdout
+    assert "## 1.7.0" not in result.stdout
 
 
 def test_smoke_script_installs_toolbox_wheel_in_isolated_environment():

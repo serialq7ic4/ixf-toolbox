@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 1.8.0 - 2026-07-15
+
+- Hardened Go CLI cookie export help so `ixf cookies export --help` exits successfully and lists provider-specific options on stdout.
+- Added OKR write apply gating coverage to prove `--objective-index` validation happens before cookie loading.
+- Updated release-note contract coverage for the v1.8 release boundary and advanced self-update fixtures toward `v2.0.0`.
+
 ## 1.7.0 - 2026-07-15
 
 - Added Go-native cookie export for macOS and Windows LarkShell Chromium profiles with local SQLite cookie DB reads.

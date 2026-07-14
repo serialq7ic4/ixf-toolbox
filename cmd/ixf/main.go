@@ -24,7 +24,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "1.7.0"
+var version = "1.8.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -182,6 +182,13 @@ func runCookies(args []string, stdout io.Writer, stderr io.Writer) int {
 	appData := flags.String("app-data", "", "")
 	localState := flags.String("local-state", "", "")
 	asJSON := flags.Bool("json", false, "")
+	for _, arg := range args[1:] {
+		if arg == "-h" || arg == "--help" {
+			flags.SetOutput(stdout)
+			flags.Usage()
+			return 0
+		}
+	}
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}

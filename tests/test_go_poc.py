@@ -31,7 +31,7 @@ def test_go_ixf_version_matches_python_release(tmp_path):
     binary = build_go_ixf(tmp_path)
     result = run_go_ixf(binary, "--version")
 
-    assert result.stdout.strip() == "ixf 1.7.0"
+    assert result.stdout.strip() == "ixf 1.8.0"
     assert result.stderr == ""
 
 
@@ -59,7 +59,7 @@ def test_go_ixf_doctor_json_is_secret_safe_and_reports_go_runtime(tmp_path):
     serialized = json.dumps(payload, ensure_ascii=False)
 
     assert payload["ok"] is True
-    assert payload["version"] == "1.7.0"
+    assert payload["version"] == "1.8.0"
     assert payload["runtime"] == "go-poc"
     assert payload["capabilities"]["cookiesExport"] is True
     assert payload["skills"]["codex"]["ok"] is True
@@ -182,6 +182,19 @@ def test_go_ixf_cookies_export_supports_windows_plain_cookie_db(tmp_path):
     assert payload["cookieCount"] == 2
     assert payload["hasCsrf"] is True
     assert [cookie["value"] for cookie in cookies] == ["csrf-fixture", "session-fixture"]
+    assert result.stderr == ""
+
+
+def test_go_ixf_cookies_export_help_lists_provider_options(tmp_path):
+    binary = build_go_ixf(tmp_path)
+
+    result = run_go_ixf(binary, "cookies", "export", "--help")
+
+    assert "Usage of ixf cookies export" in result.stdout
+    assert "-cookies-db" in result.stdout
+    assert "-host-like" in result.stdout
+    assert "-keychain-service" in result.stdout
+    assert "-local-state" in result.stdout
     assert result.stderr == ""
 
 
@@ -1544,6 +1557,35 @@ def test_go_ixf_okr_write_apply_updates_target_objective_by_index(tmp_path):
     assert result.stderr == ""
 
 
+def test_go_ixf_okr_write_apply_requires_objective_index_before_cookies(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    source = tmp_path / "okr.json"
+    source.write_text(
+        json.dumps({"objectives": [{"objective": "New O", "krs": ["New KR"]}]}),
+        encoding="utf-8",
+    )
+    missing_cookies = tmp_path / "missing-cookies.json"
+
+    result = run_go_ixf(
+        binary,
+        "okr",
+        "write",
+        "--url",
+        "https://tenant.example.test/okr/user/example/?okrId=okr-fixture-200",
+        "--input",
+        str(source),
+        "--cookies",
+        str(missing_cookies),
+        "--apply",
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "--objective-index is required" in result.stderr
+    assert str(missing_cookies) not in result.stderr
+    assert result.stdout == ""
+
+
 def test_go_ixf_docs_cleanup_removes_only_manifest_outputs(tmp_path):
     binary = build_go_ixf(tmp_path)
     out_dir = tmp_path / "out"
@@ -1580,8 +1622,8 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     release.write_text(
         json.dumps(
             {
-                "tag_name": "v1.8.0",
-                "html_url": "https://github.example/releases/v1.8.0",
+                "tag_name": "v2.0.0",
+                "html_url": "https://github.example/releases/v2.0.0",
             }
         ),
         encoding="utf-8",
@@ -1598,9 +1640,9 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     payload = json.loads(result.stdout)
 
     assert payload["ok"] is True
-    assert payload["currentVersion"] == "1.7.0"
-    assert payload["latestVersion"] == "1.8.0"
-    assert payload["latestTag"] == "v1.8.0"
+    assert payload["currentVersion"] == "1.8.0"
+    assert payload["latestVersion"] == "2.0.0"
+    assert payload["latestTag"] == "v2.0.0"
     assert payload["updateAvailable"] is True
     assert payload["applied"] is False
     assert payload["commands"] == []
@@ -1609,7 +1651,7 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
 
 def test_go_ixf_update_self_apply_replaces_target_with_verified_asset(tmp_path):
     binary = build_go_ixf(tmp_path)
-    version = "1.8.0"
+    version = "2.0.0"
     goos = subprocess.run(
         ["go", "env", "GOOS"],
         cwd=ROOT,
@@ -1638,7 +1680,7 @@ def test_go_ixf_update_self_apply_replaces_target_with_verified_asset(tmp_path):
         json.dumps(
             {
                 "tag_name": f"v{version}",
-                "html_url": "https://github.example/releases/v1.8.0",
+                "html_url": "https://github.example/releases/v2.0.0",
                 "assets": [
                     {"name": artifact_name, "browser_download_url": artifact.as_uri()},
                     {"name": checksums.name, "browser_download_url": checksums.as_uri()},

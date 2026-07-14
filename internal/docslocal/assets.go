@@ -1,6 +1,7 @@
 package docslocal
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -204,7 +205,19 @@ func hasValidImageMagic(mimeType string, extension string, content []byte) bool 
 	if mimeType == "image/webp" || extension == ".webp" {
 		return len(content) >= 12 && string(content[:4]) == "RIFF" && string(content[8:12]) == "WEBP"
 	}
-	return strings.HasPrefix(mimeType, "image/")
+	if mimeType == "image/svg+xml" || extension == ".svg" {
+		trimmed := bytes.ToLower(bytes.TrimSpace(content))
+		return bytes.HasPrefix(trimmed, []byte("<svg")) ||
+			(bytes.HasPrefix(trimmed, []byte("<?xml")) && bytes.Contains(trimmed, []byte("<svg")))
+	}
+	if mimeType == "image/bmp" || extension == ".bmp" {
+		return len(content) >= 2 && string(content[:2]) == "BM"
+	}
+	if mimeType == "image/tiff" || extension == ".tif" || extension == ".tiff" {
+		return len(content) >= 4 &&
+			(string(content[:4]) == "II*\x00" || string(content[:4]) == "MM\x00*")
+	}
+	return false
 }
 
 func removeIfExists(path string) {

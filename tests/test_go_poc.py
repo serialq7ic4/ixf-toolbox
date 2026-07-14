@@ -11,6 +11,11 @@ import threading
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from ixf_toolbox.core.docs.assets import has_valid_image_magic
+from ixf_toolbox.core.docs.converters.docx_markdown import ConversionOptions
+from ixf_toolbox.core.docs.converters.docx_markdown import ImageResolution
+from ixf_toolbox.core.docs.converters.docx_markdown import convert_docx_client_vars
+
 
 ROOT = Path(__file__).resolve().parents[1]
 GO_ENV = {
@@ -53,6 +58,166 @@ def run_go_ixf(
 
 def gzip_json(value: dict) -> str:
     return base64.b64encode(gzip.compress(json.dumps(value).encode("utf-8"))).decode("ascii")
+
+
+def attributed_text(text: str) -> dict:
+    return {"initialAttributedTexts": {"text": {"0": text}}}
+
+
+def linked_text(label: str, url: str, suffix: str = "") -> dict:
+    return {
+        "apool": {"numToAttrib": {"0": [["url", url]]}},
+        "initialAttributedTexts": {
+            "attribs": {"0": "*0+4"},
+            "text": {"0": label, "1": suffix},
+        },
+    }
+
+
+def block(data: dict) -> dict:
+    return {"data": data}
+
+
+def remote_docx_parity_client_vars(image_token: str) -> dict:
+    return {
+        "block_map": {
+            "page_1": block(
+                {
+                    "type": "page",
+                    "children": [
+                        "heading_1",
+                        "text_1",
+                        "todo_1",
+                        "quote_1",
+                        "callout_1",
+                        "table_1",
+                        "image_1",
+                        "sheet_1",
+                    ],
+                    "text": attributed_text("Parity Doc"),
+                }
+            ),
+            "heading_1": block(
+                {"type": "heading2", "parent_id": "page_1", "text": attributed_text("Plan")}
+            ),
+            "text_1": block(
+                {
+                    "type": "text",
+                    "parent_id": "page_1",
+                    "text": linked_text("Spec", "https://example.test/spec", " is ready"),
+                }
+            ),
+            "todo_1": block(
+                {
+                    "type": "todo",
+                    "parent_id": "page_1",
+                    "checked": False,
+                    "text": attributed_text("Ship parity"),
+                }
+            ),
+            "quote_1": block(
+                {"type": "quote_container", "parent_id": "page_1", "children": ["quote_text_1"]}
+            ),
+            "quote_text_1": block(
+                {"type": "text", "parent_id": "quote_1", "text": attributed_text("Quote line")}
+            ),
+            "callout_1": block(
+                {"type": "callout", "parent_id": "page_1", "children": ["callout_text_1"]}
+            ),
+            "callout_text_1": block(
+                {"type": "text", "parent_id": "callout_1", "text": attributed_text("Callout body")}
+            ),
+            "table_1": block(
+                {
+                    "type": "table",
+                    "parent_id": "page_1",
+                    "rows_id": ["row_1", "row_2"],
+                    "columns_id": ["col_1", "col_2"],
+                    "cell_set": {
+                        "row_1_col_1": {"block_id": "cell_1_1"},
+                        "row_1_col_2": {"block_id": "cell_1_2"},
+                        "row_2_col_1": {"block_id": "cell_2_1"},
+                        "row_2_col_2": {"block_id": "cell_2_2"},
+                    },
+                }
+            ),
+            "cell_1_1": block({"type": "table_cell", "children": ["cell_text_1_1"]}),
+            "cell_1_2": block({"type": "table_cell", "children": ["cell_text_1_2"]}),
+            "cell_2_1": block({"type": "table_cell", "children": ["cell_text_2_1"]}),
+            "cell_2_2": block({"type": "table_cell", "children": ["cell_text_2_2"]}),
+            "cell_text_1_1": block(
+                {"type": "text", "parent_id": "cell_1_1", "text": attributed_text("Metric")}
+            ),
+            "cell_text_1_2": block(
+                {"type": "text", "parent_id": "cell_1_2", "text": attributed_text("Value")}
+            ),
+            "cell_text_2_1": block(
+                {"type": "text", "parent_id": "cell_2_1", "text": attributed_text("Coverage")}
+            ),
+            "cell_text_2_2": block(
+                {"type": "text", "parent_id": "cell_2_2", "text": attributed_text("100%")}
+            ),
+            "image_1": block(
+                {
+                    "type": "image",
+                    "parent_id": "page_1",
+                    "image": {
+                        "token": image_token,
+                        "name": "diagram.svg",
+                        "mimeType": "image/svg+xml",
+                        "width": 640,
+                        "height": 360,
+                        "size": 22,
+                        "caption": attributed_text("Architecture diagram"),
+                    },
+                }
+            ),
+            "sheet_1": block(
+                {"type": "sheet", "parent_id": "page_1", "token": "shtr_fixture_sheet1"}
+            ),
+        }
+    }
+
+
+def sheet_expansion_lines() -> list[str]:
+    return [
+        "[sheet-meta workbook_token=shtr_fixture sheet_id=sheet1 rows=2 cols=2]",
+        "```tsv",
+        "Name\tValue",
+        "Alpha\t42",
+        "```",
+        "",
+    ]
+
+
+def sheet_client_vars_payload() -> dict:
+    return {
+        "code": 0,
+        "data": {
+            "formerlySchema": {
+                "clientvars": {
+                    "gzip_snapshot": gzip_json(
+                        {"sheets": {"sheet1": {"rowCount": 2, "columnCount": 2}}}
+                    ),
+                    "extra_data": {
+                        "blocks": [
+                            {
+                                "row": 0,
+                                "gzip_datatable": gzip_json(
+                                    {
+                                        "rows": [
+                                            {"columns": [{"value": "Name"}, {"value": "Value"}]},
+                                            {"columns": [{"value": "Alpha"}, {"value": 42}]},
+                                        ]
+                                    }
+                                ),
+                            }
+                        ]
+                    },
+                }
+            }
+        },
+    }
 
 
 def test_go_ixf_version_matches_python_release(tmp_path):
@@ -576,6 +741,136 @@ def test_go_ixf_docs_read_remote_docx_expands_sheets_to_manifest(tmp_path):
         "```\n"
     )
     assert item["counts"]["sheet_expanded"] == 1
+    assert errors == []
+    assert result.stderr == ""
+
+
+def test_go_ixf_docs_read_remote_docx_matches_python_golden_for_mixed_blocks(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    cookies = tmp_path / "cookies.json"
+    cookies.write_text(
+        json.dumps(
+            [
+                {"name": "_csrf_token", "value": "csrf-fixture"},
+                {"name": "session", "value": "session-fixture"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    image_token = "boxr-invalid-svg-token"
+    invalid_svg = b"<html>not svg</html>"
+    client_vars_data = remote_docx_parity_client_vars(image_token)
+    errors: list[str] = []
+
+    def python_image_reference(_reference) -> ImageResolution:
+        assert not has_valid_image_magic("image/svg+xml", invalid_svg)
+        return ImageResolution(
+            markdown_path=None,
+            alt_text="Architecture diagram",
+            warning="image 1 download failed: content_error",
+        )
+
+    expected_conversion = convert_docx_client_vars(
+        client_vars_data,
+        "page_1",
+        ConversionOptions(
+            expand_sheet=lambda _token: sheet_expansion_lines(),
+            resolve_image=python_image_reference,
+        ),
+    )
+    expected_counts = dict(expected_conversion.counts)
+    expected_counts["sheet_expanded"] = 1
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            if parsed.path == "/space/api/docx/pages/client_vars":
+                query = parse_qs(parsed.query)
+                if query.get("id") != ["page_1"]:
+                    errors.append("wrong docx id")
+                if self.headers.get("X-CSRFToken") != "csrf-fixture":
+                    errors.append("missing csrf header")
+                if "session=session-fixture" not in self.headers.get("Cookie", ""):
+                    errors.append("missing session cookie")
+                self._write_json({"code": 0, "data": {**client_vars_data, "has_more": False}})
+                return
+            if parsed.path == f"/space/api/box/stream/download/all/{image_token}/":
+                query = parse_qs(parsed.query)
+                if query.get("mount_node_token") != ["page_1"]:
+                    errors.append("missing mount_node_token")
+                if query.get("mount_point") != ["docx_image"]:
+                    errors.append("missing mount_point")
+                body = invalid_svg
+                self.send_response(200)
+                self.send_header("Content-Type", "image/svg+xml")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.send_response(404)
+            self.end_headers()
+
+        def do_POST(self) -> None:
+            parsed = urlparse(self.path)
+            if parsed.path != "/space/api/v3/sheet/client_vars":
+                self.send_response(404)
+                self.end_headers()
+                return
+            query = parse_qs(parsed.query)
+            if query.get("synced_block_host_token") != ["page_1"]:
+                errors.append("missing synced_block_host_token")
+            request = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+            if request["token"] != "shtr_fixture":
+                errors.append("wrong workbook token")
+            if request["sheetRange"]["sheetId"] != "sheet1":
+                errors.append("wrong sheet id")
+            self._write_json(sheet_client_vars_payload())
+
+        def _write_json(self, payload: dict) -> None:
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+    out_dir = tmp_path / "out"
+    try:
+        result = run_go_ixf(
+            binary,
+            "docs",
+            "read",
+            f"{base_url}/docx/page_1",
+            "--cookies",
+            str(cookies),
+            "--space-api",
+            base_url,
+            "--out-dir",
+            str(out_dir),
+            "--download-images",
+            "--expand-sheets",
+            "--print-manifest",
+        )
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+    manifest = json.loads(result.stdout)
+    item = manifest["docx_1"]
+    markdown_path = Path(item["file"])
+    assert markdown_path.read_text(encoding="utf-8") == expected_conversion.markdown
+    assert item["counts"] == expected_counts
+    assert item["assets"] == []
+    assert item["warnings"] == expected_conversion.warnings
+    assert not (out_dir / "assets" / "docx_1" / "image-001.svg").exists()
+    assert image_token not in json.dumps(manifest, ensure_ascii=False)
     assert errors == []
     assert result.stderr == ""
 

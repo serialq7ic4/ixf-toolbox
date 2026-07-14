@@ -17,6 +17,7 @@ type Result struct {
 
 type Options struct {
 	ResolveImage func(ImageReference) ImageResolution
+	ExpandSheet  func(string) []string
 }
 
 type ImageReference struct {
@@ -228,10 +229,16 @@ func renderBlock(
 		return joinNonEmpty("\n\n", "[callout]", strings.TrimRight(children, "\n"))
 	case block.kind == "sheet":
 		token := stringValue(block.raw["token"])
+		marker := "[sheet]"
 		if token == "" {
-			return "[sheet]"
+			return marker
 		}
-		return "[sheet token=" + token + "]"
+		marker = "[sheet token=" + token + "]"
+		if options.ExpandSheet == nil {
+			return marker
+		}
+		expanded := options.ExpandSheet(token)
+		return joinNonEmpty("\n", marker, strings.TrimSpace(strings.Join(expanded, "\n")))
 	case block.kind == "table":
 		return renderTable(tree, block, seen, assets, warnings, options, orderedCounters)
 	case block.kind == "image":

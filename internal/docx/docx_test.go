@@ -183,6 +183,42 @@ func TestConvertClientVarsRendersTodosTablesAndResourceMarkers(t *testing.T) {
 	assertStringSlice(t, result.Warnings, nil)
 }
 
+func TestConvertClientVarsExpandsSheetBlocks(t *testing.T) {
+	clientVars := map[string]any{
+		"block_map": map[string]any{
+			"page_1": blockData(map[string]any{
+				"type":     "page",
+				"children": []any{"sheet_1"},
+			}),
+			"sheet_1": blockData(map[string]any{
+				"type":      "sheet",
+				"parent_id": "page_1",
+				"token":     "shtr_fixture_sheet1",
+			}),
+		},
+	}
+	expandedTokens := []string{}
+
+	result := ConvertClientVarsWithOptions(clientVars, "page_1", Options{
+		ExpandSheet: func(token string) []string {
+			expandedTokens = append(expandedTokens, token)
+			return []string{
+				"[sheet-meta workbook_token=shtr_fixture sheet_id=sheet1 rows=1 cols=2]",
+				"```tsv",
+				"Name\tValue",
+				"```",
+			}
+		},
+	})
+
+	assertStringSlice(t, expandedTokens, []string{"shtr_fixture_sheet1"})
+	if result.Markdown != "[sheet token=shtr_fixture_sheet1]\n[sheet-meta workbook_token=shtr_fixture sheet_id=sheet1 rows=1 cols=2]\n```tsv\nName\tValue\n```\n" {
+		t.Fatalf("markdown = %q", result.Markdown)
+	}
+	assertCounts(t, result.Counts, map[string]int{"page": 1, "sheet": 1})
+	assertStringSlice(t, result.Warnings, nil)
+}
+
 func TestConvertClientVarsResolvesImageMetadataAndRendersMarkdown(t *testing.T) {
 	token := "raw-image-token"
 	clientVars := map[string]any{

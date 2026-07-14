@@ -1,6 +1,9 @@
 package docslocal
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -199,6 +202,123 @@ func TestReadSourcesWithOptionsDownloadsRemoteDocxImages(t *testing.T) {
 	}
 }
 
+func TestReadSourcesWithOptionsExpandsRemoteDocxSheets(t *testing.T) {
+	var sheetRequested bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/docx/pages/client_vars":
+			writeJSONResponse(t, w, map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"block_map": map[string]any{
+						"page_1": map[string]any{
+							"data": map[string]any{
+								"type":     "page",
+								"children": []any{"sheet_1"},
+								"text":     attributedTextValue("Sheet Doc"),
+							},
+						},
+						"sheet_1": map[string]any{
+							"data": map[string]any{
+								"type":      "sheet",
+								"parent_id": "page_1",
+								"token":     "shtr_fixture_sheet1",
+							},
+						},
+					},
+					"has_more": false,
+				},
+			})
+		case "/space/api/v3/sheet/client_vars":
+			sheetRequested = true
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %s, want POST", r.Method)
+			}
+			if got := r.URL.Query().Get("synced_block_host_token"); got != "page_1" {
+				t.Fatalf("synced host token = %q, want page_1", got)
+			}
+			if got := r.URL.Query().Get("synced_block_host_type"); got != "22" {
+				t.Fatalf("synced host type = %q, want 22", got)
+			}
+			if got := r.Header.Get("X-CSRFToken"); got != "csrf-fixture" {
+				t.Fatalf("X-CSRFToken = %q, want csrf-fixture", got)
+			}
+			var request map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatal(err)
+			}
+			if request["token"] != "shtr_fixture" {
+				t.Fatalf("sheet token = %#v, want shtr_fixture", request["token"])
+			}
+			rangeValue := request["sheetRange"].(map[string]any)
+			if rangeValue["sheetId"] != "sheet1" {
+				t.Fatalf("sheet range = %#v, want sheet1", rangeValue)
+			}
+			writeJSONResponse(t, w, map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"formerlySchema": map[string]any{
+						"clientvars": map[string]any{
+							"gzip_snapshot": gzipJSON(t, map[string]any{
+								"sheets": map[string]any{
+									"sheet1": map[string]any{"rowCount": 2, "columnCount": 2},
+								},
+							}),
+							"extra_data": map[string]any{
+								"blocks": []any{
+									map[string]any{
+										"row": 0,
+										"gzip_datatable": gzipJSON(t, map[string]any{
+											"rows": []any{
+												map[string]any{
+													"columns": []any{
+														map[string]any{"value": "Name"},
+														map[string]any{"value": "Value"},
+													},
+												},
+												map[string]any{
+													"columns": []any{
+														map[string]any{"value": "Alpha"},
+														map[string]any{"value": 42},
+													},
+												},
+											},
+										}),
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	results, err := ReadSourcesWithOptions([]string{server.URL + "/docx/page_1"}, ReadOptions{
+		CookiesPath:  cookiesPath,
+		SpaceAPI:     server.URL,
+		ExpandSheets: true,
+	})
+	if err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+
+	if !sheetRequested {
+		t.Fatal("sheet client_vars endpoint was not requested")
+	}
+	result := results[0]
+	want := "# Sheet Doc\n\n[sheet token=shtr_fixture_sheet1]\n[sheet-meta workbook_token=shtr_fixture sheet_id=sheet1 rows=2 cols=2]\n```tsv\nName\tValue\nAlpha\t42\n```\n"
+	if result.Content != want {
+		t.Fatalf("content = %q, want %q", result.Content, want)
+	}
+	assertResultCounts(t, result.Counts, map[string]int{"page": 1, "sheet": 1, "sheet_expanded": 1})
+}
+
 func writeCookieFixture(t *testing.T, path string) {
 	t.Helper()
 	content, err := json.Marshal([]map[string]string{
@@ -211,6 +331,23 @@ func writeCookieFixture(t *testing.T, path string) {
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func gzipJSON(t *testing.T, value map[string]any) string {
+	t.Helper()
+	content, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buffer bytes.Buffer
+	writer := gzip.NewWriter(&buffer)
+	if _, err := writer.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(buffer.Bytes())
 }
 
 func writeJSONResponse(t *testing.T, w http.ResponseWriter, payload map[string]any) {

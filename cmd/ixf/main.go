@@ -240,6 +240,7 @@ func runDocsRead(args []string, stdout io.Writer, stderr io.Writer) int {
 		SpaceAPI:       parsed.spaceAPI,
 		DownloadImages: parsed.downloadImages,
 		OutputRoot:     parsed.outDir,
+		ExpandSheets:   parsed.expandSheets,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
@@ -416,6 +417,7 @@ type docsReadArgs struct {
 	cookiesPath    string
 	spaceAPI       string
 	downloadImages bool
+	expandSheets   bool
 }
 
 func parseDocsReadArgs(args []string) (docsReadArgs, error) {
@@ -437,7 +439,7 @@ func parseDocsReadArgs(args []string) (docsReadArgs, error) {
 		case "--cleanup":
 			parsed.cleanup = true
 		case "--expand-sheets":
-			// Accepted for CLI parity. Sheet expansion remains Python-reference behavior.
+			parsed.expandSheets = true
 		case "--download-images":
 			parsed.downloadImages = true
 		case "--cookies":

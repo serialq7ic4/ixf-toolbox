@@ -38,6 +38,7 @@ type ReadOptions struct {
 	SpaceAPI       string
 	DownloadImages bool
 	OutputRoot     string
+	ExpandSheets   bool
 }
 
 func InspectSource(source string) (map[string]any, error) {
@@ -110,6 +111,7 @@ type remoteReadSession struct {
 	spaceAPI       string
 	downloadImages bool
 	outputRoot     string
+	expandSheets   bool
 }
 
 type cookieObject struct {
@@ -159,6 +161,7 @@ func newRemoteReadSession(options ReadOptions) (*remoteReadSession, error) {
 		spaceAPI:       spaceAPI,
 		downloadImages: options.DownloadImages,
 		outputRoot:     options.OutputRoot,
+		expandSheets:   options.ExpandSheets,
 	}, nil
 }
 
@@ -181,7 +184,21 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 		writer := newImageAssetWriter(session, origin, source, token, session.outputRoot, assetGroup)
 		conversionOptions.ResolveImage = writer.resolve
 	}
+	sheetCache := map[string][]string{}
+	if session.expandSheets {
+		conversionOptions.ExpandSheet = func(sheetBlockToken string) []string {
+			if lines, ok := sheetCache[sheetBlockToken]; ok {
+				return lines
+			}
+			lines := session.expandEmbeddedSheet(origin, token, sheetBlockToken)
+			sheetCache[sheetBlockToken] = lines
+			return lines
+		}
+	}
 	conversion := docx.ConvertClientVarsWithOptions(data, token, conversionOptions)
+	if session.expandSheets && len(sheetCache) > 0 {
+		conversion.Counts["sheet_expanded"] = len(sheetCache)
+	}
 	title := docxTitle(data, token)
 	return Result{
 		Source:   source,

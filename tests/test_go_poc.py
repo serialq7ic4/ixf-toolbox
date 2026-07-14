@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import gzip
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -47,6 +49,10 @@ def run_go_ixf(
         capture_output=True,
         check=check,
     )
+
+
+def gzip_json(value: dict) -> str:
+    return base64.b64encode(gzip.compress(json.dumps(value).encode("utf-8"))).decode("ascii")
 
 
 def test_go_ixf_version_matches_python_release(tmp_path):
@@ -417,6 +423,160 @@ def test_go_ixf_docs_read_remote_docx_downloads_images_to_manifest(tmp_path):
     assert errors == []
     serialized = json.dumps(manifest, ensure_ascii=False)
     assert image_token not in serialized
+    assert result.stderr == ""
+
+
+def test_go_ixf_docs_read_remote_docx_expands_sheets_to_manifest(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    cookies = tmp_path / "cookies.json"
+    cookies.write_text(
+        json.dumps(
+            [
+                {"name": "_csrf_token", "value": "csrf-fixture"},
+                {"name": "session", "value": "session-fixture"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    errors: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            if parsed.path != "/space/api/docx/pages/client_vars":
+                self.send_response(404)
+                self.end_headers()
+                return
+            payload = {
+                "code": 0,
+                "data": {
+                    "block_map": {
+                        "page_1": {
+                            "data": {
+                                "type": "page",
+                                "children": ["sheet_1"],
+                                "text": {"initialAttributedTexts": {"text": {"0": "Sheet Doc"}}},
+                            }
+                        },
+                        "sheet_1": {
+                            "data": {
+                                "type": "sheet",
+                                "parent_id": "page_1",
+                                "token": "shtr_fixture_sheet1",
+                            }
+                        },
+                    },
+                    "has_more": False,
+                },
+            }
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self) -> None:
+            parsed = urlparse(self.path)
+            if parsed.path != "/space/api/v3/sheet/client_vars":
+                self.send_response(404)
+                self.end_headers()
+                return
+            query = parse_qs(parsed.query)
+            if query.get("synced_block_host_token") != ["page_1"]:
+                errors.append("missing synced_block_host_token")
+            if self.headers.get("X-CSRFToken") != "csrf-fixture":
+                errors.append("missing csrf header")
+            request = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+            if request["token"] != "shtr_fixture":
+                errors.append("wrong workbook token")
+            if request["sheetRange"]["sheetId"] != "sheet1":
+                errors.append("wrong sheet id")
+            payload = {
+                "code": 0,
+                "data": {
+                    "formerlySchema": {
+                        "clientvars": {
+                            "gzip_snapshot": gzip_json(
+                                {"sheets": {"sheet1": {"rowCount": 2, "columnCount": 2}}}
+                            ),
+                            "extra_data": {
+                                "blocks": [
+                                    {
+                                        "row": 0,
+                                        "gzip_datatable": gzip_json(
+                                            {
+                                                "rows": [
+                                                    {
+                                                        "columns": [
+                                                            {"value": "Name"},
+                                                            {"value": "Value"},
+                                                        ]
+                                                    },
+                                                    {
+                                                        "columns": [
+                                                            {"value": "Alpha"},
+                                                            {"value": 42},
+                                                        ]
+                                                    },
+                                                ]
+                                            }
+                                        ),
+                                    }
+                                ]
+                            },
+                        }
+                    }
+                },
+            }
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+    out_dir = tmp_path / "out"
+    try:
+        result = run_go_ixf(
+            binary,
+            "docs",
+            "read",
+            f"{base_url}/docx/page_1",
+            "--cookies",
+            str(cookies),
+            "--space-api",
+            base_url,
+            "--out-dir",
+            str(out_dir),
+            "--expand-sheets",
+            "--print-manifest",
+        )
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+    manifest = json.loads(result.stdout)
+    item = manifest["docx_1"]
+    markdown_path = Path(item["file"])
+    assert markdown_path.read_text(encoding="utf-8") == (
+        "# Sheet Doc\n\n"
+        "[sheet token=shtr_fixture_sheet1]\n"
+        "[sheet-meta workbook_token=shtr_fixture sheet_id=sheet1 rows=2 cols=2]\n"
+        "```tsv\n"
+        "Name\tValue\n"
+        "Alpha\t42\n"
+        "```\n"
+    )
+    assert item["counts"]["sheet_expanded"] == 1
+    assert errors == []
     assert result.stderr == ""
 
 

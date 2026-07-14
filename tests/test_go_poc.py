@@ -133,6 +133,73 @@ def test_go_ixf_docs_help_lists_local_v13_commands(tmp_path):
     assert "publish" in result.stdout
 
 
+def test_go_ixf_docs_read_prints_local_markdown_without_remote_session(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    source = tmp_path / "source.md"
+    source.write_text("# Source\n\nHello from local file.\n", encoding="utf-8")
+
+    result = run_go_ixf(binary, "docs", "read", str(source))
+
+    assert result.stdout == "# Source\n\nHello from local file.\n"
+    assert result.stderr == ""
+
+
+def test_go_ixf_docs_read_writes_manifest_and_can_cleanup(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    source_a = tmp_path / "Project Plan.md"
+    source_b = tmp_path / "project-plan.md"
+    source_a.write_text("# A\n", encoding="utf-8")
+    source_b.write_text("# B\n", encoding="utf-8")
+    out_dir = tmp_path / "out"
+
+    result = run_go_ixf(
+        binary,
+        "docs",
+        "read",
+        str(source_a),
+        str(source_b),
+        "--out-dir",
+        str(out_dir),
+        "--print-manifest",
+    )
+    manifest = json.loads(result.stdout)
+
+    assert manifest["local_markdown_1"]["file"] == str(out_dir / "project-plan.md")
+    assert manifest["local_markdown_2"]["file"] == str(out_dir / "project-plan-2.md")
+    assert (out_dir / "project-plan.md").read_text(encoding="utf-8") == "# A\n"
+    assert (out_dir / "project-plan-2.md").read_text(encoding="utf-8") == "# B\n"
+    assert json.loads((out_dir / "manifest.json").read_text(encoding="utf-8")) == manifest
+
+    run_go_ixf(
+        binary,
+        "docs",
+        "read",
+        str(source_a),
+        "--out-dir",
+        str(out_dir),
+        "--cleanup",
+    )
+
+    assert not (out_dir / "manifest.json").exists()
+    assert not (out_dir / "project-plan.md").exists()
+
+
+def test_go_ixf_docs_read_remote_url_returns_safe_unavailable_error(tmp_path):
+    binary = build_go_ixf(tmp_path)
+
+    result = run_go_ixf(
+        binary,
+        "docs",
+        "read",
+        "https://tenant.example.test/docx/doxfixturetoken",
+        check=False,
+    )
+
+    assert result.returncode == 9
+    assert "Go runtime does not support `docs read` yet" in result.stderr
+    assert "doxfixturetoken" not in result.stderr
+
+
 def test_go_ixf_docs_outline_and_chunk_match_local_markdown_contract(tmp_path):
     binary = build_go_ixf(tmp_path)
     source = tmp_path / "source.md"

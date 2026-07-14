@@ -10,13 +10,91 @@ import (
 	"strings"
 )
 
-var remoteTokenPattern = regexp.MustCompile(`/([^/?#]+)`)
+var (
+	remoteTokenPattern = regexp.MustCompile(`/([^/?#]+)`)
+	slugPattern        = regexp.MustCompile(`[^a-zA-Z0-9]+`)
+)
+
+type Result struct {
+	Source   string           `json:"source"`
+	Kind     string           `json:"kind"`
+	Title    string           `json:"title"`
+	Token    string           `json:"token"`
+	Content  string           `json:"content"`
+	Counts   map[string]int   `json:"counts"`
+	Assets   []map[string]any `json:"assets"`
+	Warnings []string         `json:"warnings"`
+}
 
 func InspectSource(source string) (map[string]any, error) {
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
 		return inspectRemoteSource(source)
 	}
 	return inspectLocalSource(source)
+}
+
+func ReadLocalSources(sources []string) ([]Result, error) {
+	results := []Result{}
+	for _, source := range sources {
+		if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+			return nil, fmt.Errorf("remote source is not supported by Go docs read yet")
+		}
+		path := expandUser(source)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, fmt.Errorf("local file not found: %s", path)
+			}
+			return nil, err
+		}
+		results = append(results, Result{
+			Source:   source,
+			Kind:     "local_markdown",
+			Title:    filepath.Base(path),
+			Token:    "",
+			Content:  string(content),
+			Counts:   map[string]int{},
+			Assets:   []map[string]any{},
+			Warnings: []string{},
+		})
+	}
+	return results, nil
+}
+
+func WriteOutputs(results []Result, outDir string) (map[string]any, error) {
+	root := expandUser(outDir)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil, err
+	}
+	manifest := map[string]any{}
+	usedStems := map[string]bool{}
+	for index, result := range results {
+		stem := fmt.Sprintf("%s_%d", result.Kind, index+1)
+		fileStem := outputFileStem(result, stem, usedStems)
+		filePath := filepath.Join(root, fileStem+".md")
+		if err := os.WriteFile(filePath, []byte(result.Content), 0o644); err != nil {
+			return nil, err
+		}
+		manifest[stem] = map[string]any{
+			"title":    result.Title,
+			"token":    result.Token,
+			"kind":     result.Kind,
+			"counts":   result.Counts,
+			"file":     filePath,
+			"source":   result.Source,
+			"assets":   result.Assets,
+			"warnings": result.Warnings,
+		}
+	}
+	content, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	content = append(content, '\n')
+	if err := os.WriteFile(filepath.Join(root, "manifest.json"), content, 0o644); err != nil {
+		return nil, err
+	}
+	return manifest, nil
 }
 
 func CleanupOutputs(outDir string) error {
@@ -173,6 +251,37 @@ func tokenPrefix(token string) string {
 		return token
 	}
 	return token[:3]
+}
+
+func slugify(value string) string {
+	text := slugPattern.ReplaceAllString(strings.ToLower(strings.TrimSpace(value)), "-")
+	text = strings.Trim(text, "-")
+	if text == "" {
+		return "doc"
+	}
+	return text
+}
+
+func outputFileStem(result Result, fallback string, usedStems map[string]bool) string {
+	base := slugify(fallback)
+	if result.Kind == "local_markdown" {
+		sourcePath := expandUser(result.Source)
+		stem := strings.TrimSuffix(filepath.Base(sourcePath), filepath.Ext(sourcePath))
+		if stem == "" {
+			stem = result.Title
+		}
+		if stem != "" {
+			base = slugify(stem)
+		}
+	}
+	candidate := base
+	suffix := 2
+	for usedStems[candidate] {
+		candidate = fmt.Sprintf("%s-%d", base, suffix)
+		suffix++
+	}
+	usedStems[candidate] = true
+	return candidate
 }
 
 func removeInside(root string, target string) error {

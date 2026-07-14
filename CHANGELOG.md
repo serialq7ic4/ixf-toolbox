@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Added the initial Go POC command surface for version, diagnostics, skill setup, and safe cookie-export failure behavior.
-- Added Go-native local document commands for `docs outline`, `docs chunk`, `docs inspect`, and `docs cleanup`.
+- Added Go-native local document commands for `docs read`, `docs outline`, `docs chunk`, `docs inspect`, and `docs cleanup`.
 - Added Go `update check`, checksum-verified `update self --apply`, and `update skills` support.
 - Added release workflow generation for cross-platform Go binary artifacts and checksums.
 - Kept Python as the v1.x reference runtime for cookie export, remote document reads/publish, and OKR write parity.

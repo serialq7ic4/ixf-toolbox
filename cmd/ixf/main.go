@@ -210,6 +210,8 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 0
 	}
 	switch args[0] {
+	case "read":
+		return runDocsRead(args[1:], stdout, stderr)
 	case "outline":
 		return runDocsOutline(args[1:], stdout, stderr)
 	case "chunk":
@@ -218,13 +220,59 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runDocsInspect(args[1:], stdout, stderr)
 	case "cleanup":
 		return runDocsCleanup(args[1:], stderr)
-	case "read", "publish":
+	case "publish":
 		return goCommandUnavailable(stderr, "docs "+args[0], "Use the Python ixf runtime until the Go remote document implementation reaches parity.")
 	default:
 		fmt.Fprintf(stderr, "ERROR unsupported docs subcommand: %s\n", args[0])
 		printCommandHelp(stderr, "ixf docs", rows)
 		return 2
 	}
+}
+
+func runDocsRead(args []string, stdout io.Writer, stderr io.Writer) int {
+	parsed, err := parseDocsReadArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	for _, source := range parsed.sources {
+		if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+			return goCommandUnavailable(stderr, "docs read", "Use the Python ixf runtime until the Go remote document implementation reaches parity.")
+		}
+	}
+	results, err := docslocal.ReadLocalSources(parsed.sources)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	if parsed.outDir != "" {
+		manifest, err := docslocal.WriteOutputs(results, parsed.outDir)
+		if err != nil {
+			fmt.Fprintf(stderr, "ERROR %s\n", err)
+			return 1
+		}
+		if parsed.printManifest {
+			writePrettyJSON(stdout, manifest)
+		}
+		if parsed.cleanup {
+			if err := docslocal.CleanupOutputs(parsed.outDir); err != nil {
+				fmt.Fprintf(stderr, "ERROR %s\n", err)
+				return 1
+			}
+		}
+		return 0
+	}
+	multiple := len(results) > 1
+	for _, result := range results {
+		if multiple {
+			fmt.Fprintf(stdout, "=== %s (%s) ===\n", result.Source, result.Kind)
+		}
+		fmt.Fprint(stdout, result.Content)
+		if !strings.HasSuffix(result.Content, "\n") {
+			fmt.Fprintln(stdout)
+		}
+	}
+	return 0
 }
 
 func runDocsOutline(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -358,6 +406,54 @@ type outlineArgs struct {
 	source      string
 	targetChars int
 	asJSON      bool
+}
+
+type docsReadArgs struct {
+	sources       []string
+	outDir        string
+	printManifest bool
+	cleanup       bool
+}
+
+func parseDocsReadArgs(args []string) (docsReadArgs, error) {
+	parsed := docsReadArgs{}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--out-dir":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("--out-dir requires a value")
+			}
+			parsed.outDir = args[i]
+		case "--print-manifest":
+			parsed.printManifest = true
+		case "--cleanup":
+			parsed.cleanup = true
+		case "--expand-sheets", "--download-images":
+			// Accepted for CLI parity. These options only affect remote reads.
+		case "--cookies", "--space-api":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return parsed, fmt.Errorf("unsupported docs read flag: %s", arg)
+			}
+			parsed.sources = append(parsed.sources, arg)
+		}
+	}
+	if len(parsed.sources) == 0 {
+		return parsed, fmt.Errorf("read requires at least one source")
+	}
+	if parsed.printManifest && parsed.outDir == "" {
+		return parsed, fmt.Errorf("--print-manifest requires --out-dir")
+	}
+	if parsed.cleanup && parsed.outDir == "" {
+		return parsed, fmt.Errorf("--cleanup requires --out-dir")
+	}
+	return parsed, nil
 }
 
 func parseOutlineArgs(args []string) (outlineArgs, error) {
@@ -821,6 +917,13 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 func writeJSON(w io.Writer, payload any) {
 	encoder := json.NewEncoder(w)
 	encoder.SetEscapeHTML(false)
+	_ = encoder.Encode(payload)
+}
+
+func writePrettyJSON(w io.Writer, payload any) {
+	encoder := json.NewEncoder(w)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
 	_ = encoder.Encode(payload)
 }
 

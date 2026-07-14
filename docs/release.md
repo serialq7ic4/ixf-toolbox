@@ -20,11 +20,13 @@ python scripts/extract_changelog.py X.Y.Z CHANGELOG.md
 ## Local Checks
 
 ```bash
+RELEASE_VERSION=X.Y.Z
 python -m compileall -q src
 python -m pytest -q
 python -m ruff check .
 go test ./...
-go build -o /tmp/ixf-go ./cmd/ixf
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${RELEASE_VERSION}" -o /tmp/ixf-go ./cmd/ixf
+scripts/smoke-go-binary.sh /tmp/ixf-go "${RELEASE_VERSION}"
 rm -rf dist build
 python -m build
 scripts/smoke.sh
@@ -45,6 +47,7 @@ After release, confirm:
 - The release body matches the changelog section.
 - The wheel and source distribution are attached.
 - The Go binaries and checksum file are attached for macOS, Linux, and Windows.
+- A clean current-platform Go binary download can run `ixf --version`, `ixf --help`, `ixf setup skills --runtimes codex --json`, and a local `ixf docs read`.
 - A clean wheel installation can run `ixf --version`, `ixf --help`, and `ixf setup skills --runtimes codex --json`.
 
 Do not publish to PyPI until support status and privacy documentation are current.

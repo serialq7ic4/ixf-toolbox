@@ -24,7 +24,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "1.8.0"
+var version = "2.0.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -58,6 +58,10 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if args[0] == "--version" || args[0] == "-version" {
 		fmt.Fprintf(stdout, "ixf %s\n", version)
+		return 0
+	}
+	if args[0] == "--help" || args[0] == "-h" || args[0] == "-help" || args[0] == "help" {
+		printRootHelp(stdout)
 		return 0
 	}
 
@@ -1107,7 +1111,7 @@ func collectDiagnostics(cookiesPath string) map[string]any {
 	return map[string]any{
 		"ok":      skillsOK && cookiesOK,
 		"version": version,
-		"runtime": "go-poc",
+		"runtime": "go",
 		"capabilities": map[string]bool{
 			"docsRead":      true,
 			"docsPublish":   true,

@@ -32,6 +32,7 @@ def test_release_workflow_validates_tag_builds_and_publishes_artifacts():
     assert "go test ./..." in text
     assert "Build Go binary artifacts" in text
     assert "ixf_${RELEASE_VERSION}_${goos}_${goarch}" in text
+    assert "scripts/smoke-go-binary.sh" in text
     assert "python -m build" in text
     assert "scripts/extract_changelog.py" in text
     assert "softprops/action-gh-release" in text
@@ -42,7 +43,7 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         [
             sys.executable,
             "scripts/extract_changelog.py",
-            "1.8.0",
+            "2.0.0",
             "CHANGELOG.md",
         ],
         cwd=ROOT,
@@ -51,9 +52,9 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         check=True,
     )
 
-    assert "cookie export help" in result.stdout
-    assert "OKR write apply gating" in result.stdout
-    assert "## 1.7.0" not in result.stdout
+    assert "Go binary is the default install path" in result.stdout
+    assert "Python wheel remains legacy/reference" in result.stdout
+    assert "## 1.8.0" not in result.stdout
 
 
 def test_smoke_script_installs_toolbox_wheel_in_isolated_environment():
@@ -66,6 +67,19 @@ def test_smoke_script_installs_toolbox_wheel_in_isolated_environment():
     assert '"$venv_ixf" --version' in text
     assert '"$venv_ixf" setup skills --runtimes codex --json' in text
     assert '"$venv_ixf" docs read' in text
+
+
+def test_go_binary_smoke_script_validates_default_release_artifact():
+    text = read("scripts/smoke-go-binary.sh")
+    release_doc = read("docs/release.md")
+
+    assert "expected_version" in text
+    assert 'ixf "$binary" "$expected_version"' not in text
+    assert '"$binary" --version' in text
+    assert '"$binary" --help' in text
+    assert '"$binary" setup skills --runtimes codex --json' in text
+    assert '"$binary" docs read' in text
+    assert "scripts/smoke-go-binary.sh" in release_doc
 
 
 def test_public_project_docs_exist_and_use_toolbox_names():
@@ -104,6 +118,31 @@ def test_default_readme_is_full_project_landing_page():
     assert "ixf docs read" in text
     assert "ixf docs publish" in text
     assert "ixf okr write" in text
+
+
+def test_v2_docs_make_go_binary_the_default_install_path():
+    zh = read("README.md")
+    en = read("README.en.md")
+    platforms = read("docs/supported-platforms.md")
+    migration = read("docs/migration-from-legacy.md")
+
+    assert "Go 二进制" in zh
+    assert "默认安装方式" in zh
+    assert "Python wheel 保留为 legacy/reference" in zh
+    assert "ixf_2.0.0_darwin_arm64" in zh
+    assert "v1.x 仍以 Python 版作为默认安装方式" not in zh
+
+    assert "Go binary" in en
+    assert "default install path" in en
+    assert "Python wheel remains legacy/reference" in en
+    assert "ixf_2.0.0_darwin_arm64" in en
+    assert "The v1.x line still uses the Python package" not in en
+
+    assert "Go binary" in platforms
+    assert "pywin32" not in platforms
+    assert "%TEMP%" not in platforms
+    assert "$env:TEMP\\ixf_cookies.json" in platforms
+    assert "Go binary" in migration
 
 
 def test_legacy_migration_doc_maps_old_commands_to_toolbox_commands():

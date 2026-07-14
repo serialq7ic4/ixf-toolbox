@@ -3,16 +3,19 @@
 `ixf-toolbox` replaces the earlier `ixunfei-docx-reader` and `ixunfei-docx-writer`
 projects with one local `ixf` command and five agent skills.
 
-New installs should use Toolbox:
+New installs should use the Toolbox Go binary:
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.8.0/ixf_toolbox-1.8.0-py3-none-any.whl"
+mkdir -p ~/.local/bin
+curl -L -o ~/.local/bin/ixf \
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.0.0/ixf_2.0.0_darwin_arm64
+chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes auto --json
 ixf --version
 ixf doctor --json
 ```
 
-Use `[windows]` instead of `[crypto]` on Windows.
+Use the matching Go binary for your platform. The Python wheel remains legacy/reference for rollback and parity checks.
 
 ## Command Mapping
 

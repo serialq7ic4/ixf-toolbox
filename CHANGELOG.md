@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 2.0.0 - 2026-07-15
+
+- Made the GitHub Release Go binary the default install path and default local runtime for new installs.
+- Documented that the Go binary is the default install path for Codex and Claude Code skill setup.
+- Documented that the Python wheel remains legacy/reference for rollback, parity checks, and Python package API callers.
+- Updated README, migration, and platform docs for Go-first installation while keeping dry-run-first write safety.
+- Changed Go `doctor --json` runtime reporting from `go-poc` to `go`.
+
 ## 1.8.0 - 2026-07-15
 
 - Hardened Go CLI cookie export help so `ixf cookies export --help` exits successfully and lists provider-specific options on stdout.

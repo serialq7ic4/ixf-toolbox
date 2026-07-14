@@ -41,42 +41,51 @@ Compared with browser export tools, Toolbox is optimized for agent workflows:
 
 ## Install Into Codex / Claude Code
 
-The recommended path is to let the agent you are already using install Toolbox. Installation first installs the `ixf-toolbox` Python package, then registers the five skills into Codex or Claude Code.
+The recommended path is to let the agent you are already using install Toolbox. In v2.0, the default install path is the GitHub Release Go binary, followed by skill registration for Codex or Claude Code; a local Python environment is no longer required for new installs.
 
-### Codex
+If you are using Codex, ask Codex directly:
+
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_2.0.0_darwin_arm64`, macOS Intel: `ixf_2.0.0_darwin_amd64`, Windows: `ixf_2.0.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+
+### macOS Apple Silicon
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.8.0/ixf_toolbox-1.8.0-py3-none-any.whl"
+mkdir -p ~/.local/bin
+curl -L -o ~/.local/bin/ixf \
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.0.0/ixf_2.0.0_darwin_arm64
+chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-### Claude Code
+For macOS Intel, use `ixf_2.0.0_darwin_amd64` instead.
 
-```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.8.0/ixf_toolbox-1.8.0-py3-none-any.whl"
-ixf setup skills --runtimes claude-code --json
+### Windows PowerShell
+
+```powershell
+New-Item -ItemType Directory -Force $HOME\bin | Out-Null
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.0.0/ixf_2.0.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+$env:PATH = "$HOME\bin;$env:PATH"
+ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
 ### Both Agents
 
+Use `--runtimes auto` instead of `--runtimes codex` to register both Codex and Claude Code skills.
+
+### Python Legacy / Reference
+
+Python wheel remains legacy/reference for rollback, parity checks, or callers that need the Python package API. Prefer the Go binary for new installs.
+
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.8.0/ixf_toolbox-1.8.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.0.0/ixf_toolbox-2.0.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
-ixf --version
-ixf doctor --json
 ```
 
-On Windows, use `[windows]` instead of `[crypto]`:
-
-```bash
-python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.8.0/ixf_toolbox-1.8.0-py3-none-any.whl"
-```
-
-Windows cookie export is CI-tested but remains experimental on real desktop sessions.
+Use the `[windows]` extra when using the Python legacy/reference wheel on Windows.
 
 ## Agent Usage
 
@@ -113,9 +122,9 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf update self --json` | Plan or apply a Toolbox package upgrade |
 | `ixf update skills --runtimes auto --json` | Refresh installed skill wrappers |
 
-### Go Migration Status
+### Runtime Status
 
-The v1.x line still uses the Python package as the default installation path and reference runtime. The Go CLI is migrating in stages: it now covers `--version`, `doctor`, `setup skills`, local `docs read/outline/chunk/inspect/cleanup`, authorized remote docx text/image/embedded-sheet reads, wiki reads that resolve to docx tokens, wiki bitable TSV reads, direct mindnote tree reads, basic docx block-to-Markdown conversion, docs publish dry-run/apply, OKR read, OKR write dry-run, OKR `write --apply --objective-index`, cookie export, `update check/self`, checksum-verified Go binary self-update, and `update skills`; remaining remote parity for wiki edge variants and broader OKR mutation flows remain Python-reference behavior until golden parity is complete.
+Starting with v2.0, the Go binary is the default install path and default local runtime. It covers document reads and publishing, OKR reads, selected Objective writes, cookie export, doctor, skill setup, and update flows. Python wheel remains legacy/reference for rollback, parity checks, and Python package API callers; remaining remote parity for wiki edge variants and broader OKR mutation flows still follow the Python reference behavior.
 
 ## Manual Read Flow
 

@@ -64,6 +64,12 @@ jobs:
               -o "dist/${artifact}" ./cmd/ixf
           done
           (cd dist && sha256sum ixf_${RELEASE_VERSION}_* > "ixf_${RELEASE_VERSION}_checksums.txt")
+      - name: Smoke Go release binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_VERSION="${GITHUB_REF_NAME#v}"
+          scripts/smoke-go-binary.sh "dist/ixf_${RELEASE_VERSION}_linux_amd64" "${RELEASE_VERSION}"
       - name: Extract release notes
         env:
           RELEASE_TAG: ${{ github.ref_name }}

@@ -1,16 +1,28 @@
 package docspublish
 
 import (
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
 	MarkdownPath string
 	BaseURL      string
+	CookiesPath  string
+	SpaceAPI     string
+	MemberID     string
+	ParentToken  string
 	Title        string
 	TitleSuffix  string
 	RequiredText []string
@@ -31,21 +43,91 @@ func PublishMarkdown(config Config) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := validateBaseURL(config.BaseURL); err != nil {
+	baseURL, err := validateBaseURL(config.BaseURL)
+	if err != nil {
 		return nil, err
 	}
 	title := config.Title
 	if title == "" {
 		title = sourceTitle + config.TitleSuffix
 	}
+	counts := summarizeSpecs(specs)
 	if config.Apply {
-		return nil, fmt.Errorf("go docs publish apply is not implemented yet")
+		return ApplyMarkdown(config, baseURL, title, specs, counts)
 	}
 	return map[string]any{
 		"ok":     true,
 		"dryRun": true,
 		"title":  title,
-		"counts": summarizeSpecs(specs),
+		"counts": counts,
+	}, nil
+}
+
+func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, counts map[string]int) (map[string]any, error) {
+	session, err := newPublishSession(config, baseURL)
+	if err != nil {
+		return nil, err
+	}
+	pageID, err := session.createDocument(title, config.ParentToken)
+	if err != nil {
+		return nil, err
+	}
+	finalURL := baseURL + "/docx/" + pageID
+	varsBefore, err := session.clientVars(pageID, finalURL)
+	if err != nil {
+		return nil, err
+	}
+	blockMap := asMap(varsBefore["block_map"])
+	root := asMap(blockMap[pageID])
+	rootData := asMap(root["data"])
+	author := asString(rootData["author"])
+	if author == "" {
+		return nil, fmt.Errorf("could not determine the authenticated document member identifier")
+	}
+	memberID := config.MemberID
+	if memberID == "" {
+		memberID = author
+	}
+	rootChildren := asSlice(rootData["children"])
+	rootVersion := asInt(root["version"])
+	topIDs, entries := buildBlocks(specs, pageID, newBlockFactory(author))
+	changeMap := map[string]any{
+		pageID: map[string]any{
+			"id":      pageID,
+			"version": rootVersion,
+			"payload": map[string]any{
+				"ops": insertChildOps(rootChildren, topIDs),
+			},
+		},
+	}
+	for _, entry := range entries {
+		changeMap[entry.ID] = map[string]any{
+			"id":      entry.ID,
+			"version": 0,
+			"payload": map[string]any{
+				"ops": []map[string]any{
+					{
+						"p":      []any{},
+						"action": map[string]any{"oi": entry.Data},
+					},
+				},
+			},
+		}
+	}
+	if err := session.writeBlocks(pageID, memberID, changeMap, finalURL); err != nil {
+		return nil, err
+	}
+	verify, err := session.verify(pageID, finalURL, config.RequiredText)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"ok":     asBool(verify["ok"]),
+		"dryRun": false,
+		"title":  title,
+		"counts": counts,
+		"verify": verify,
+		"url":    finalURL,
 	}, nil
 }
 
@@ -148,6 +230,507 @@ func summarizeSpecs(specs []Spec) map[string]int {
 		counts[spec.Kind]++
 	}
 	return counts
+}
+
+type cookieObject struct {
+	Name   string `json:"name"`
+	Value  string `json:"value"`
+	Domain string `json:"domain"`
+	Path   string `json:"path"`
+}
+
+type publishSession struct {
+	client   *http.Client
+	cookies  []http.Cookie
+	csrf     string
+	baseURL  string
+	spaceAPI string
+}
+
+type blockEntry struct {
+	ID   string
+	Data map[string]any
+}
+
+func newPublishSession(config Config, baseURL string) (*publishSession, error) {
+	cookieObjects, err := loadCookieObjects(config.CookiesPath)
+	if err != nil {
+		return nil, err
+	}
+	csrf := csrfFromCookieObjects(cookieObjects)
+	if csrf == "" {
+		return nil, fmt.Errorf("cookie jar does not contain _csrf_token")
+	}
+	cookies := make([]http.Cookie, 0, len(cookieObjects))
+	for _, cookie := range cookieObjects {
+		if cookie.Name == "" {
+			continue
+		}
+		path := cookie.Path
+		if path == "" {
+			path = "/"
+		}
+		cookies = append(cookies, http.Cookie{
+			Name:   cookie.Name,
+			Value:  cookie.Value,
+			Domain: cookie.Domain,
+			Path:   path,
+		})
+	}
+	spaceAPI := strings.TrimRight(config.SpaceAPI, "/")
+	if spaceAPI == "" {
+		spaceAPI = "https://internal-api-space.xfchat.iflytek.com"
+	}
+	return &publishSession{
+		client:   &http.Client{Timeout: 30 * time.Second},
+		cookies:  cookies,
+		csrf:     csrf,
+		baseURL:  baseURL,
+		spaceAPI: spaceAPI,
+	}, nil
+}
+
+func (session *publishSession) createDocument(title string, parentToken string) (string, error) {
+	form := url.Values{
+		"type":         {"22"},
+		"source":       {"0"},
+		"uuid":         {randomUUID()},
+		"name":         {title},
+		"parent_token": {parentToken},
+	}
+	request, err := http.NewRequest("POST", session.spaceAPI+"/space/api/explorer/v2/create/object/", strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	session.addCommonHeaders(request, session.baseURL+"/drive/home/")
+	payload, err := session.doJSON(request, "document creation")
+	if err != nil {
+		return "", err
+	}
+	if asInt(payload["code"]) != 0 {
+		return "", fmt.Errorf("document creation failed")
+	}
+	pageID := findDocToken(payload)
+	if pageID == "" {
+		return "", fmt.Errorf("document creation did not return a document token")
+	}
+	return pageID, nil
+}
+
+func (session *publishSession) clientVars(pageID string, referer string) (map[string]any, error) {
+	query := url.Values{"id": {pageID}, "open_type": {"1"}}
+	request, err := http.NewRequest("GET", session.spaceAPI+"/space/api/docx/pages/client_vars?"+query.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	session.addCommonHeaders(request, referer)
+	payload, err := session.doJSON(request, "client_vars")
+	if err != nil {
+		return nil, err
+	}
+	if asInt(payload["code"]) != 0 {
+		return nil, fmt.Errorf("could not load the created document state")
+	}
+	return asMap(payload["data"]), nil
+}
+
+func (session *publishSession) writeBlocks(pageID string, memberID string, changeMap map[string]any, referer string) error {
+	body, err := json.Marshal(map[string]any{
+		"member_id":  memberID,
+		"uuid":       randomUUID(),
+		"page_id":    pageID,
+		"change_map": changeMap,
+	})
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequest("POST", session.baseURL+"/space/api/docx/blocks/user_change", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	session.addCommonHeaders(request, referer)
+	payload, err := session.doJSON(request, "document content write")
+	if err != nil {
+		return err
+	}
+	if asInt(payload["code"]) != 0 {
+		return fmt.Errorf("document content write failed")
+	}
+	return nil
+}
+
+func (session *publishSession) verify(pageID string, referer string, requiredText []string) (map[string]any, error) {
+	last := map[string]any{"ok": false, "counts": map[string]int{}, "textChars": 0}
+	for attempt := 0; attempt < 8; attempt++ {
+		if attempt > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+		payload, err := session.clientVars(pageID, referer)
+		if err != nil {
+			return nil, err
+		}
+		counts := map[string]int{}
+		textValues := []string{}
+		codeTexts := []string{}
+		for _, raw := range asMap(payload["block_map"]) {
+			data := asMap(asMap(raw)["data"])
+			blockType := asString(data["type"])
+			if blockType != "" {
+				counts[blockType]++
+			}
+			text := textFromBlockData(data)
+			if text == "" {
+				continue
+			}
+			textValues = append(textValues, text)
+			if blockType == "code" {
+				codeTexts = append(codeTexts, text)
+			}
+		}
+		allText := strings.Join(textValues, "\n")
+		ok := true
+		for _, required := range requiredText {
+			if !strings.Contains(allText, required) {
+				ok = false
+				break
+			}
+		}
+		if ok && len(codeTexts) > 0 {
+			ok = false
+			for _, code := range codeTexts {
+				if strings.Contains(code, "\n") {
+					ok = true
+					break
+				}
+			}
+		}
+		last = map[string]any{
+			"ok":        ok,
+			"counts":    counts,
+			"textChars": len(allText),
+		}
+		if ok {
+			return last, nil
+		}
+	}
+	return last, nil
+}
+
+func (session *publishSession) addCommonHeaders(request *http.Request, referer string) {
+	request.Header.Set("User-Agent", "ixf-toolbox-go")
+	request.Header.Set("Origin", session.baseURL)
+	request.Header.Set("Referer", referer)
+	request.Header.Set("X-CSRFToken", session.csrf)
+	for _, cookie := range session.cookies {
+		request.AddCookie(&cookie)
+	}
+}
+
+func (session *publishSession) doJSON(request *http.Request, label string) (map[string]any, error) {
+	response, err := session.client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("%s request failed", label)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("%s http status %d", label, response.StatusCode)
+	}
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("%s returned invalid JSON", label)
+	}
+	return payload, nil
+}
+
+type blockFactory struct {
+	author string
+	used   map[string]bool
+}
+
+func newBlockFactory(author string) *blockFactory {
+	return &blockFactory{author: author, used: map[string]bool{}}
+}
+
+func (factory *blockFactory) blockID() string {
+	for {
+		id := "doxrz" + randomHex(11)
+		if !factory.used[id] {
+			factory.used[id] = true
+			return id
+		}
+	}
+}
+
+func (factory *blockFactory) textObject(text string) map[string]any {
+	return map[string]any{
+		"initialAttributedTexts": map[string]any{
+			"text":    map[string]any{"0": text},
+			"attribs": map[string]any{"0": attribFor(text)},
+		},
+		"apool": map[string]any{
+			"numToAttrib": map[string]any{"0": []any{"author", factory.author}},
+			"nextNum":     1,
+		},
+	}
+}
+
+func (factory *blockFactory) baseBlock(blockType string, parentID string, text string) map[string]any {
+	data := map[string]any{
+		"type":      blockType,
+		"parent_id": parentID,
+		"children":  []any{},
+		"comments":  []any{},
+		"revisions": []any{},
+		"locked":    false,
+		"hidden":    false,
+		"author":    factory.author,
+		"align":     "",
+	}
+	if strings.HasPrefix(blockType, "heading") || blockType == "text" || blockType == "bullet" || blockType == "ordered" || blockType == "code" {
+		data["text"] = factory.textObject(text)
+		data["folded"] = false
+	}
+	if blockType == "code" {
+		data["language"] = "Plain Text"
+		data["wrap"] = false
+		data["caption"] = map[string]any{
+			"text": map[string]any{
+				"apool": map[string]any{"nextNum": 0, "numToAttrib": map[string]any{}},
+				"initialAttributedTexts": map[string]any{
+					"attribs": map[string]any{"0": "|1+1"},
+					"text":    map[string]any{"0": "\n"},
+				},
+			},
+		}
+	}
+	return data
+}
+
+func (factory *blockFactory) quoteBlocks(parentID string, text string) ([]blockEntry, string) {
+	quoteID := factory.blockID()
+	childID := factory.blockID()
+	quote := map[string]any{
+		"type":      "quote_container",
+		"parent_id": parentID,
+		"children":  []any{childID},
+		"comments":  []any{},
+		"revisions": []any{},
+		"locked":    false,
+		"hidden":    false,
+		"author":    factory.author,
+	}
+	return []blockEntry{
+		{ID: quoteID, Data: quote},
+		{ID: childID, Data: factory.baseBlock("text", quoteID, text)},
+	}, quoteID
+}
+
+func (factory *blockFactory) calloutBlocks(parentID string, text string) ([]blockEntry, string) {
+	calloutID := factory.blockID()
+	childID := factory.blockID()
+	callout := map[string]any{
+		"type":             "callout",
+		"parent_id":        parentID,
+		"children":         []any{childID},
+		"comments":         []any{},
+		"revisions":        []any{},
+		"locked":           false,
+		"hidden":           false,
+		"author":           factory.author,
+		"background_color": "",
+		"border_color":     "",
+		"text_color":       "",
+		"align":            "left",
+		"emoji_id":         "memo",
+		"emoji_value":      "1f4dd",
+	}
+	return []blockEntry{
+		{ID: calloutID, Data: callout},
+		{ID: childID, Data: factory.baseBlock("text", calloutID, text)},
+	}, calloutID
+}
+
+func buildBlocks(specs []Spec, pageID string, factory *blockFactory) ([]string, []blockEntry) {
+	topIDs := []string{}
+	entries := []blockEntry{}
+	for _, spec := range specs {
+		switch spec.Kind {
+		case "quote":
+			newEntries, topID := factory.quoteBlocks(pageID, spec.Text)
+			topIDs = append(topIDs, topID)
+			entries = append(entries, newEntries...)
+		case "callout":
+			newEntries, topID := factory.calloutBlocks(pageID, spec.Text)
+			topIDs = append(topIDs, topID)
+			entries = append(entries, newEntries...)
+		default:
+			blockID := factory.blockID()
+			topIDs = append(topIDs, blockID)
+			entries = append(entries, blockEntry{ID: blockID, Data: factory.baseBlock(spec.Kind, pageID, spec.Text)})
+		}
+	}
+	return topIDs, entries
+}
+
+func insertChildOps(rootChildren []any, topIDs []string) []map[string]any {
+	ops := make([]map[string]any, 0, len(topIDs))
+	for index, blockID := range topIDs {
+		ops = append(ops, map[string]any{
+			"p":      []any{"children", len(rootChildren) + index},
+			"action": map[string]any{"li": blockID},
+		})
+	}
+	return ops
+}
+
+func attribFor(text string) string {
+	if text == "" {
+		return "*0+0"
+	}
+	parts := strings.Split(text, "\n")
+	if len(parts) == 1 {
+		return "*0+" + strconv.FormatInt(int64(len(text)), 36)
+	}
+	prefixLen := 0
+	for _, part := range parts[:len(parts)-1] {
+		prefixLen += len(part) + 1
+	}
+	return "*0|" + strconv.FormatInt(int64(len(parts)-1), 36) + "+" +
+		strconv.FormatInt(int64(prefixLen), 36) + "*0+" +
+		strconv.FormatInt(int64(len(parts[len(parts)-1])), 36)
+}
+
+func loadCookieObjects(path string) ([]cookieObject, error) {
+	expanded := expandUser(path)
+	content, err := os.ReadFile(expanded)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("cookie file not found: %s", expanded)
+		}
+		return nil, err
+	}
+	cookies := []cookieObject{}
+	if err := json.Unmarshal(content, &cookies); err != nil {
+		return nil, fmt.Errorf("cookie file invalid: %s", expanded)
+	}
+	return cookies, nil
+}
+
+func csrfFromCookieObjects(cookies []cookieObject) string {
+	for _, cookie := range cookies {
+		if cookie.Name == "_csrf_token" && cookie.Value != "" {
+			return cookie.Value
+		}
+	}
+	return ""
+}
+
+func findDocToken(value any) string {
+	switch typed := value.(type) {
+	case string:
+		if strings.HasPrefix(typed, "doxrz") {
+			return typed
+		}
+	case map[string]any:
+		for _, key := range []string{"token", "obj_token", "url_token", "node_token", "id"} {
+			if found := findDocToken(typed[key]); found != "" {
+				return found
+			}
+		}
+		for _, child := range typed {
+			if found := findDocToken(child); found != "" {
+				return found
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if found := findDocToken(child); found != "" {
+				return found
+			}
+		}
+	}
+	return ""
+}
+
+func textFromBlockData(data map[string]any) string {
+	text := asMap(data["text"])
+	initial := asMap(text["initialAttributedTexts"])
+	values := asMap(initial["text"])
+	return asString(values["0"])
+}
+
+func asMap(value any) map[string]any {
+	if value == nil {
+		return map[string]any{}
+	}
+	if typed, ok := value.(map[string]any); ok {
+		return typed
+	}
+	return map[string]any{}
+}
+
+func asSlice(value any) []any {
+	if value == nil {
+		return []any{}
+	}
+	if typed, ok := value.([]any); ok {
+		return typed
+	}
+	return []any{}
+}
+
+func asString(value any) string {
+	if typed, ok := value.(string); ok {
+		return typed
+	}
+	return ""
+}
+
+func asInt(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case json.Number:
+		parsed, _ := typed.Int64()
+		return int(parsed)
+	default:
+		return 0
+	}
+}
+
+func asBool(value any) bool {
+	if typed, ok := value.(bool); ok {
+		return typed
+	}
+	return false
+}
+
+func randomUUID() string {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:])
+}
+
+func randomHex(byteCount int) string {
+	raw := make([]byte, byteCount)
+	if _, err := rand.Read(raw); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(raw)
 }
 
 func validateBaseURL(baseURL string) (string, error) {

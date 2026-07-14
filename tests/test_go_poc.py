@@ -29,7 +29,7 @@ def test_go_ixf_version_matches_python_release(tmp_path):
     binary = build_go_ixf(tmp_path)
     result = run_go_ixf(binary, "--version")
 
-    assert result.stdout.strip() == "ixf 1.3.0"
+    assert result.stdout.strip() == "ixf 1.4.0"
     assert result.stderr == ""
 
 
@@ -57,7 +57,7 @@ def test_go_ixf_doctor_json_is_secret_safe_and_reports_go_runtime(tmp_path):
     serialized = json.dumps(payload, ensure_ascii=False)
 
     assert payload["ok"] is True
-    assert payload["version"] == "1.3.0"
+    assert payload["version"] == "1.4.0"
     assert payload["runtime"] == "go-poc"
     assert payload["skills"]["codex"]["ok"] is True
     assert payload["cookies"]["hasCsrf"] is True
@@ -147,6 +147,143 @@ def test_go_ixf_docs_publish_dry_run_prints_plan_without_cookie_file(tmp_path):
             "code": 1,
         },
     }
+    assert result.stderr == ""
+
+
+def test_go_ixf_docs_publish_apply_creates_writes_and_verifies_with_fixture_session(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    source = tmp_path / "notes.md"
+    source.write_text(
+        "# Apply Title\n\n"
+        "Body with required text.\n\n"
+        "```bash\n"
+        "echo one\n"
+        "echo two\n"
+        "```\n",
+        encoding="utf-8",
+    )
+    cookies = tmp_path / "cookies.json"
+    write_cookie_fixture(cookies)
+    events = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            if self.path == "/space/api/explorer/v2/create/object/":
+                length = int(self.headers.get("Content-Length", "0"))
+                body = self.rfile.read(length).decode("utf-8")
+                form = parse_qs(body)
+                events.append(("create", form, self.headers.get("X-CSRFToken")))
+                assert self.headers.get("X-CSRFToken") == "csrf-fixture"
+                assert "session=session-fixture" in self.headers.get("Cookie", "")
+                assert form["name"] == ["Apply Title - Published"]
+                assert form["parent_token"] == ["parent_fixture"]
+                write_json_response(
+                    self,
+                    {"code": 0, "data": {"obj_token": "doxrzCreatedPage"}},
+                )
+                return
+            if self.path == "/space/api/docx/blocks/user_change":
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                events.append(("write", payload, self.headers.get("X-CSRFToken")))
+                assert self.headers.get("X-CSRFToken") == "csrf-fixture"
+                assert "session=session-fixture" in self.headers.get("Cookie", "")
+                assert payload["member_id"] == "member_override"
+                assert payload["page_id"] == "doxrzCreatedPage"
+                change_map = payload["change_map"]
+                assert "doxrzCreatedPage" in change_map
+                written_text = json.dumps(change_map, ensure_ascii=False)
+                assert "Body with required text." in written_text
+                assert "echo one\\necho two" in written_text
+                write_json_response(self, {"code": 0, "data": {}})
+                return
+            self.send_error(404)
+
+        def do_GET(self):
+            parsed = urlparse(self.path)
+            if parsed.path == "/space/api/docx/pages/client_vars":
+                query = parse_qs(parsed.query)
+                events.append(("client_vars", query, self.headers.get("X-CSRFToken")))
+                assert self.headers.get("X-CSRFToken") == "csrf-fixture"
+                assert query["id"] == ["doxrzCreatedPage"]
+                if any(event[0] == "write" for event in events):
+                    block_map = {
+                        "doxrzCreatedPage": {
+                            "version": 8,
+                            "data": {
+                                "type": "page",
+                                "author": "author_fixture",
+                                "children": ["text_1", "code_1"],
+                            },
+                        },
+                        "text_1": {
+                            "version": 1,
+                            "data": {
+                                "type": "text",
+                                "text": {
+                                    "initialAttributedTexts": {
+                                        "text": {"0": "Body with required text."}
+                                    }
+                                },
+                            },
+                        },
+                        "code_1": {
+                            "version": 1,
+                            "data": {
+                                "type": "code",
+                                "text": {
+                                    "initialAttributedTexts": {
+                                        "text": {"0": "echo one\necho two"}
+                                    }
+                                },
+                            },
+                        },
+                    }
+                else:
+                    block_map = {
+                        "doxrzCreatedPage": {
+                            "version": 7,
+                            "data": {
+                                "type": "page",
+                                "author": "author_fixture",
+                                "children": [],
+                            },
+                        }
+                    }
+                write_json_response(self, {"code": 0, "data": {"block_map": block_map}})
+                return
+            self.send_error(404)
+
+    with serve_handler(Handler) as server:
+        result = run_go_ixf(
+            binary,
+            "docs",
+            "publish",
+            str(source),
+            "--base-url",
+            server,
+            "--space-api",
+            server,
+            "--cookies",
+            str(cookies),
+            "--parent-token",
+            "parent_fixture",
+            "--member-id",
+            "member_override",
+            "--title-suffix",
+            " - Published",
+            "--require",
+            "required text",
+            "--apply",
+        )
+
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["dryRun"] is False
+    assert payload["title"] == "Apply Title - Published"
+    assert payload["url"].endswith("/docx/doxrzCreatedPage")
+    assert payload["verify"]["ok"] is True
+    assert [event[0] for event in events] == ["create", "client_vars", "write", "client_vars"]
     assert result.stderr == ""
 
 
@@ -1036,8 +1173,8 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     release.write_text(
         json.dumps(
             {
-                "tag_name": "v1.4.0",
-                "html_url": "https://github.example/releases/v1.4.0",
+                "tag_name": "v1.5.0",
+                "html_url": "https://github.example/releases/v1.5.0",
             }
         ),
         encoding="utf-8",
@@ -1054,9 +1191,9 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     payload = json.loads(result.stdout)
 
     assert payload["ok"] is True
-    assert payload["currentVersion"] == "1.3.0"
-    assert payload["latestVersion"] == "1.4.0"
-    assert payload["latestTag"] == "v1.4.0"
+    assert payload["currentVersion"] == "1.4.0"
+    assert payload["latestVersion"] == "1.5.0"
+    assert payload["latestTag"] == "v1.5.0"
     assert payload["updateAvailable"] is True
     assert payload["applied"] is False
     assert payload["commands"] == []
@@ -1065,7 +1202,7 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
 
 def test_go_ixf_update_self_apply_replaces_target_with_verified_asset(tmp_path):
     binary = build_go_ixf(tmp_path)
-    version = "1.4.0"
+    version = "1.5.0"
     goos = subprocess.run(
         ["go", "env", "GOOS"],
         cwd=ROOT,
@@ -1094,7 +1231,7 @@ def test_go_ixf_update_self_apply_replaces_target_with_verified_asset(tmp_path):
         json.dumps(
             {
                 "tag_name": f"v{version}",
-                "html_url": "https://github.example/releases/v1.4.0",
+                "html_url": "https://github.example/releases/v1.5.0",
                 "assets": [
                     {"name": artifact_name, "browser_download_url": artifact.as_uri()},
                     {"name": checksums.name, "browser_download_url": checksums.as_uri()},

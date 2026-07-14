@@ -46,7 +46,7 @@ The recommended path is to let the agent you are already using install Toolbox. 
 ### Codex
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.3.0/ixf_toolbox-1.3.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.4.0/ixf_toolbox-1.4.0-py3-none-any.whl"
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
@@ -55,7 +55,7 @@ ixf doctor --json
 ### Claude Code
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.3.0/ixf_toolbox-1.3.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.4.0/ixf_toolbox-1.4.0-py3-none-any.whl"
 ixf setup skills --runtimes claude-code --json
 ixf --version
 ixf doctor --json
@@ -64,7 +64,7 @@ ixf doctor --json
 ### Both Agents
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.3.0/ixf_toolbox-1.3.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.4.0/ixf_toolbox-1.4.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ixf --version
 ixf doctor --json
@@ -73,7 +73,7 @@ ixf doctor --json
 On Windows, use `[windows]` instead of `[crypto]`:
 
 ```bash
-python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.3.0/ixf_toolbox-1.3.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.4.0/ixf_toolbox-1.4.0-py3-none-any.whl"
 ```
 
 Windows cookie export is CI-tested but remains experimental on real desktop sessions.
@@ -115,7 +115,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Go Migration Status
 
-The v1.x line still uses the Python package as the default installation path and reference runtime. The Go CLI is migrating in stages: it now covers `--version`, `doctor`, `setup skills`, local `docs read/outline/chunk/inspect/cleanup`, authorized remote docx text/image/embedded-sheet reads, wiki reads that resolve to docx tokens, wiki bitable TSV reads, direct mindnote tree reads, basic docx block-to-Markdown conversion, docs publish dry-run, `update check/self`, checksum-verified Go binary self-update, and `update skills`; cookie export, remaining remote parity for wiki edge variants, docs publish apply, and OKR read/write remain Python-reference behavior until golden parity is complete.
+The v1.x line still uses the Python package as the default installation path and reference runtime. The Go CLI is migrating in stages: it now covers `--version`, `doctor`, `setup skills`, local `docs read/outline/chunk/inspect/cleanup`, authorized remote docx text/image/embedded-sheet reads, wiki reads that resolve to docx tokens, wiki bitable TSV reads, direct mindnote tree reads, basic docx block-to-Markdown conversion, docs publish dry-run/apply, `update check/self`, checksum-verified Go binary self-update, and `update skills`; cookie export, remaining remote parity for wiki edge variants, and OKR read/write remain Python-reference behavior until golden parity is complete.
 
 ## Manual Read Flow
 

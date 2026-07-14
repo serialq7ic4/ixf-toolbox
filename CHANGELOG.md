@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 1.4.0 - 2026-07-15
+
+- Added Go-native `docs publish --apply` API-only document creation, content write, and verification using cookie-gated apply semantics.
+- Added fixture-backed Go CLI coverage for create, `client_vars`, `user_change`, required-text verification, multiline code preservation, CSRF headers, and session cookies.
+- Updated Go migration documentation to mark docs publishing apply support as migrated while keeping cookie export and OKR write on the Python reference runtime.
+
 ## 1.3.0 - 2026-07-15
 
 - Added the initial Go POC command surface for version, diagnostics, skill setup, and safe cookie-export failure behavior.

@@ -22,7 +22,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "1.3.0"
+var version = "1.4.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -410,16 +410,17 @@ func runDocsPublish(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
 		return 2
 	}
-	if parsed.apply {
-		return goCommandUnavailable(stderr, "docs publish --apply", "Use the Python ixf runtime until Go docs publish apply reaches parity.")
-	}
 	payload, err := docspublish.PublishMarkdown(docspublish.Config{
 		MarkdownPath: parsed.markdown,
 		BaseURL:      parsed.baseURL,
+		CookiesPath:  parsed.cookiesPath,
+		SpaceAPI:     parsed.spaceAPI,
+		MemberID:     parsed.memberID,
+		ParentToken:  parsed.parentToken,
 		Title:        parsed.title,
 		TitleSuffix:  parsed.titleSuffix,
 		RequiredText: parsed.requiredText,
-		Apply:        false,
+		Apply:        parsed.apply,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)

@@ -3,9 +3,9 @@ from ixf_toolbox.cli import main
 
 
 def test_version_constant_is_current_release():
-    assert __version__ == "1.3.0"
+    assert __version__ == "1.4.0"
 
 
 def test_version_command_prints_unified_cli_name(capsys):
     assert main(["--version"]) == 0
-    assert capsys.readouterr().out.strip() == "ixf 1.3.0"
+    assert capsys.readouterr().out.strip() == "ixf 1.4.0"

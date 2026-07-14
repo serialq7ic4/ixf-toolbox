@@ -6,7 +6,7 @@ projects with one local `ixf` command and five agent skills.
 New installs should use Toolbox:
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.3.0/ixf_toolbox-1.3.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.4.0/ixf_toolbox-1.4.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ixf --version
 ixf doctor --json

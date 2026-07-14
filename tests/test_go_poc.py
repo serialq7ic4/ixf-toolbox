@@ -239,6 +239,90 @@ def test_go_ixf_docs_read_remote_docx_uses_client_vars_api(tmp_path):
     assert requested[-1] == "/space/api/docx/pages/client_vars?id=page_1&open_type=1&mode=4&cursor=next-cursor"
 
 
+def test_go_ixf_docs_read_remote_wiki_resolves_docx_token_to_manifest(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    cookies = tmp_path / "cookies.json"
+    write_cookie_fixture(cookies)
+    errors: list[str] = []
+    requested: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            requested.append(self.path)
+            if parsed.path == "/wiki/space/page":
+                if self.headers.get("X-CSRFToken") != "csrf-fixture":
+                    errors.append("missing wiki csrf header")
+                if "session=session-fixture" not in self.headers.get("Cookie", ""):
+                    errors.append("missing wiki session cookie")
+                body = b'<script>window.__WIKI__={"obj_token":"page_1"}</script>'
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if parsed.path == "/space/api/docx/pages/client_vars":
+                query = parse_qs(parsed.query)
+                if query.get("id") != ["page_1"]:
+                    errors.append(f"unexpected id query: {query.get('id')}")
+                payload = {
+                    "code": 0,
+                    "data": {
+                        "block_map": {
+                            "page_1": {
+                                "data": {
+                                    "type": "page",
+                                    "children": ["text_1"],
+                                    "text": {"initialAttributedTexts": {"text": {"0": "Wiki Doc"}}},
+                                }
+                            },
+                            "text_1": {
+                                "data": {
+                                    "type": "text",
+                                    "parent_id": "page_1",
+                                    "text": {"initialAttributedTexts": {"text": {"0": "Resolved body"}}},
+                                }
+                            },
+                        },
+                        "has_more": False,
+                    },
+                }
+                write_json_response(self, payload)
+                return
+            self.send_response(404)
+            self.end_headers()
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    out_dir = tmp_path / "out"
+    with serve_handler(Handler) as base_url:
+        result = run_go_ixf(
+            binary,
+            "docs",
+            "read",
+            f"{base_url}/wiki/space/page?from=copy",
+            "--cookies",
+            str(cookies),
+            "--space-api",
+            base_url,
+            "--out-dir",
+            str(out_dir),
+            "--print-manifest",
+        )
+
+    manifest = json.loads(result.stdout)
+    item = manifest["wiki_1"]
+    assert Path(item["file"]).read_text(encoding="utf-8") == "# Wiki Doc\n\nResolved body\n"
+    assert item["kind"] == "wiki"
+    assert item["token"] == "page_1"
+    assert errors == []
+    assert requested[0] == "/wiki/space/page?from=copy"
+    assert requested[-1] == "/space/api/docx/pages/client_vars?id=page_1&open_type=1"
+    assert result.stderr == ""
+
+
 def test_go_ixf_docs_read_remote_docx_downloads_images_to_manifest(tmp_path):
     binary = build_go_ixf(tmp_path)
     cookies = tmp_path / "cookies.json"

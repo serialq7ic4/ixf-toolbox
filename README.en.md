@@ -115,7 +115,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Go Migration Status
 
-The v1.x line still uses the Python package as the default installation path and reference runtime. The Go CLI is migrating in stages: it now covers `--version`, `doctor`, `setup skills`, local `docs read/outline/chunk/inspect/cleanup`, authorized remote docx text/image/embedded-sheet reads, basic docx block-to-Markdown conversion, `update check/self`, checksum-verified Go binary self-update, and `update skills`; cookie export, full remote parity for wiki/mindnote, docs publish, and OKR read/write remain Python-reference behavior until golden parity is complete.
+The v1.x line still uses the Python package as the default installation path and reference runtime. The Go CLI is migrating in stages: it now covers `--version`, `doctor`, `setup skills`, local `docs read/outline/chunk/inspect/cleanup`, authorized remote docx text/image/embedded-sheet reads, wiki reads that resolve to docx tokens, basic docx block-to-Markdown conversion, `update check/self`, checksum-verified Go binary self-update, and `update skills`; cookie export, full remote parity for wiki variants/mindnote, docs publish, and OKR read/write remain Python-reference behavior until golden parity is complete.
 
 ## Manual Read Flow
 

@@ -18,6 +18,11 @@ import (
 var (
 	remoteTokenPattern = regexp.MustCompile(`/([^/?#]+)`)
 	slugPattern        = regexp.MustCompile(`[^a-zA-Z0-9]+`)
+	docTokenPatterns   = []*regexp.Regexp{
+		regexp.MustCompile(`obj_token":"([^"]+)"`),
+		regexp.MustCompile(`token":"(dox[a-zA-Z0-9]+)"`),
+		regexp.MustCompile(`url_token":"(dox[a-zA-Z0-9]+)"`),
+	}
 )
 
 const DefaultSpaceAPI = "https://internal-api-space.xfchat.iflytek.com"
@@ -67,7 +72,8 @@ func ReadSourcesWithOptions(sources []string, options ReadOptions) ([]Result, er
 				}
 				remoteSession = session
 			}
-			result, err := remoteSession.readRemote(source, fmt.Sprintf("docx_%d", index+1))
+			kindHint := remoteKindFromSource(source)
+			result, err := remoteSession.readRemote(source, fmt.Sprintf("%s_%d", kindHint, index+1))
 			if err != nil {
 				return nil, err
 			}
@@ -170,15 +176,23 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 	if err != nil {
 		return Result{}, err
 	}
+	origin := originForURL(parsed)
+	kind := remoteKindFromPath(parsed.Path)
 	token := tokenAfter(parsed.Path, "/docx/")
+	if token == "" && kind == "wiki" {
+		html, err := session.fetchHTML(source, origin)
+		if err != nil {
+			return Result{}, err
+		}
+		token = extractDocTokenFromHTML(html)
+	}
 	if token == "" {
 		return Result{}, fmt.Errorf("remote source is not supported by Go docs read yet")
 	}
-	data, err := session.clientVars(token, originForURL(parsed), source)
+	data, err := session.clientVars(token, origin, source)
 	if err != nil {
 		return Result{}, err
 	}
-	origin := originForURL(parsed)
 	conversionOptions := docx.Options{}
 	if session.downloadImages {
 		writer := newImageAssetWriter(session, origin, source, token, session.outputRoot, assetGroup)
@@ -202,7 +216,7 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 	title := docxTitle(data, token)
 	return Result{
 		Source:   source,
-		Kind:     "docx",
+		Kind:     kind,
 		Title:    title,
 		Token:    token,
 		Content:  conversion.Markdown,
@@ -210,6 +224,60 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 		Assets:   conversion.Assets,
 		Warnings: conversion.Warnings,
 	}, nil
+}
+
+func remoteKindFromSource(source string) string {
+	parsed, err := url.Parse(source)
+	if err != nil {
+		return "remote"
+	}
+	return remoteKindFromPath(parsed.Path)
+}
+
+func remoteKindFromPath(path string) string {
+	if tokenAfter(path, "/docx/") != "" {
+		return "docx"
+	}
+	if strings.Contains(path, "/wiki/") {
+		return "wiki"
+	}
+	if tokenAfter(path, "/mindnotes/") != "" {
+		return "mindnote"
+	}
+	if strings.Contains(path, "/okr/user/") {
+		return "okr"
+	}
+	return "remote"
+}
+
+func (session *remoteReadSession) fetchHTML(requestURL string, origin string) (string, error) {
+	request, err := http.NewRequest(http.MethodGet, requestURL, nil)
+	if err != nil {
+		return "", err
+	}
+	session.addCommonHeaders(request, origin, requestURL)
+	response, err := session.client.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", fmt.Errorf("remote html http status %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
+func extractDocTokenFromHTML(html string) string {
+	for _, pattern := range docTokenPatterns {
+		if match := pattern.FindStringSubmatch(html); len(match) == 2 {
+			return match[1]
+		}
+	}
+	return ""
 }
 
 func (session *remoteReadSession) clientVars(token string, origin string, referer string) (map[string]any, error) {
@@ -242,13 +310,7 @@ func (session *remoteReadSession) getJSON(requestURL string, origin string, refe
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("User-Agent", "ixf-toolbox-go")
-	request.Header.Set("Origin", origin)
-	request.Header.Set("Referer", referer)
-	request.Header.Set("X-CSRFToken", session.csrfToken)
-	for _, cookie := range session.cookies {
-		request.AddCookie(&cookie)
-	}
+	session.addCommonHeaders(request, origin, referer)
 	response, err := session.client.Do(request)
 	if err != nil {
 		return nil, err
@@ -266,6 +328,16 @@ func (session *remoteReadSession) getJSON(requestURL string, origin string, refe
 		return nil, err
 	}
 	return payload, nil
+}
+
+func (session *remoteReadSession) addCommonHeaders(request *http.Request, origin string, referer string) {
+	request.Header.Set("User-Agent", "ixf-toolbox-go")
+	request.Header.Set("Origin", origin)
+	request.Header.Set("Referer", referer)
+	request.Header.Set("X-CSRFToken", session.csrfToken)
+	for _, cookie := range session.cookies {
+		request.AddCookie(&cookie)
+	}
 }
 
 func loadCookieObjects(path string) ([]cookieObject, error) {

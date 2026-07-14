@@ -29,7 +29,7 @@ def test_go_ixf_version_matches_python_release(tmp_path):
     binary = build_go_ixf(tmp_path)
     result = run_go_ixf(binary, "--version")
 
-    assert result.stdout.strip() == "ixf 1.2.0"
+    assert result.stdout.strip() == "ixf 1.3.0"
     assert result.stderr == ""
 
 
@@ -57,7 +57,7 @@ def test_go_ixf_doctor_json_is_secret_safe_and_reports_go_runtime(tmp_path):
     serialized = json.dumps(payload, ensure_ascii=False)
 
     assert payload["ok"] is True
-    assert payload["version"] == "1.2.0"
+    assert payload["version"] == "1.3.0"
     assert payload["runtime"] == "go-poc"
     assert payload["skills"]["codex"]["ok"] is True
     assert payload["cookies"]["hasCsrf"] is True
@@ -1036,8 +1036,8 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     release.write_text(
         json.dumps(
             {
-                "tag_name": "v1.3.0",
-                "html_url": "https://github.example/releases/v1.3.0",
+                "tag_name": "v1.4.0",
+                "html_url": "https://github.example/releases/v1.4.0",
             }
         ),
         encoding="utf-8",
@@ -1054,9 +1054,9 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     payload = json.loads(result.stdout)
 
     assert payload["ok"] is True
-    assert payload["currentVersion"] == "1.2.0"
-    assert payload["latestVersion"] == "1.3.0"
-    assert payload["latestTag"] == "v1.3.0"
+    assert payload["currentVersion"] == "1.3.0"
+    assert payload["latestVersion"] == "1.4.0"
+    assert payload["latestTag"] == "v1.4.0"
     assert payload["updateAvailable"] is True
     assert payload["applied"] is False
     assert payload["commands"] == []
@@ -1065,7 +1065,7 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
 
 def test_go_ixf_update_self_apply_replaces_target_with_verified_asset(tmp_path):
     binary = build_go_ixf(tmp_path)
-    version = "1.3.0"
+    version = "1.4.0"
     goos = subprocess.run(
         ["go", "env", "GOOS"],
         cwd=ROOT,
@@ -1094,7 +1094,7 @@ def test_go_ixf_update_self_apply_replaces_target_with_verified_asset(tmp_path):
         json.dumps(
             {
                 "tag_name": f"v{version}",
-                "html_url": "https://github.example/releases/v1.3.0",
+                "html_url": "https://github.example/releases/v1.4.0",
                 "assets": [
                     {"name": artifact_name, "browser_download_url": artifact.as_uri()},
                     {"name": checksums.name, "browser_download_url": checksums.as_uri()},

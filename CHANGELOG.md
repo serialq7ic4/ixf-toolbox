@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.3.0 - 2026-07-15
+
 - Added the initial Go POC command surface for version, diagnostics, skill setup, and safe cookie-export failure behavior.
 - Added Go-native local document commands for `docs read`, `docs outline`, `docs chunk`, `docs inspect`, and `docs cleanup`.
 - Added Go-native remote docx `client_vars` reads, image asset downloads, embedded sheet expansion, pagination merge, and basic docx block-to-Markdown parity tests.

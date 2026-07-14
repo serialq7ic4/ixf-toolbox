@@ -46,7 +46,7 @@ The recommended path is to let the agent you are already using install Toolbox. 
 ### Codex
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.2.0/ixf_toolbox-1.2.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.3.0/ixf_toolbox-1.3.0-py3-none-any.whl"
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
@@ -55,7 +55,7 @@ ixf doctor --json
 ### Claude Code
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.2.0/ixf_toolbox-1.2.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.3.0/ixf_toolbox-1.3.0-py3-none-any.whl"
 ixf setup skills --runtimes claude-code --json
 ixf --version
 ixf doctor --json
@@ -64,7 +64,7 @@ ixf doctor --json
 ### Both Agents
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.2.0/ixf_toolbox-1.2.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.3.0/ixf_toolbox-1.3.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ixf --version
 ixf doctor --json
@@ -73,7 +73,7 @@ ixf doctor --json
 On Windows, use `[windows]` instead of `[crypto]`:
 
 ```bash
-python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.2.0/ixf_toolbox-1.2.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.3.0/ixf_toolbox-1.3.0-py3-none-any.whl"
 ```
 
 Windows cookie export is CI-tested but remains experimental on real desktop sessions.

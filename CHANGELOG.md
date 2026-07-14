@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 - 2026-07-14
 
+- Added `using-ixf-toolbox` as a lightweight routing skill for document and OKR workflows.
 - Expanded the default README into a full project landing page modeled after the archived reader documentation.
 
 ## 1.1.0 - 2026-07-13

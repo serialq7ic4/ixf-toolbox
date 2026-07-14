@@ -14,7 +14,7 @@ def test_normalize_runtimes_supports_auto_and_aliases():
     assert normalize_runtimes(["none"]) == []
 
 
-def test_install_skill_wrapper_installs_four_codex_skills(tmp_path):
+def test_install_skill_wrapper_installs_five_codex_skills(tmp_path):
     result = install_skill_wrappers(
         project_root=ROOT,
         home=tmp_path,
@@ -23,12 +23,34 @@ def test_install_skill_wrapper_installs_four_codex_skills(tmp_path):
         env={},
     )
 
-    assert len(result["installed"]) == 4
+    assert len(result["installed"]) == 5
     assert result["skipped"] == []
-    for name in ["ixf-docs-reader", "ixf-docs-writer", "ixf-okr-reader", "ixf-okr-writer"]:
+    for name in [
+        "using-ixf-toolbox",
+        "ixf-docs-reader",
+        "ixf-docs-writer",
+        "ixf-okr-reader",
+        "ixf-okr-writer",
+    ]:
         skill = tmp_path / ".codex" / "skills" / name / "SKILL.md"
         assert skill.exists()
         assert f"name: {name}" in skill.read_text(encoding="utf-8")
+
+
+def test_using_ixf_toolbox_skill_routes_without_direct_writes():
+    for runtime in ["codex", "claude-code"]:
+        skill = ROOT / "skills" / runtime / "using-ixf-toolbox" / "SKILL.md"
+        text = skill.read_text(encoding="utf-8")
+
+        assert "name: using-ixf-toolbox" in text
+        assert "routing" in text.lower()
+        assert "default to read-only" in text.lower()
+        assert "ixf-docs-reader" in text
+        assert "ixf-docs-writer" in text
+        assert "ixf-okr-reader" in text
+        assert "ixf-okr-writer" in text
+        assert "dry-run" in text.lower()
+        assert "--apply" not in text
 
 
 def test_okr_writer_skill_documents_api_only_ixf_command():
@@ -101,5 +123,6 @@ def test_install_skill_wrapper_respects_env_override(tmp_path):
         env={"IXF_TOOLBOX_CODEX_SKILLS_DIR": str(custom_dir)},
     )
 
-    assert len(result["installed"]) == 4
+    assert len(result["installed"]) == 5
     assert (custom_dir / "ixf-docs-reader" / "SKILL.md").exists()
+    assert (custom_dir / "using-ixf-toolbox" / "SKILL.md").exists()

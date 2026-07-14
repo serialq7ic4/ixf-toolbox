@@ -9,6 +9,7 @@ from typing import Iterable, Mapping
 
 
 SKILL_NAMES = (
+    "using-ixf-toolbox",
     "ixf-docs-reader",
     "ixf-docs-writer",
     "ixf-okr-reader",

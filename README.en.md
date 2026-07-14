@@ -12,8 +12,9 @@ Let Codex, Claude Code, and other local coding agents read and publish authorize
   <img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-green">
 </p>
 
-`ixf-toolbox` provides one local CLI and four agent skills:
+`ixf-toolbox` provides one local CLI and five agent skills:
 
+- `using-ixf-toolbox`: lightweight routing entry point for choosing the right document/OKR and reader/writer skill.
 - `ixf-docs-reader`: read-only document reading, chunking, and image artifact handling.
 - `ixf-docs-writer`: dry-run-first Markdown to docx publishing.
 - `ixf-okr-reader`: read-only Objective / Key Result extraction from authorized OKR pages.
@@ -40,12 +41,12 @@ Compared with browser export tools, Toolbox is optimized for agent workflows:
 
 ## Install Into Codex / Claude Code
 
-The recommended path is to let the agent you are already using install Toolbox. Installation first installs the `ixf-toolbox` Python package, then registers the four skills into Codex or Claude Code.
+The recommended path is to let the agent you are already using install Toolbox. Installation first installs the `ixf-toolbox` Python package, then registers the five skills into Codex or Claude Code.
 
 ### Codex
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.1.0/ixf_toolbox-1.1.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.2.0/ixf_toolbox-1.2.0-py3-none-any.whl"
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
@@ -54,7 +55,7 @@ ixf doctor --json
 ### Claude Code
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.1.0/ixf_toolbox-1.1.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.2.0/ixf_toolbox-1.2.0-py3-none-any.whl"
 ixf setup skills --runtimes claude-code --json
 ixf --version
 ixf doctor --json
@@ -63,7 +64,7 @@ ixf doctor --json
 ### Both Agents
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.1.0/ixf_toolbox-1.1.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.2.0/ixf_toolbox-1.2.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ixf --version
 ixf doctor --json
@@ -72,7 +73,7 @@ ixf doctor --json
 On Windows, use `[windows]` instead of `[crypto]`:
 
 ```bash
-python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.1.0/ixf_toolbox-1.1.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[windows] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.2.0/ixf_toolbox-1.2.0-py3-none-any.whl"
 ```
 
 Windows cookie export is CI-tested but remains experimental on real desktop sessions.
@@ -80,6 +81,8 @@ Windows cookie export is CI-tested but remains experimental on real desktop sess
 ## Agent Usage
 
 After installing the skills, ask your agent to work with authorized links or local files:
+
+> Use using-ixf-toolbox to decide whether this link should use a document or OKR workflow, and whether it is read or write.
 
 > Use ixf-docs-reader to read and summarize this document: https://tenant.example.test/wiki/example
 

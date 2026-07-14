@@ -5,7 +5,13 @@ import json
 from ixf_toolbox.doctor import collect_diagnostics, format_diagnostics
 
 
-SKILL_NAMES = ["ixf-docs-reader", "ixf-docs-writer", "ixf-okr-reader", "ixf-okr-writer"]
+SKILL_NAMES = [
+    "using-ixf-toolbox",
+    "ixf-docs-reader",
+    "ixf-docs-writer",
+    "ixf-okr-reader",
+    "ixf-okr-writer",
+]
 
 
 def install_codex_skills(tmp_path):
@@ -41,7 +47,7 @@ def test_collect_diagnostics_reports_native_capabilities_skills_and_cookie_metad
     )
 
     assert payload["ok"] is True
-    assert payload["version"] == "1.1.0"
+    assert payload["version"] == "1.2.0"
     assert "engines" not in payload
     assert payload["capabilities"] == {
         "docsRead": True,
@@ -134,7 +140,7 @@ def test_collect_diagnostics_uses_toolbox_cookie_core(monkeypatch, tmp_path):
 def test_format_diagnostics_is_human_readable_without_secret_values(tmp_path):
     payload = {
         "ok": False,
-        "version": "1.1.0",
+        "version": "1.2.0",
         "capabilities": {
             "docsRead": True,
             "docsPublish": True,
@@ -162,7 +168,7 @@ def test_format_diagnostics_is_human_readable_without_secret_values(tmp_path):
 
     text = format_diagnostics(payload)
 
-    assert "ixf-toolbox 1.1.0" in text
+    assert "ixf-toolbox 1.2.0" in text
     assert "native docsRead=true docsPublish=true okrRead=true okrWrite=true cookiesExport=true" in text
     assert "engine ixfdoc" not in text
     assert "engine ixfwrite" not in text

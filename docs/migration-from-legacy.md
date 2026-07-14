@@ -1,12 +1,12 @@
 # Migration From Legacy Reader/Writer
 
 `ixf-toolbox` replaces the earlier `ixunfei-docx-reader` and `ixunfei-docx-writer`
-projects with one local `ixf` command and four agent skills.
+projects with one local `ixf` command and five agent skills.
 
 New installs should use Toolbox:
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.1.0/ixf_toolbox-1.1.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v1.2.0/ixf_toolbox-1.2.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ixf --version
 ixf doctor --json
@@ -40,6 +40,7 @@ Use `[windows]` instead of `[crypto]` on Windows.
 
 | Legacy skill | Toolbox skill |
 |---|---|
+| Broad i讯飞 workflow requests | `using-ixf-toolbox` |
 | `ixunfei-docx-reader` | `ixf-docs-reader` |
 | `ixunfei-docx-writer` document publishing | `ixf-docs-writer` |
 | `ixunfei-docx-reader` OKR reading | `ixf-okr-reader` |

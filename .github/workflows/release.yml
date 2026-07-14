@@ -46,6 +46,24 @@ jobs:
         run: python -m ruff check .
       - name: Build distributions
         run: python -m build
+      - name: Build Go binary artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            artifact="ixf_${RELEASE_VERSION}_${goos}_${goarch}"
+            if [ "${goos}" = "windows" ]; then
+              artifact="${artifact}.exe"
+            fi
+            GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-s -w -X main.version=${RELEASE_VERSION}" \
+              -o "dist/${artifact}" ./cmd/ixf
+          done
+          (cd dist && sha256sum ixf_${RELEASE_VERSION}_* > "ixf_${RELEASE_VERSION}_checksums.txt")
       - name: Extract release notes
         env:
           RELEASE_TAG: ${{ github.ref_name }}

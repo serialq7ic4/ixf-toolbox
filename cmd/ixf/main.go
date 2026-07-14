@@ -10,15 +10,18 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	ixftoolbox "github.com/serialq7ic4/ixf-toolbox"
+	"github.com/serialq7ic4/ixf-toolbox/internal/docslocal"
+	"github.com/serialq7ic4/ixf-toolbox/internal/markdown"
+	ixfupdate "github.com/serialq7ic4/ixf-toolbox/internal/update"
 )
 
-const (
-	version        = "1.2.0"
-	defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
-)
+const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
+
+var version = "1.2.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -56,12 +59,16 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 
 	switch args[0] {
+	case "docs":
+		return runDocs(args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(args[1:], stdout, stderr)
 	case "setup":
 		return runSetup(args[1:], stdout, stderr)
 	case "cookies":
 		return runCookies(args[1:], stdout, stderr)
+	case "update":
+		return runUpdate(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "ERROR unsupported command: %s\n", args[0])
 		printRootHelp(stderr)
@@ -70,7 +77,30 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func printRootHelp(w io.Writer) {
-	fmt.Fprintln(w, "usage: ixf [--version] {doctor,setup,cookies} ...")
+	rows := [][2]string{
+		{"docs", "Read, inspect, chunk, clean up, or publish authorized documents."},
+		{"doctor", "Inspect local Toolbox setup without printing secrets."},
+		{"setup", "Install agent skill wrappers."},
+		{"cookies", "Export local desktop session cookies."},
+		{"update", "Check, apply, or refresh Toolbox updates."},
+	}
+	printCommandHelp(w, "ixf [--version]", rows)
+}
+
+func printCommandHelp(w io.Writer, prog string, rows [][2]string) {
+	names := []string{}
+	width := 0
+	for _, row := range rows {
+		names = append(names, row[0])
+		if len(row[0]) > width {
+			width = len(row[0])
+		}
+	}
+	fmt.Fprintf(w, "usage: %s {%s} ...\n\n", prog, strings.Join(names, ","))
+	fmt.Fprintln(w, "commands:")
+	for _, row := range rows {
+		fmt.Fprintf(w, "  %-*s  %s\n", width, row[0], row[1])
+	}
 }
 
 func runSetup(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -159,6 +189,425 @@ func runCookies(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "ERROR Go POC cookie export is not implemented yet.")
 	}
 	return 6
+}
+
+func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
+	rows := [][2]string{
+		{"read", "Read authorized cloud document links or local Markdown files."},
+		{"outline", "Print heading-aware chunk metadata for Markdown."},
+		{"chunk", "Print one heading-aware Markdown chunk."},
+		{"inspect", "Print a safe local/remote source routing summary."},
+		{"cleanup", "Remove generated docs read artifacts."},
+		{"publish", "Publish Markdown as an authorized cloud document."},
+	}
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "ERROR docs requires a subcommand.")
+		printCommandHelp(stderr, "ixf docs", rows)
+		return 2
+	}
+	if args[0] == "-h" || args[0] == "--help" {
+		printCommandHelp(stdout, "ixf docs", rows)
+		return 0
+	}
+	switch args[0] {
+	case "outline":
+		return runDocsOutline(args[1:], stdout, stderr)
+	case "chunk":
+		return runDocsChunk(args[1:], stdout, stderr)
+	case "inspect":
+		return runDocsInspect(args[1:], stdout, stderr)
+	case "cleanup":
+		return runDocsCleanup(args[1:], stderr)
+	case "read", "publish":
+		return goCommandUnavailable(stderr, "docs "+args[0], "Use the Python ixf runtime until the Go remote document implementation reaches parity.")
+	default:
+		fmt.Fprintf(stderr, "ERROR unsupported docs subcommand: %s\n", args[0])
+		printCommandHelp(stderr, "ixf docs", rows)
+		return 2
+	}
+}
+
+func runDocsOutline(args []string, stdout io.Writer, stderr io.Writer) int {
+	parsed, err := parseOutlineArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	path := expandUser(parsed.source)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	outline, err := markdown.BuildOutline(string(content), parsed.targetChars)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	payload := map[string]any{
+		"ok":                   true,
+		"file":                 path,
+		"selectedHeadingLevel": outline.SelectedHeadingLevel,
+		"chunks":               outline.Chunks,
+	}
+	if parsed.asJSON {
+		writeJSON(stdout, payload)
+		return 0
+	}
+	for _, chunk := range outline.Chunks {
+		fmt.Fprintf(stdout, "%d\t%d-%d\t%s\n", chunk.Index, chunk.StartLine, chunk.EndLine, chunk.Breadcrumb)
+	}
+	return 0
+}
+
+func runDocsChunk(args []string, stdout io.Writer, stderr io.Writer) int {
+	parsed, err := parseChunkArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	path := expandUser(parsed.source)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	text := string(content)
+	outline, err := markdown.BuildOutline(text, parsed.targetChars)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	if parsed.index < 1 || parsed.index > len(outline.Chunks) {
+		fmt.Fprintf(stderr, "ERROR chunk index out of range: %d\n", parsed.index)
+		return 2
+	}
+	chunk := outline.Chunks[parsed.index-1]
+	rendered, err := markdown.RenderChunk(text, outline, parsed.index)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	breadcrumb := strings.ReplaceAll(strings.ReplaceAll(chunk.Breadcrumb, `\`, `\\`), `"`, `\"`)
+	fmt.Fprintf(stdout, "[chunk %d/%d breadcrumb=\"%s\"]\n\n", chunk.Index, len(outline.Chunks), breadcrumb)
+	fmt.Fprint(stdout, rendered)
+	return 0
+}
+
+func runDocsInspect(args []string, stdout io.Writer, stderr io.Writer) int {
+	source := ""
+	asJSON := false
+	for _, arg := range args {
+		if arg == "--json" {
+			asJSON = true
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			fmt.Fprintf(stderr, "ERROR unsupported inspect flag: %s\n", arg)
+			return 2
+		}
+		if source != "" {
+			fmt.Fprintln(stderr, "ERROR inspect requires exactly one source")
+			return 2
+		}
+		source = arg
+	}
+	if source == "" {
+		fmt.Fprintln(stderr, "ERROR inspect requires one source")
+		return 2
+	}
+	payload, err := docslocal.InspectSource(source)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	if asJSON {
+		writeJSON(stdout, payload)
+		return 0
+	}
+	if remote, _ := payload["remote"].(bool); remote {
+		fmt.Fprintf(stdout, "source %s\n", payload["sourceRef"])
+		fmt.Fprintln(stdout, "remote true")
+		fmt.Fprintf(stdout, "kind %s\n", payload["kind"])
+		fmt.Fprintf(stdout, "host %s\n", payload["host"])
+		fmt.Fprintf(stdout, "route %s\n", payload["route"])
+		return 0
+	}
+	fmt.Fprintf(stdout, "source %s\n", payload["source"])
+	fmt.Fprintln(stdout, "remote false")
+	fmt.Fprintf(stdout, "kind %s\n", payload["kind"])
+	fmt.Fprintf(stdout, "path %s\n", payload["path"])
+	fmt.Fprintf(stdout, "exists %t\n", payload["exists"])
+	fmt.Fprintf(stdout, "readable %t\n", payload["readable"])
+	return 0
+}
+
+func runDocsCleanup(args []string, stderr io.Writer) int {
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "ERROR cleanup requires one output directory")
+		return 2
+	}
+	if err := docslocal.CleanupOutputs(args[0]); err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	return 0
+}
+
+type outlineArgs struct {
+	source      string
+	targetChars int
+	asJSON      bool
+}
+
+func parseOutlineArgs(args []string) (outlineArgs, error) {
+	parsed := outlineArgs{targetChars: 12000}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--json":
+			parsed.asJSON = true
+		case "--target-chars":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("--target-chars requires a value")
+			}
+			value, err := strconv.Atoi(args[i])
+			if err != nil {
+				return parsed, err
+			}
+			parsed.targetChars = value
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return parsed, fmt.Errorf("unsupported outline flag: %s", arg)
+			}
+			if parsed.source != "" {
+				return parsed, fmt.Errorf("outline requires exactly one source")
+			}
+			parsed.source = arg
+		}
+	}
+	if parsed.source == "" {
+		return parsed, fmt.Errorf("outline requires one source")
+	}
+	return parsed, nil
+}
+
+type chunkArgs struct {
+	source      string
+	index       int
+	targetChars int
+}
+
+func parseChunkArgs(args []string) (chunkArgs, error) {
+	parsed := chunkArgs{targetChars: 12000}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--index":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("--index requires a value")
+			}
+			value, err := strconv.Atoi(args[i])
+			if err != nil {
+				return parsed, err
+			}
+			parsed.index = value
+		case "--target-chars":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("--target-chars requires a value")
+			}
+			value, err := strconv.Atoi(args[i])
+			if err != nil {
+				return parsed, err
+			}
+			parsed.targetChars = value
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return parsed, fmt.Errorf("unsupported chunk flag: %s", arg)
+			}
+			if parsed.source != "" {
+				return parsed, fmt.Errorf("chunk requires exactly one source")
+			}
+			parsed.source = arg
+		}
+	}
+	if parsed.source == "" {
+		return parsed, fmt.Errorf("chunk requires one source")
+	}
+	if parsed.index == 0 {
+		return parsed, fmt.Errorf("chunk requires --index")
+	}
+	return parsed, nil
+}
+
+func runUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "ERROR update requires a subcommand")
+		return 2
+	}
+	switch args[0] {
+	case "check":
+		return runUpdateCheck(args[1:], stdout, stderr)
+	case "self":
+		return runUpdateSelf(args[1:], stdout, stderr)
+	case "skills":
+		return runUpdateSkills(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "ERROR unsupported update subcommand: %s\n", args[0])
+		return 2
+	}
+}
+
+func runUpdateCheck(args []string, stdout io.Writer, stderr io.Writer) int {
+	repo, releaseFile, asJSON, err := parseUpdateArgs(args, false)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	release, err := ixfupdate.LoadRelease(repo, releaseFile)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR update check failed: %s\n", err)
+		return 10
+	}
+	payload, err := ixfupdate.CheckLatestRelease(repo, version, release)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR update check failed: %s\n", err)
+		return 10
+	}
+	printUpdatePayload(stdout, payload, asJSON)
+	return 0
+}
+
+func runUpdateSelf(args []string, stdout io.Writer, stderr io.Writer) int {
+	repo, releaseFile, asJSON, apply, err := parseUpdateSelfArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	release, err := ixfupdate.LoadRelease(repo, releaseFile)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR update self failed: %s\n", err)
+		return 10
+	}
+	payload, err := ixfupdate.SelfUpdatePayload(repo, version, release, apply)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR update self failed: %s\n", err)
+		return 10
+	}
+	printUpdatePayload(stdout, payload, asJSON)
+	return 0
+}
+
+func runUpdateSkills(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("ixf update skills", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	runtimesRaw := flags.String("runtimes", "auto", "")
+	asJSON := flags.Bool("json", false, "")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	runtimes, err := normalizeRuntimes(strings.Split(*runtimesRaw, ","))
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	payload, err := installSkills(runtimes, true)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 1
+	}
+	if *asJSON {
+		writeJSON(stdout, payload)
+		return 0
+	}
+	fmt.Fprintf(stdout, "installed=%d skipped=%d\n", len(payload["installed"].([]skillResult)), len(payload["skipped"].([]skillResult)))
+	return 0
+}
+
+func parseUpdateArgs(args []string, allowApply bool) (string, string, bool, error) {
+	repo := ixfupdate.DefaultReleaseRepo
+	releaseFile := ""
+	asJSON := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--repo":
+			i++
+			if i >= len(args) {
+				return repo, releaseFile, asJSON, fmt.Errorf("--repo requires a value")
+			}
+			repo = args[i]
+		case "--release-file":
+			i++
+			if i >= len(args) {
+				return repo, releaseFile, asJSON, fmt.Errorf("--release-file requires a value")
+			}
+			releaseFile = args[i]
+		case "--json":
+			asJSON = true
+		case "--apply":
+			if !allowApply {
+				return repo, releaseFile, asJSON, fmt.Errorf("--apply is only supported by update self")
+			}
+		default:
+			return repo, releaseFile, asJSON, fmt.Errorf("unsupported update flag: %s", args[i])
+		}
+	}
+	return repo, releaseFile, asJSON, nil
+}
+
+func parseUpdateSelfArgs(args []string) (string, string, bool, bool, error) {
+	repo := ixfupdate.DefaultReleaseRepo
+	releaseFile := ""
+	asJSON := false
+	apply := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--repo":
+			i++
+			if i >= len(args) {
+				return repo, releaseFile, asJSON, apply, fmt.Errorf("--repo requires a value")
+			}
+			repo = args[i]
+		case "--release-file":
+			i++
+			if i >= len(args) {
+				return repo, releaseFile, asJSON, apply, fmt.Errorf("--release-file requires a value")
+			}
+			releaseFile = args[i]
+		case "--json":
+			asJSON = true
+		case "--apply":
+			apply = true
+		default:
+			return repo, releaseFile, asJSON, apply, fmt.Errorf("unsupported update self flag: %s", args[i])
+		}
+	}
+	return repo, releaseFile, asJSON, apply, nil
+}
+
+func printUpdatePayload(stdout io.Writer, payload map[string]any, asJSON bool) {
+	if asJSON {
+		writeJSON(stdout, payload)
+		return
+	}
+	fmt.Fprintf(stdout, "current %s\n", payload["currentVersion"])
+	fmt.Fprintf(stdout, "latest %s\n", payload["latestVersion"])
+	fmt.Fprintf(stdout, "updateAvailable %t\n", payload["updateAvailable"])
+	if applied, ok := payload["applied"].(bool); ok {
+		fmt.Fprintf(stdout, "applied %t\n", applied)
+	}
+	if command, _ := payload["installCommand"].(string); command != "" {
+		fmt.Fprintln(stdout, command)
+	}
+}
+
+func goCommandUnavailable(stderr io.Writer, command string, hint string) int {
+	fmt.Fprintf(stderr, "ERROR Go runtime does not support `%s` yet.\n", command)
+	fmt.Fprintf(stderr, "HINT %s\n", hint)
+	return 9
 }
 
 func installSkills(runtimes []string, force bool) (map[string]any, error) {

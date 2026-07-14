@@ -113,6 +113,10 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf update self --json` | Plan or apply a Toolbox package upgrade |
 | `ixf update skills --runtimes auto --json` | Refresh installed skill wrappers |
 
+### Go Migration Status
+
+The v1.x line still uses the Python package as the default installation path and reference runtime. The Go CLI is migrating in stages: it now covers `--version`, `doctor`, `setup skills`, local `docs outline/chunk/inspect/cleanup`, `update check/self` dry-run planning, and `update skills`; cookie export, remote docs read/publish, and OKR read/write remain Python-reference behavior until golden parity is complete.
+
 ## Manual Read Flow
 
 ```bash

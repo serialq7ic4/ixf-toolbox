@@ -1,6 +1,6 @@
 # Release
 
-`ixf-toolbox` uses tagged GitHub Releases with wheel and source distribution artifacts.
+`ixf-toolbox` uses tagged GitHub Releases with wheel, source distribution, and staged Go binary artifacts.
 
 ## Changelog
 
@@ -24,6 +24,7 @@ python -m compileall -q src
 python -m pytest -q
 python -m ruff check .
 go test ./...
+go build -o /tmp/ixf-go ./cmd/ixf
 rm -rf dist build
 python -m build
 scripts/smoke.sh
@@ -37,12 +38,13 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-The GitHub Actions release workflow validates the tag against the package version, runs tests and lint, builds artifacts, extracts release notes from `CHANGELOG.md`, and creates the GitHub Release.
+The GitHub Actions release workflow validates the tag against the package version, runs tests and lint, builds Python and Go artifacts, extracts release notes from `CHANGELOG.md`, and creates the GitHub Release.
 
 After release, confirm:
 
 - The release body matches the changelog section.
 - The wheel and source distribution are attached.
+- The Go binaries and checksum file are attached for macOS, Linux, and Windows.
 - A clean wheel installation can run `ixf --version`, `ixf --help`, and `ixf setup skills --runtimes codex --json`.
 
 Do not publish to PyPI until support status and privacy documentation are current.

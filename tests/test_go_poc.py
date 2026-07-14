@@ -116,3 +116,155 @@ def test_go_ixf_cookies_export_has_safe_poc_failure(tmp_path):
     assert payload["error"]["subtype"] == "cookie_export_unavailable"
     assert payload["error"]["retryable"] is False
     assert not output.exists()
+
+
+def test_go_ixf_docs_help_lists_local_v13_commands(tmp_path):
+    binary = build_go_ixf(tmp_path)
+
+    result = run_go_ixf(binary, "docs", "--help")
+
+    assert "usage: ixf docs" in result.stdout
+    assert "outline" in result.stdout
+    assert "chunk" in result.stdout
+    assert "inspect" in result.stdout
+    assert "cleanup" in result.stdout
+    assert "read" in result.stdout
+    assert "publish" in result.stdout
+
+
+def test_go_ixf_docs_outline_and_chunk_match_local_markdown_contract(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    source = tmp_path / "source.md"
+    source.write_text(
+        "# Title\n\n## One\n\nAlpha\n\n## Two\n\n![Diagram](assets/docx_1/image-001.png)\n*Caption*\n",
+        encoding="utf-8",
+    )
+
+    outline_result = run_go_ixf(
+        binary,
+        "docs",
+        "outline",
+        str(source),
+        "--target-chars",
+        "40",
+        "--json",
+    )
+    outline = json.loads(outline_result.stdout)
+
+    assert outline["ok"] is True
+    assert outline["selectedHeadingLevel"] == 2
+    breadcrumbs = [chunk["breadcrumb"] for chunk in outline["chunks"]]
+    assert "Title > One" in breadcrumbs
+    assert "Title > Two" in breadcrumbs
+    assert outline["chunks"][-1]["imagePaths"] == ["assets/docx_1/image-001.png"]
+
+    chunk_result = run_go_ixf(
+        binary,
+        "docs",
+        "chunk",
+        str(source),
+        "--index",
+        "2",
+        "--target-chars",
+        "40",
+    )
+
+    assert chunk_result.stdout.startswith('[chunk 2/')
+    assert "Title > One" in chunk_result.stdout
+    assert "Alpha" in chunk_result.stdout
+    assert "Diagram" not in chunk_result.stdout
+
+
+def test_go_ixf_docs_inspect_is_secret_safe_for_local_and_remote_sources(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    source = tmp_path / "private-source.md"
+    source.write_text("# Secret Title\n\nSensitive body should not appear.\n", encoding="utf-8")
+
+    local_result = run_go_ixf(binary, "docs", "inspect", str(source), "--json")
+    local = json.loads(local_result.stdout)
+    local_serialized = json.dumps(local, ensure_ascii=False)
+
+    assert local["kind"] == "local_markdown"
+    assert local["remote"] is False
+    assert local["sizeBytes"] == source.stat().st_size
+    assert "Secret Title" not in local_serialized
+    assert "Sensitive body" not in local_serialized
+
+    remote_result = run_go_ixf(
+        binary,
+        "docs",
+        "inspect",
+        "https://tenant.example.test/docx/doxfixturetoken?from=copy",
+        "--json",
+    )
+    remote = json.loads(remote_result.stdout)
+    remote_serialized = json.dumps(remote, ensure_ascii=False)
+
+    assert remote["kind"] == "docx"
+    assert remote["sourceRef"] == "https://tenant.example.test/docx/<redacted>?from=copy"
+    assert remote["tokenPrefix"] == "dox"
+    assert remote["tokenLength"] == len("doxfixturetoken")
+    assert "doxfixturetoken" not in remote_serialized
+
+
+def test_go_ixf_docs_cleanup_removes_only_manifest_outputs(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    out_dir = tmp_path / "out"
+    asset = out_dir / "assets" / "docx_1" / "image-001.png"
+    generated = out_dir / "docx-1.md"
+    keep = out_dir / "keep.txt"
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(b"image")
+    generated.write_text("# Doc\n", encoding="utf-8")
+    keep.write_text("keep", encoding="utf-8")
+    (out_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "docx_1": {
+                    "file": str(generated),
+                    "assets": [{"path": "assets/docx_1/image-001.png"}],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run_go_ixf(binary, "docs", "cleanup", str(out_dir))
+
+    assert not generated.exists()
+    assert not asset.exists()
+    assert not (out_dir / "manifest.json").exists()
+    assert keep.read_text(encoding="utf-8") == "keep"
+
+
+def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    release = tmp_path / "latest.json"
+    release.write_text(
+        json.dumps(
+            {
+                "tag_name": "v1.3.0",
+                "html_url": "https://github.example/releases/v1.3.0",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = run_go_ixf(
+        binary,
+        "update",
+        "self",
+        "--release-file",
+        str(release),
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["ok"] is True
+    assert payload["currentVersion"] == "1.2.0"
+    assert payload["latestVersion"] == "1.3.0"
+    assert payload["latestTag"] == "v1.3.0"
+    assert payload["updateAvailable"] is True
+    assert payload["applied"] is False
+    assert payload["commands"] == []
+    assert "github.com" in payload["installCommand"]

@@ -30,6 +30,8 @@ def test_release_workflow_validates_tag_builds_and_publishes_artifacts():
     assert "pyproject.toml" in text
     assert "actions/setup-go" in text
     assert "go test ./..." in text
+    assert "Build Go binary artifacts" in text
+    assert "ixf_${RELEASE_VERSION}_${goos}_${goarch}" in text
     assert "python -m build" in text
     assert "scripts/extract_changelog.py" in text
     assert "softprops/action-gh-release" in text

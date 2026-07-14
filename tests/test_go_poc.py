@@ -1,223 +1,27 @@
 from __future__ import annotations
 
-import base64
-import gzip
 import hashlib
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 import json
 import os
-import subprocess
-import threading
 from pathlib import Path
+import subprocess
 from urllib.parse import parse_qs, urlparse
 
+from go_poc_support import GO_ENV
+from go_poc_support import ROOT
+from go_poc_support import build_go_ixf
+from go_poc_support import remote_docx_parity_client_vars
+from go_poc_support import run_go_ixf
+from go_poc_support import serve_handler
+from go_poc_support import sheet_client_vars_payload
+from go_poc_support import sheet_expansion_lines
+from go_poc_support import write_cookie_fixture
+from go_poc_support import write_json_response
 from ixf_toolbox.core.docs.assets import has_valid_image_magic
 from ixf_toolbox.core.docs.converters.docx_markdown import ConversionOptions
 from ixf_toolbox.core.docs.converters.docx_markdown import ImageResolution
 from ixf_toolbox.core.docs.converters.docx_markdown import convert_docx_client_vars
-
-
-ROOT = Path(__file__).resolve().parents[1]
-GO_ENV = {
-    **os.environ,
-    "GOFLAGS": "",
-}
-
-
-def build_go_ixf(tmp_path: Path) -> Path:
-    binary = tmp_path / ("ixf-go.exe" if os.name == "nt" else "ixf-go")
-    subprocess.run(
-        ["go", "build", "-o", str(binary), "./cmd/ixf"],
-        cwd=ROOT,
-        env=GO_ENV,
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-    return binary
-
-
-def run_go_ixf(
-    binary: Path,
-    *args: str,
-    home: Path | None = None,
-    check: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    env = dict(GO_ENV)
-    if home is not None:
-        env["HOME"] = str(home)
-    return subprocess.run(
-        [str(binary), *args],
-        cwd=ROOT,
-        env=env,
-        text=True,
-        capture_output=True,
-        check=check,
-    )
-
-
-def gzip_json(value: dict) -> str:
-    return base64.b64encode(gzip.compress(json.dumps(value).encode("utf-8"))).decode("ascii")
-
-
-def attributed_text(text: str) -> dict:
-    return {"initialAttributedTexts": {"text": {"0": text}}}
-
-
-def linked_text(label: str, url: str, suffix: str = "") -> dict:
-    return {
-        "apool": {"numToAttrib": {"0": [["url", url]]}},
-        "initialAttributedTexts": {
-            "attribs": {"0": "*0+4"},
-            "text": {"0": label, "1": suffix},
-        },
-    }
-
-
-def block(data: dict) -> dict:
-    return {"data": data}
-
-
-def remote_docx_parity_client_vars(image_token: str) -> dict:
-    return {
-        "block_map": {
-            "page_1": block(
-                {
-                    "type": "page",
-                    "children": [
-                        "heading_1",
-                        "text_1",
-                        "todo_1",
-                        "quote_1",
-                        "callout_1",
-                        "table_1",
-                        "image_1",
-                        "sheet_1",
-                    ],
-                    "text": attributed_text("Parity Doc"),
-                }
-            ),
-            "heading_1": block(
-                {"type": "heading2", "parent_id": "page_1", "text": attributed_text("Plan")}
-            ),
-            "text_1": block(
-                {
-                    "type": "text",
-                    "parent_id": "page_1",
-                    "text": linked_text("Spec", "https://example.test/spec", " is ready"),
-                }
-            ),
-            "todo_1": block(
-                {
-                    "type": "todo",
-                    "parent_id": "page_1",
-                    "checked": False,
-                    "text": attributed_text("Ship parity"),
-                }
-            ),
-            "quote_1": block(
-                {"type": "quote_container", "parent_id": "page_1", "children": ["quote_text_1"]}
-            ),
-            "quote_text_1": block(
-                {"type": "text", "parent_id": "quote_1", "text": attributed_text("Quote line")}
-            ),
-            "callout_1": block(
-                {"type": "callout", "parent_id": "page_1", "children": ["callout_text_1"]}
-            ),
-            "callout_text_1": block(
-                {"type": "text", "parent_id": "callout_1", "text": attributed_text("Callout body")}
-            ),
-            "table_1": block(
-                {
-                    "type": "table",
-                    "parent_id": "page_1",
-                    "rows_id": ["row_1", "row_2"],
-                    "columns_id": ["col_1", "col_2"],
-                    "cell_set": {
-                        "row_1_col_1": {"block_id": "cell_1_1"},
-                        "row_1_col_2": {"block_id": "cell_1_2"},
-                        "row_2_col_1": {"block_id": "cell_2_1"},
-                        "row_2_col_2": {"block_id": "cell_2_2"},
-                    },
-                }
-            ),
-            "cell_1_1": block({"type": "table_cell", "children": ["cell_text_1_1"]}),
-            "cell_1_2": block({"type": "table_cell", "children": ["cell_text_1_2"]}),
-            "cell_2_1": block({"type": "table_cell", "children": ["cell_text_2_1"]}),
-            "cell_2_2": block({"type": "table_cell", "children": ["cell_text_2_2"]}),
-            "cell_text_1_1": block(
-                {"type": "text", "parent_id": "cell_1_1", "text": attributed_text("Metric")}
-            ),
-            "cell_text_1_2": block(
-                {"type": "text", "parent_id": "cell_1_2", "text": attributed_text("Value")}
-            ),
-            "cell_text_2_1": block(
-                {"type": "text", "parent_id": "cell_2_1", "text": attributed_text("Coverage")}
-            ),
-            "cell_text_2_2": block(
-                {"type": "text", "parent_id": "cell_2_2", "text": attributed_text("100%")}
-            ),
-            "image_1": block(
-                {
-                    "type": "image",
-                    "parent_id": "page_1",
-                    "image": {
-                        "token": image_token,
-                        "name": "diagram.svg",
-                        "mimeType": "image/svg+xml",
-                        "width": 640,
-                        "height": 360,
-                        "size": 22,
-                        "caption": attributed_text("Architecture diagram"),
-                    },
-                }
-            ),
-            "sheet_1": block(
-                {"type": "sheet", "parent_id": "page_1", "token": "shtr_fixture_sheet1"}
-            ),
-        }
-    }
-
-
-def sheet_expansion_lines() -> list[str]:
-    return [
-        "[sheet-meta workbook_token=shtr_fixture sheet_id=sheet1 rows=2 cols=2]",
-        "```tsv",
-        "Name\tValue",
-        "Alpha\t42",
-        "```",
-        "",
-    ]
-
-
-def sheet_client_vars_payload() -> dict:
-    return {
-        "code": 0,
-        "data": {
-            "formerlySchema": {
-                "clientvars": {
-                    "gzip_snapshot": gzip_json(
-                        {"sheets": {"sheet1": {"rowCount": 2, "columnCount": 2}}}
-                    ),
-                    "extra_data": {
-                        "blocks": [
-                            {
-                                "row": 0,
-                                "gzip_datatable": gzip_json(
-                                    {
-                                        "rows": [
-                                            {"columns": [{"value": "Name"}, {"value": "Value"}]},
-                                            {"columns": [{"value": "Alpha"}, {"value": 42}]},
-                                        ]
-                                    }
-                                ),
-                            }
-                        ]
-                    },
-                }
-            }
-        },
-    }
 
 
 def test_go_ixf_version_matches_python_release(tmp_path):
@@ -245,15 +49,7 @@ def test_go_ixf_doctor_json_is_secret_safe_and_reports_go_runtime(tmp_path):
     binary = build_go_ixf(tmp_path)
     run_go_ixf(binary, "setup", "skills", "--runtimes", "codex", "--json", home=tmp_path)
     cookies = tmp_path / "cookies.json"
-    cookies.write_text(
-        json.dumps(
-            [
-                {"name": "_csrf_token", "value": "dummy-csrf"},
-                {"name": "session", "value": "dummy-session"},
-            ]
-        ),
-        encoding="utf-8",
-    )
+    write_cookie_fixture(cookies, csrf_token="dummy-csrf", session="dummy-session")
 
     result = run_go_ixf(binary, "doctor", "--cookies", str(cookies), "--json", home=tmp_path)
     payload = json.loads(result.stdout)
@@ -361,15 +157,7 @@ def test_go_ixf_docs_read_writes_manifest_and_can_cleanup(tmp_path):
 def test_go_ixf_docs_read_remote_docx_uses_client_vars_api(tmp_path):
     binary = build_go_ixf(tmp_path)
     cookies = tmp_path / "cookies.json"
-    cookies.write_text(
-        json.dumps(
-            [
-                {"name": "_csrf_token", "value": "csrf-fixture"},
-                {"name": "session", "value": "session-fixture"},
-            ]
-        ),
-        encoding="utf-8",
-    )
+    write_cookie_fixture(cookies)
     errors: list[str] = []
     requested: list[str] = []
 
@@ -428,21 +216,12 @@ def test_go_ixf_docs_read_remote_docx_uses_client_vars_api(tmp_path):
                         "cursor": "next-cursor",
                     },
                 }
-            body = json.dumps(payload).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            write_json_response(self, payload)
 
         def log_message(self, format: str, *args: object) -> None:
             return
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    base_url = f"http://127.0.0.1:{server.server_port}"
-    try:
+    with serve_handler(Handler) as base_url:
         result = run_go_ixf(
             binary,
             "docs",
@@ -453,9 +232,6 @@ def test_go_ixf_docs_read_remote_docx_uses_client_vars_api(tmp_path):
             "--space-api",
             base_url,
         )
-    finally:
-        server.shutdown()
-        thread.join(timeout=5)
 
     assert result.stdout == "# Remote Doc\n\nFirst\n\nLater\n"
     assert result.stderr == ""
@@ -466,15 +242,7 @@ def test_go_ixf_docs_read_remote_docx_uses_client_vars_api(tmp_path):
 def test_go_ixf_docs_read_remote_docx_downloads_images_to_manifest(tmp_path):
     binary = build_go_ixf(tmp_path)
     cookies = tmp_path / "cookies.json"
-    cookies.write_text(
-        json.dumps(
-            [
-                {"name": "_csrf_token", "value": "csrf-fixture"},
-                {"name": "session", "value": "session-fixture"},
-            ]
-        ),
-        encoding="utf-8",
-    )
+    write_cookie_fixture(cookies)
     image_token = "boxr-image-token"
     png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
     errors: list[str] = []
@@ -515,12 +283,7 @@ def test_go_ixf_docs_read_remote_docx_downloads_images_to_manifest(tmp_path):
                         "has_more": False,
                     },
                 }
-                body = json.dumps(payload).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                write_json_response(self, payload)
                 return
             if parsed.path == f"/space/api/box/stream/download/all/{image_token}/":
                 query = parse_qs(parsed.query)
@@ -543,12 +306,8 @@ def test_go_ixf_docs_read_remote_docx_downloads_images_to_manifest(tmp_path):
         def log_message(self, format: str, *args: object) -> None:
             return
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    base_url = f"http://127.0.0.1:{server.server_port}"
     out_dir = tmp_path / "out"
-    try:
+    with serve_handler(Handler) as base_url:
         result = run_go_ixf(
             binary,
             "docs",
@@ -563,9 +322,6 @@ def test_go_ixf_docs_read_remote_docx_downloads_images_to_manifest(tmp_path):
             "--download-images",
             "--print-manifest",
         )
-    finally:
-        server.shutdown()
-        thread.join(timeout=5)
 
     manifest = json.loads(result.stdout)
     item = manifest["docx_1"]
@@ -594,15 +350,7 @@ def test_go_ixf_docs_read_remote_docx_downloads_images_to_manifest(tmp_path):
 def test_go_ixf_docs_read_remote_docx_expands_sheets_to_manifest(tmp_path):
     binary = build_go_ixf(tmp_path)
     cookies = tmp_path / "cookies.json"
-    cookies.write_text(
-        json.dumps(
-            [
-                {"name": "_csrf_token", "value": "csrf-fixture"},
-                {"name": "session", "value": "session-fixture"},
-            ]
-        ),
-        encoding="utf-8",
-    )
+    write_cookie_fixture(cookies)
     errors: list[str] = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -634,12 +382,7 @@ def test_go_ixf_docs_read_remote_docx_expands_sheets_to_manifest(tmp_path):
                     "has_more": False,
                 },
             }
-            body = json.dumps(payload).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            write_json_response(self, payload)
 
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
@@ -657,59 +400,13 @@ def test_go_ixf_docs_read_remote_docx_expands_sheets_to_manifest(tmp_path):
                 errors.append("wrong workbook token")
             if request["sheetRange"]["sheetId"] != "sheet1":
                 errors.append("wrong sheet id")
-            payload = {
-                "code": 0,
-                "data": {
-                    "formerlySchema": {
-                        "clientvars": {
-                            "gzip_snapshot": gzip_json(
-                                {"sheets": {"sheet1": {"rowCount": 2, "columnCount": 2}}}
-                            ),
-                            "extra_data": {
-                                "blocks": [
-                                    {
-                                        "row": 0,
-                                        "gzip_datatable": gzip_json(
-                                            {
-                                                "rows": [
-                                                    {
-                                                        "columns": [
-                                                            {"value": "Name"},
-                                                            {"value": "Value"},
-                                                        ]
-                                                    },
-                                                    {
-                                                        "columns": [
-                                                            {"value": "Alpha"},
-                                                            {"value": 42},
-                                                        ]
-                                                    },
-                                                ]
-                                            }
-                                        ),
-                                    }
-                                ]
-                            },
-                        }
-                    }
-                },
-            }
-            body = json.dumps(payload).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            write_json_response(self, sheet_client_vars_payload())
 
         def log_message(self, format: str, *args: object) -> None:
             return
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    base_url = f"http://127.0.0.1:{server.server_port}"
     out_dir = tmp_path / "out"
-    try:
+    with serve_handler(Handler) as base_url:
         result = run_go_ixf(
             binary,
             "docs",
@@ -724,9 +421,6 @@ def test_go_ixf_docs_read_remote_docx_expands_sheets_to_manifest(tmp_path):
             "--expand-sheets",
             "--print-manifest",
         )
-    finally:
-        server.shutdown()
-        thread.join(timeout=5)
 
     manifest = json.loads(result.stdout)
     item = manifest["docx_1"]
@@ -748,15 +442,7 @@ def test_go_ixf_docs_read_remote_docx_expands_sheets_to_manifest(tmp_path):
 def test_go_ixf_docs_read_remote_docx_matches_python_golden_for_mixed_blocks(tmp_path):
     binary = build_go_ixf(tmp_path)
     cookies = tmp_path / "cookies.json"
-    cookies.write_text(
-        json.dumps(
-            [
-                {"name": "_csrf_token", "value": "csrf-fixture"},
-                {"name": "session", "value": "session-fixture"},
-            ]
-        ),
-        encoding="utf-8",
-    )
+    write_cookie_fixture(cookies)
     image_token = "boxr-invalid-svg-token"
     invalid_svg = b"<html>not svg</html>"
     client_vars_data = remote_docx_parity_client_vars(image_token)
@@ -792,7 +478,7 @@ def test_go_ixf_docs_read_remote_docx_matches_python_golden_for_mixed_blocks(tmp
                     errors.append("missing csrf header")
                 if "session=session-fixture" not in self.headers.get("Cookie", ""):
                     errors.append("missing session cookie")
-                self._write_json({"code": 0, "data": {**client_vars_data, "has_more": False}})
+                write_json_response(self, {"code": 0, "data": {**client_vars_data, "has_more": False}})
                 return
             if parsed.path == f"/space/api/box/stream/download/all/{image_token}/":
                 query = parse_qs(parsed.query)
@@ -824,25 +510,13 @@ def test_go_ixf_docs_read_remote_docx_matches_python_golden_for_mixed_blocks(tmp
                 errors.append("wrong workbook token")
             if request["sheetRange"]["sheetId"] != "sheet1":
                 errors.append("wrong sheet id")
-            self._write_json(sheet_client_vars_payload())
-
-        def _write_json(self, payload: dict) -> None:
-            body = json.dumps(payload).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            write_json_response(self, sheet_client_vars_payload())
 
         def log_message(self, format: str, *args: object) -> None:
             return
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    base_url = f"http://127.0.0.1:{server.server_port}"
     out_dir = tmp_path / "out"
-    try:
+    with serve_handler(Handler) as base_url:
         result = run_go_ixf(
             binary,
             "docs",
@@ -858,9 +532,6 @@ def test_go_ixf_docs_read_remote_docx_matches_python_golden_for_mixed_blocks(tmp
             "--expand-sheets",
             "--print-manifest",
         )
-    finally:
-        server.shutdown()
-        thread.join(timeout=5)
 
     manifest = json.loads(result.stdout)
     item = manifest["docx_1"]

@@ -482,7 +482,7 @@ func runUpdateCheck(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func runUpdateSelf(args []string, stdout io.Writer, stderr io.Writer) int {
-	repo, releaseFile, asJSON, apply, err := parseUpdateSelfArgs(args)
+	repo, releaseFile, asJSON, apply, targetPath, err := parseUpdateSelfArgs(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
 		return 2
@@ -492,7 +492,13 @@ func runUpdateSelf(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "ERROR update self failed: %s\n", err)
 		return 10
 	}
-	payload, err := ixfupdate.SelfUpdatePayload(repo, version, release, apply)
+	payload, err := ixfupdate.SelfUpdateWithOptions(ixfupdate.SelfUpdateOptions{
+		Repo:           repo,
+		CurrentVersion: version,
+		Release:        release,
+		Apply:          apply,
+		TargetPath:     targetPath,
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR update self failed: %s\n", err)
 		return 10
@@ -558,34 +564,41 @@ func parseUpdateArgs(args []string, allowApply bool) (string, string, bool, erro
 	return repo, releaseFile, asJSON, nil
 }
 
-func parseUpdateSelfArgs(args []string) (string, string, bool, bool, error) {
+func parseUpdateSelfArgs(args []string) (string, string, bool, bool, string, error) {
 	repo := ixfupdate.DefaultReleaseRepo
 	releaseFile := ""
 	asJSON := false
 	apply := false
+	targetPath := ""
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--repo":
 			i++
 			if i >= len(args) {
-				return repo, releaseFile, asJSON, apply, fmt.Errorf("--repo requires a value")
+				return repo, releaseFile, asJSON, apply, targetPath, fmt.Errorf("--repo requires a value")
 			}
 			repo = args[i]
 		case "--release-file":
 			i++
 			if i >= len(args) {
-				return repo, releaseFile, asJSON, apply, fmt.Errorf("--release-file requires a value")
+				return repo, releaseFile, asJSON, apply, targetPath, fmt.Errorf("--release-file requires a value")
 			}
 			releaseFile = args[i]
+		case "--target-path":
+			i++
+			if i >= len(args) {
+				return repo, releaseFile, asJSON, apply, targetPath, fmt.Errorf("--target-path requires a value")
+			}
+			targetPath = args[i]
 		case "--json":
 			asJSON = true
 		case "--apply":
 			apply = true
 		default:
-			return repo, releaseFile, asJSON, apply, fmt.Errorf("unsupported update self flag: %s", args[i])
+			return repo, releaseFile, asJSON, apply, targetPath, fmt.Errorf("unsupported update self flag: %s", args[i])
 		}
 	}
-	return repo, releaseFile, asJSON, apply, nil
+	return repo, releaseFile, asJSON, apply, targetPath, nil
 }
 
 func printUpdatePayload(stdout io.Writer, payload map[string]any, asJSON bool) {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -268,3 +269,65 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     assert payload["applied"] is False
     assert payload["commands"] == []
     assert "github.com" in payload["installCommand"]
+
+
+def test_go_ixf_update_self_apply_replaces_target_with_verified_asset(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    version = "1.3.0"
+    goos = subprocess.run(
+        ["go", "env", "GOOS"],
+        cwd=ROOT,
+        env=GO_ENV,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    goarch = subprocess.run(
+        ["go", "env", "GOARCH"],
+        cwd=ROOT,
+        env=GO_ENV,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    artifact_name = f"ixf_{version}_{goos}_{goarch}" + (".exe" if os.name == "nt" else "")
+    artifact = tmp_path / artifact_name
+    replacement = b"new-go-binary\n"
+    artifact.write_bytes(replacement)
+    checksum = hashlib.sha256(replacement).hexdigest()
+    checksums = tmp_path / f"ixf_{version}_checksums.txt"
+    checksums.write_text(f"{checksum}  {artifact_name}\n", encoding="utf-8")
+    release = tmp_path / "latest.json"
+    release.write_text(
+        json.dumps(
+            {
+                "tag_name": f"v{version}",
+                "html_url": "https://github.example/releases/v1.3.0",
+                "assets": [
+                    {"name": artifact_name, "browser_download_url": artifact.as_uri()},
+                    {"name": checksums.name, "browser_download_url": checksums.as_uri()},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    target = tmp_path / ("ixf-target.exe" if os.name == "nt" else "ixf-target")
+    target.write_bytes(b"old-go-binary\n")
+
+    result = run_go_ixf(
+        binary,
+        "update",
+        "self",
+        "--release-file",
+        str(release),
+        "--target-path",
+        str(target),
+        "--apply",
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["applied"] is True
+    assert payload["checksumVerified"] is True
+    assert payload["artifactName"] == artifact_name
+    assert target.read_bytes() == replacement

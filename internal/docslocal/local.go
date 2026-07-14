@@ -178,6 +178,9 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 	}
 	origin := originForURL(parsed)
 	kind := remoteKindFromPath(parsed.Path)
+	if kind == "mindnote" {
+		return session.readMindnote(source, origin, parsed.Path)
+	}
 	token := tokenAfter(parsed.Path, "/docx/")
 	if token == "" && kind == "wiki" {
 		html, err := session.fetchHTML(source, origin)
@@ -278,6 +281,129 @@ func extractDocTokenFromHTML(html string) string {
 		}
 	}
 	return ""
+}
+
+func (session *remoteReadSession) readMindnote(source string, origin string, path string) (Result, error) {
+	html, err := session.fetchHTML(source, origin)
+	if err != nil {
+		return Result{}, err
+	}
+	encodedPayload, err := extractBalancedObject(html, "clientVars: Object(")
+	if err != nil {
+		return Result{}, err
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal([]byte(encodedPayload), &payload); err != nil {
+		return Result{}, err
+	}
+	data := asMap(payload["data"])
+	token := strings.TrimSpace(stringValue(payload["token"]))
+	if token == "" {
+		token = tokenAfter(path, "/mindnotes/")
+	}
+	title := strings.TrimSpace(stringValue(data["title"]))
+	if title == "" {
+		title = token
+	}
+	if title == "" {
+		title = filepath.Base(path)
+	}
+	nodes := asSlice(asMap(data["collab_client_vars"])["nodes"])
+	lines := []string{"# " + title, ""}
+	lines = append(lines, renderMindnoteNodes(nodes, 0)...)
+	return Result{
+		Source:   source,
+		Kind:     "mindnote",
+		Title:    title,
+		Token:    token,
+		Content:  strings.Join(normalizeLines(lines), "\n") + "\n",
+		Counts:   map[string]int{"mindnote_nodes": len(nodes)},
+		Assets:   []map[string]any{},
+		Warnings: []string{},
+	}, nil
+}
+
+func extractBalancedObject(text string, anchor string) (string, error) {
+	start := strings.Index(text, anchor)
+	if start == -1 {
+		return "", fmt.Errorf("anchor not found: %s", anchor)
+	}
+	start += len(anchor)
+	for start < len(text) && (text[start] == ' ' || text[start] == '\n' || text[start] == '\r' || text[start] == '\t') {
+		start++
+	}
+	if start >= len(text) || text[start] != '{' {
+		return "", fmt.Errorf("expected object after anchor: %s", anchor)
+	}
+	depth := 0
+	inString := false
+	escaped := false
+	for index := start; index < len(text); index++ {
+		character := text[index]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if character == '\\' {
+				escaped = true
+				continue
+			}
+			if character == '"' {
+				inString = false
+			}
+			continue
+		}
+		if character == '"' {
+			inString = true
+			continue
+		}
+		if character == '{' {
+			depth++
+			continue
+		}
+		if character == '}' {
+			depth--
+			if depth == 0 {
+				return text[start : index+1], nil
+			}
+		}
+	}
+	return "", fmt.Errorf("unterminated object after anchor: %s", anchor)
+}
+
+func renderMindnoteNodes(nodes []any, depth int) []string {
+	lines := []string{}
+	indent := strings.Repeat("  ", depth)
+	for _, node := range nodes {
+		nodeMap := asMap(node)
+		if text := docx.ExtractText(nodeMap["text"]); text != "" {
+			lines = append(lines, indent+"- "+text)
+		}
+		lines = append(lines, renderMindnoteNodes(asSlice(nodeMap["children"]), depth+1)...)
+	}
+	return lines
+}
+
+func normalizeLines(lines []string) []string {
+	cleaned := make([]string, 0, len(lines))
+	blankRun := 0
+	for _, line := range lines {
+		trimmedRight := strings.TrimRight(line, " \t\r\n")
+		if strings.TrimSpace(trimmedRight) == "" {
+			blankRun++
+			if blankRun <= 1 {
+				cleaned = append(cleaned, "")
+			}
+			continue
+		}
+		blankRun = 0
+		cleaned = append(cleaned, trimmedRight)
+	}
+	for len(cleaned) > 0 && strings.TrimSpace(cleaned[len(cleaned)-1]) == "" {
+		cleaned = cleaned[:len(cleaned)-1]
+	}
+	return cleaned
 }
 
 func (session *remoteReadSession) clientVars(token string, origin string, referer string) (map[string]any, error) {

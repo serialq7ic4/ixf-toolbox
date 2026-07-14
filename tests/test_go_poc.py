@@ -935,6 +935,25 @@ def test_go_ixf_docs_inspect_is_secret_safe_for_local_and_remote_sources(tmp_pat
     assert "doxfixturetoken" not in remote_serialized
 
 
+def test_go_ixf_docs_read_rejects_okr_url_before_cookie_loading(tmp_path):
+    binary = build_go_ixf(tmp_path)
+
+    result = run_go_ixf(
+        binary,
+        "docs",
+        "read",
+        "https://tenant.example.test/okr/user/owner-fixture/?okrId=okr-fixture-200",
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "docs read does not support OKR URLs" in result.stderr
+    assert "ixf okr read" in result.stderr
+    assert "cookie file" not in result.stderr
+    assert "okr-fixture-200" not in result.stderr
+
+
 def test_go_ixf_docs_cleanup_removes_only_manifest_outputs(tmp_path):
     binary = build_go_ixf(tmp_path)
     out_dir = tmp_path / "out"

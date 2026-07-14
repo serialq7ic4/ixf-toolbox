@@ -65,6 +65,10 @@ func ReadSourcesWithOptions(sources []string, options ReadOptions) ([]Result, er
 	var remoteSession *remoteReadSession
 	for index, source := range sources {
 		if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+			kindHint := remoteKindFromSource(source)
+			if err := unsupportedRemoteDocsReadError(kindHint); err != nil {
+				return nil, err
+			}
 			if remoteSession == nil {
 				session, err := newRemoteReadSession(options)
 				if err != nil {
@@ -72,7 +76,6 @@ func ReadSourcesWithOptions(sources []string, options ReadOptions) ([]Result, er
 				}
 				remoteSession = session
 			}
-			kindHint := remoteKindFromSource(source)
 			result, err := remoteSession.readRemote(source, fmt.Sprintf("%s_%d", kindHint, index+1))
 			if err != nil {
 				return nil, err
@@ -87,6 +90,13 @@ func ReadSourcesWithOptions(sources []string, options ReadOptions) ([]Result, er
 		results = append(results, result)
 	}
 	return results, nil
+}
+
+func unsupportedRemoteDocsReadError(kind string) error {
+	if kind == "okr" {
+		return fmt.Errorf("docs read does not support OKR URLs; use `ixf okr read <url>` for OKR pages")
+	}
+	return nil
 }
 
 func readLocalSource(source string) (Result, error) {

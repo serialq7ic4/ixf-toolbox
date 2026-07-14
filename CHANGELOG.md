@@ -9,6 +9,7 @@
 - Added Go-native wiki bitable reads from `clientvars` gzip schema with TSV manifest output.
 - Added Go-native direct mindnote reads from page `clientVars` HTML with Markdown tree rendering.
 - Added Go/Python golden parity coverage for mixed remote docx blocks and aligned Go image content validation for SVG, BMP, and TIFF downloads.
+- Clarified Go `docs read` routing so OKR page URLs fail before cookie loading with an `ixf okr read` hint.
 - Refactored Go CLI contract fixtures to share remote docx server, cookie, and sheet payload helpers for the remaining v1.4 parity work.
 - Added Go `update check`, checksum-verified `update self --apply`, and `update skills` support.
 - Added release workflow generation for cross-platform Go binary artifacts and checksums.

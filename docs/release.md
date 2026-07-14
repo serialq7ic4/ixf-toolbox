@@ -23,6 +23,7 @@ python scripts/extract_changelog.py X.Y.Z CHANGELOG.md
 python -m compileall -q src
 python -m pytest -q
 python -m ruff check .
+go test ./...
 rm -rf dist build
 python -m build
 scripts/smoke.sh

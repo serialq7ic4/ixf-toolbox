@@ -15,6 +15,8 @@ def test_ci_workflow_covers_supported_platforms_and_quality_gates():
 
     assert "macos-latest" in text
     assert "windows-latest" in text
+    assert "actions/setup-go" in text
+    assert "go test ./..." in text
     assert "python -m compileall -q src" in text
     assert "python -m pytest -q" in text
     assert "python -m ruff check ." in text
@@ -26,6 +28,8 @@ def test_release_workflow_validates_tag_builds_and_publishes_artifacts():
 
     assert "tag" in text.lower()
     assert "pyproject.toml" in text
+    assert "actions/setup-go" in text
+    assert "go test ./..." in text
     assert "python -m build" in text
     assert "scripts/extract_changelog.py" in text
     assert "softprops/action-gh-release" in text

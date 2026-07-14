@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added the initial Go POC command surface for version, diagnostics, skill setup, and safe cookie-export failure behavior.
+
 ## 1.2.0 - 2026-07-14
 
 - Added `using-ixf-toolbox` as a lightweight routing skill for document and OKR workflows.

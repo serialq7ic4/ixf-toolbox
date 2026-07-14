@@ -313,6 +313,7 @@ python -m pip install -e ".[crypto,dev]"
 python -m compileall -q src
 python -m pytest -q
 python -m ruff check .
+go test ./...
 python -m build
 scripts/smoke.sh
 ```

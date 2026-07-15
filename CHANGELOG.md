@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.7.0 - 2026-07-15
+
+- Added a Python runtime import audit script to keep the remaining Python test dependency list explicit.
+- Added `tests/python_runtime_imports_allowlist.txt` as the baseline for Python runtime imports that must shrink before deletion.
+- Updated Python removal readiness documentation to point the next stage at reducing the import allowlist.
+
 ## 2.6.0 - 2026-07-15
 
 - Changed GitHub Releases to publish Go-only release artifacts: platform binaries plus checksums.

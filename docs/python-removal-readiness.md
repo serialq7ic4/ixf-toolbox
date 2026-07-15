@@ -33,7 +33,8 @@ Keep Python in this release.
 - Python package API compatibility is still documented as legacy/reference in
   `docs/python-api-sunset.md`.
 - The test harness still imports `ixf_toolbox` modules for packaging, fixtures,
-  and reference-contract coverage.
+  and reference-contract coverage; `tests/python_runtime_imports_allowlist.txt`
+  records the current baseline.
 - CI still validates the temporary Python source tree for reference coverage.
 - Python deletion must wait for the staged removal release after technical gates
   are cleared.
@@ -54,6 +55,6 @@ A later approved removal would need to review these areas:
 
 Do not delete Python code in this release.
 
-The next safe step is to audit Python runtime imports and move remaining test
-coverage toward Go fixtures, while keeping the Python source tree until test and
-API blockers are cleared.
+The next safe step is to shrink `tests/python_runtime_imports_allowlist.txt` by
+porting local utility coverage to Go fixtures, while keeping the Python source
+tree until test and API blockers are cleared.

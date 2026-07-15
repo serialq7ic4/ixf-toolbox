@@ -59,7 +59,8 @@ Python code can only be considered for deletion after all gates are true:
 - Python source still remains in the repository for reference and tests.
 - Python package API compatibility is still documented as legacy/reference.
 - The test harness still imports Python modules for packaging, fixture, and
-  reference-contract coverage.
+  reference-contract coverage; `tests/python_runtime_imports_allowlist.txt`
+  tracks the current baseline.
 - The destructive removal stage has not been reached because technical deletion
   gates remain blocked.
 

@@ -24,7 +24,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "2.3.0"
+var version = "2.4.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",

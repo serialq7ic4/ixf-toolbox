@@ -8,14 +8,14 @@ New installs should use the Toolbox Go binary:
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.3.0/ixf_2.3.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.4.0/ixf_2.4.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes auto --json
 ixf --version
 ixf doctor --json
 ```
 
-Use the matching Go binary for your platform. The Python wheel remains legacy/reference for rollback and parity checks.
+Use the matching Go binary for your platform. The Python wheel remains legacy/reference for rollback and parity checks; the current Python removal readiness report keeps Python in the release.
 
 ## Command Mapping
 

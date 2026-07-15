@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.4.0 - 2026-07-15
+
+- Added a Python removal readiness report that keeps Python in the release until deletion blockers are resolved.
+- Documented remaining blockers around Python wheel/sdist artifacts, Python package API support, and explicit deletion approval.
+- Updated install documentation to point at the v2.4.0 release artifacts.
+
 ## 2.3.0 - 2026-07-15
 
 - Added a Go/Python parity matrix documenting Go-owned CLI runtime behavior and Python legacy/reference scope.

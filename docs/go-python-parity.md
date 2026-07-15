@@ -32,7 +32,7 @@ Python remains in the tree for these reasons:
 - The pytest suite still uses Python fixtures and Python package tests to guard
   the public packaging contract.
 - The Python implementation remains a readable reference for remote API behavior
-  until the deletion-readiness report is complete.
+  while the removal readiness report keeps Python in the release.
 
 Python is no longer the recommended runtime for new agent installs. New users
 should install the Go binary and then run `ixf setup skills`.
@@ -54,7 +54,8 @@ Python code can only be considered for deletion after all gates are true:
 
 ## Known Blockers
 
-- `docs/python-removal-readiness.md` has not been written yet.
+- `docs/python-removal-readiness.md` exists, and its current decision is
+  `Status: Not ready for deletion`.
 - The Python wheel and sdist are still release artifacts.
 - Python package API compatibility is still documented as legacy/reference.
 - The test harness still imports Python modules for packaging, fixture, and

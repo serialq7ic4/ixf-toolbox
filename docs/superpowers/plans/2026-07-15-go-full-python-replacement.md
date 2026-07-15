@@ -198,11 +198,11 @@ Expected: tests and lint pass.
 - Consumes: all Go parity tests and `docs/go-python-parity.md`.
 - Produces: a human-readable report that says whether Python can be deleted, and exactly which files would be removed in a later approved change.
 
-- [ ] **Step 1: Write deletion-gate checklist**
+- [x] **Step 1: Write deletion-gate checklist**
 
 Require these gates to be true before recommending deletion: Go owns every CLI runtime path; all skills call Go `ixf`; no tests require Python core implementations except packaging/reference tests; release artifacts include Go binaries for supported platforms; rollback story does not require in-repo Python implementation; docs no longer tell users to install Python except for archived releases.
 
-- [ ] **Step 2: Run full verification**
+- [x] **Step 2: Run full verification**
 
 Run:
 

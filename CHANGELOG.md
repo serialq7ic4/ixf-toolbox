@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.16.0 - 2026-07-16
+
+- Added Go OKR reader tests for URL detection, LGW CSRF refresh, `okr_id` detail requests, exact Markdown rendering, and private-payload-safe API errors.
+- Removed the OKR Python runtime test after equivalent Go coverage was in place.
+- Reduced `tests/python_runtime_imports_allowlist.txt` from 2 files to 1 file.
+- Updated Python removal readiness docs to point the next migration stage at residual Go POC Python reference imports.
+
 ## 2.15.0 - 2026-07-16
 
 - Added Go remote docs reader coverage for non-docx mindnote reads with image download enabled while keeping artifact collectors empty.

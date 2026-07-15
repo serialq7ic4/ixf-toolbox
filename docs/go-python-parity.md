@@ -31,8 +31,8 @@ Python remains in the tree for these reasons:
 - GitHub Releases no longer publish Python wheel or sdist artifacts.
 - The pytest suite still uses Python fixtures and Python package tests to guard
   the public packaging contract.
-- OKR behavior and residual cross-runtime fixture checks still import Python
-  modules while those references are ported to Go.
+- Residual cross-runtime fixture checks still import Python modules while those
+  references are ported to Go.
 
 Python is no longer the recommended runtime for new agent installs. New users
 should install the Go binary and then run `ixf setup skills`.
@@ -60,7 +60,7 @@ Python code can only be considered for deletion after all gates are true:
 - Python package API deletion is not complete.
 - The test harness still imports Python modules for packaging, fixture, and
   reference-contract coverage; `tests/python_runtime_imports_allowlist.txt`
-  tracks the current 2-file baseline.
+  tracks the current 1-file baseline.
 - The destructive removal stage has not been reached because technical deletion
   gates remain blocked.
 

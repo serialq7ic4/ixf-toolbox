@@ -1,4 +1,3 @@
 # Tests still importing the temporary Python runtime/reference package.
 # Remove entries only after equivalent Go coverage exists.
-tests/test_core_okr.py
 tests/test_go_poc.py

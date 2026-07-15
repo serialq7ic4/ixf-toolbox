@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.13.0 - 2026-07-16
+
+- Added Go image asset writer tests for safe downloads, deduplication, caption preservation, sanitized failure warnings, fallback image magic validation, and stale generated-file cleanup.
+- Added one-time stale generated-image cleanup before downloads without deleting non-generated files in the asset directory.
+- Removed the document image asset Python runtime test after equivalent Go coverage was in place.
+- Reduced `tests/python_runtime_imports_allowlist.txt` from 5 files to 4 files.
+
 ## 2.12.0 - 2026-07-16
 
 - Added Go local docs tests for local Markdown reads, output file-stem collision handling, manifest writes, generated-output cleanup, and inspect-source redaction.

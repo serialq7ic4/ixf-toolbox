@@ -31,8 +31,8 @@ Keep Python in this release.
 
 - The test harness still imports `ixf_toolbox` modules for packaging, fixtures,
   and reference-contract coverage; `tests/python_runtime_imports_allowlist.txt`
-  is down to 5 files after moving local CLI/update/setup/doctor/cookie/local-docs/Markdown
-  contracts to Go tests.
+  is down to 4 files after moving local CLI/update/setup/doctor/cookie/local-docs/Markdown
+  and document image asset contracts to Go tests.
 - Python package API deletion is not complete; direct import users must move to
   the Go CLI before the removal release.
 - CI still validates the temporary Python source tree for reference coverage.
@@ -56,5 +56,5 @@ A later approved removal would need to review these areas:
 Do not delete Python code in this release.
 
 The next safe step is to shrink `tests/python_runtime_imports_allowlist.txt` by
-porting remaining document asset/conversion/remote-read and OKR reference coverage to Go fixtures,
+porting remaining document conversion/remote-read and OKR reference coverage to Go fixtures,
 while keeping the Python source tree until test and API blockers are cleared.

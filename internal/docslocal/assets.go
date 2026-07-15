@@ -30,14 +30,15 @@ type cachedImage struct {
 }
 
 type imageAssetWriter struct {
-	session       *remoteReadSession
-	origin        string
-	referer       string
-	documentToken string
-	outputRoot    string
-	assetGroup    string
-	resolved      map[string]cachedImage
-	nextOrdinal   int
+	session               *remoteReadSession
+	origin                string
+	referer               string
+	documentToken         string
+	outputRoot            string
+	assetGroup            string
+	resolved              map[string]cachedImage
+	nextOrdinal           int
+	cleanedGeneratedFiles bool
 }
 
 func newImageAssetWriter(
@@ -75,6 +76,10 @@ func (writer *imageAssetWriter) resolve(reference docx.ImageReference) docx.Imag
 	if reference.Token == "" {
 		return failedImageResolution(ordinal, altText, "missing_token")
 	}
+	assetDir := filepath.Join(writer.outputRoot, "assets", writer.assetGroup)
+	if err := writer.removeStaleGeneratedFilesOnce(assetDir); err != nil {
+		return writer.failure(reference, ordinal, altText, "io_error")
+	}
 
 	downloadURL := writer.origin + "/space/api/box/stream/download/all/" +
 		url.PathEscape(reference.Token) + "/?mount_node_token=" +
@@ -106,7 +111,6 @@ func (writer *imageAssetWriter) resolve(reference docx.ImageReference) docx.Imag
 		return writer.failure(reference, ordinal, altText, "mime_error")
 	}
 	filename := fmt.Sprintf("image-%03d%s", ordinal, extension)
-	assetDir := filepath.Join(writer.outputRoot, "assets", writer.assetGroup)
 	finalPath := filepath.Join(assetDir, filename)
 	partialPath := finalPath + ".part"
 	if err := os.MkdirAll(assetDir, 0o755); err != nil {
@@ -164,6 +168,41 @@ func failedImageResolution(ordinal int, altText string, reason string) docx.Imag
 			reason,
 		),
 	}
+}
+
+func (writer *imageAssetWriter) removeStaleGeneratedFilesOnce(assetDir string) error {
+	if writer.cleanedGeneratedFiles {
+		return nil
+	}
+	writer.cleanedGeneratedFiles = true
+	entries, err := os.ReadDir(assetDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !isGeneratedImageFilename(entry.Name()) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(assetDir, entry.Name())); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func isGeneratedImageFilename(name string) bool {
+	if !strings.HasPrefix(name, "image-") {
+		return false
+	}
+	rest := strings.TrimPrefix(name, "image-")
+	digitCount := 0
+	for digitCount < len(rest) && rest[digitCount] >= '0' && rest[digitCount] <= '9' {
+		digitCount++
+	}
+	return digitCount >= 3 && digitCount < len(rest) && rest[digitCount] == '.'
 }
 
 func imageAltText(reference docx.ImageReference, ordinal int) string {

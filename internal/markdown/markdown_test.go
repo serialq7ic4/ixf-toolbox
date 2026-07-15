@@ -1,6 +1,9 @@
 package markdown
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestOutlineUsesH2BelowSingleTitleH1(t *testing.T) {
 	doc := "# Title\n\n## One\n\nAlpha\n\n## Two\n\nBeta\n"
@@ -19,6 +22,49 @@ func TestOutlineUsesH2BelowSingleTitleH1(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("breadcrumb[%d] = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+func TestOutlineUsesH1ForMultipleSubstantiveH1Sections(t *testing.T) {
+	doc := "# First\n\nAlpha\n\n# Second\n\nBeta\n"
+
+	outline, err := BuildOutline(doc, 100)
+	if err != nil {
+		t.Fatalf("BuildOutline returned error: %v", err)
+	}
+
+	if outline.SelectedHeadingLevel == nil || *outline.SelectedHeadingLevel != 1 {
+		t.Fatalf("selected heading level = %v, want 1", outline.SelectedHeadingLevel)
+	}
+	got := []string{}
+	for _, chunk := range outline.Chunks {
+		got = append(got, chunk.Breadcrumb)
+	}
+	want := []string{"First", "Second"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("breadcrumbs = %#v, want %#v", got, want)
+	}
+}
+
+func TestOversizedH2SectionSplitsAtH3WithBreadcrumbs(t *testing.T) {
+	doc := "# Title\n\n## Long\n\n" +
+		"### Part A\n\n" + stringsRepeat("A", 30) + "\n\n" +
+		"### Part B\n\n" + stringsRepeat("B", 30) + "\n"
+
+	outline, err := BuildOutline(doc, 35)
+	if err != nil {
+		t.Fatalf("BuildOutline returned error: %v", err)
+	}
+
+	got := []string{}
+	for _, chunk := range outline.Chunks {
+		if stringsContains(chunk.Breadcrumb, "Part") {
+			got = append(got, chunk.Breadcrumb)
+		}
+	}
+	want := []string{"Title > Long > Part A", "Title > Long > Part B"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("part breadcrumbs = %#v, want %#v", got, want)
 	}
 }
 
@@ -83,4 +129,12 @@ func containsAt(haystack string, needle string) bool {
 		}
 	}
 	return false
+}
+
+func stringsRepeat(value string, count int) string {
+	repeated := ""
+	for range count {
+		repeated += value
+	}
+	return repeated
 }

@@ -565,7 +565,6 @@ func WriteOutputs(results []Result, outDir string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	content = append(content, '\n')
 	if err := os.WriteFile(filepath.Join(root, "manifest.json"), content, 0o644); err != nil {
 		return nil, err
 	}

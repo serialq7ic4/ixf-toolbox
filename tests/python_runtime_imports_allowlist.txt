@@ -1,9 +1,7 @@
 # Tests still importing the temporary Python runtime/reference package.
 # Remove entries only after equivalent Go coverage exists.
-tests/test_core_docs.py
 tests/test_core_docs_assets.py
 tests/test_core_docs_converter.py
-tests/test_core_docs_markdown_chunks.py
 tests/test_core_docs_reader_remote.py
 tests/test_core_okr.py
 tests/test_go_poc.py

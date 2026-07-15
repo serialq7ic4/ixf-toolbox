@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 2.12.0 - 2026-07-16
+
+- Added Go local docs tests for local Markdown reads, output file-stem collision handling, manifest writes, generated-output cleanup, and inspect-source redaction.
+- Added Go Markdown chunking tests for multiple H1 section selection and oversized H2 sections that split at H3 breadcrumbs.
+- Aligned Go `docs read` manifest JSON output with the migrated Python contract by removing the trailing newline.
+- Removed local docs and Markdown chunking Python runtime tests after equivalent Go coverage was in place.
+- Reduced `tests/python_runtime_imports_allowlist.txt` from 7 files to 5 files.
+
 ## 2.11.0 - 2026-07-16
 
 - Added Go Windows cookie provider tests for cookie DB and Local State discovery, DPAPI master-key unwrapping, AES-GCM cookie decrypt, legacy DPAPI cookie decrypt, and Windows export fixtures.

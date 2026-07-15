@@ -112,15 +112,15 @@ Expected: all selected tests pass.
 - Consumes: Python `write_specs`, `delete_published_objective`, `order_krs`, and `--prune` behavior.
 - Produces: Go can run OKR writes without `--objective-index`, update or create Objectives by text, append/reorder KRs when not pruning, delete missing Objectives/KRs only with explicit `--prune`, and publish each changed Objective.
 
-- [ ] **Step 1: Write non-index dry-run and apply tests**
+- [x] **Step 1: Write non-index dry-run and apply tests**
 
 Add fixture tests for multi-Objective input, existing Objective match by text, new Objective creation, KR append/order, and dry-run output that does not require cookies.
 
-- [ ] **Step 2: Write prune tests**
+- [x] **Step 2: Write prune tests**
 
 Add fixture tests where `--prune --apply` deletes non-input Objectives and replaces target KRs, while the same input without `--prune` preserves extra Objectives and KRs.
 
-- [ ] **Step 3: Observe red**
+- [x] **Step 3: Observe red**
 
 Run:
 
@@ -130,11 +130,11 @@ python -m pytest tests/test_go_poc.py -k "okr_write and (prune or full_specs)" -
 
 Expected: FAIL because Go currently requires `--objective-index` for apply.
 
-- [ ] **Step 4: Implement Go full-spec writer**
+- [x] **Step 4: Implement Go full-spec writer**
 
 Split `internal/okr/okr.go` into focused helpers only if the file becomes difficult to reason about: detail summary, objective create/update/delete, KR create/update/delete/order, publish, and verification.
 
-- [ ] **Step 5: Verify OKR parity**
+- [x] **Step 5: Verify OKR parity**
 
 Run:
 

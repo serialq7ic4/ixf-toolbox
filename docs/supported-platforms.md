@@ -15,7 +15,7 @@ Install the Go binary with:
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.1.0/ixf_2.1.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.2.0/ixf_2.2.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf cookies export --provider windows-larkshell --output $env:TEMP\ixf_cookies.json
 ixf doctor --json --cookies $env:TEMP\ixf_cookies.json

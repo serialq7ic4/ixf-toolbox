@@ -43,7 +43,7 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         [
             sys.executable,
             "scripts/extract_changelog.py",
-            "2.1.0",
+            "2.2.0",
             "CHANGELOG.md",
         ],
         cwd=ROOT,
@@ -52,8 +52,8 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         check=True,
     )
 
-    assert "creating the next Objective" in result.stdout
-    assert "stale draft responses" in result.stdout
+    assert "full-spec OKR writes" in result.stdout
+    assert "explicit prune support" in result.stdout
     assert "## 2.0.0" not in result.stdout
 
 
@@ -129,13 +129,13 @@ def test_v2_docs_make_go_binary_the_default_install_path():
     assert "Go 二进制" in zh
     assert "默认安装方式" in zh
     assert "Python wheel 保留为 legacy/reference" in zh
-    assert "ixf_2.1.0_darwin_arm64" in zh
+    assert "ixf_2.2.0_darwin_arm64" in zh
     assert "v1.x 仍以 Python 版作为默认安装方式" not in zh
 
     assert "Go binary" in en
     assert "default install path" in en
     assert "Python wheel remains legacy/reference" in en
-    assert "ixf_2.1.0_darwin_arm64" in en
+    assert "ixf_2.2.0_darwin_arm64" in en
     assert "The v1.x line still uses the Python package" not in en
 
     assert "Go binary" in platforms

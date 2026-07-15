@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.2.0 - 2026-07-15
+
+- Added Go OKR full-spec OKR writes with `write --apply` support without `--objective-index`, matching Objectives by text.
+- Added Go OKR explicit prune support with `--prune` for deleting non-input Objectives and replacing target KRs.
+- Preserved non-prune OKR writes by appending/reordering requested KRs while keeping extra KRs and Objectives.
+
 ## 2.1.0 - 2026-07-15
 
 - Added Go OKR `write --apply --objective-index` support for creating the next Objective when the target index is exactly one past the current Objective count.

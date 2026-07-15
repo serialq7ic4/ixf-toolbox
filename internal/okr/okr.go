@@ -30,6 +30,7 @@ type WriteConfig struct {
 	CookiesPath    string
 	CSRFURL        string
 	ObjectiveIndex int
+	Prune          bool
 	Apply          bool
 }
 
@@ -43,6 +44,17 @@ type cookieObject struct {
 type ObjectiveSpec struct {
 	Objective string
 	KRs       []string
+}
+
+type krState struct {
+	ID   string
+	Text string
+}
+
+type objectiveState struct {
+	ID        string
+	Objective string
+	KRs       []krState
 }
 
 func Read(config ReadConfig) (string, error) {
@@ -90,7 +102,10 @@ func WriteDryRun(config WriteConfig) (map[string]any, error) {
 		return nil, err
 	}
 	if config.Apply {
-		return WriteObjectiveIndex(config, okrID, specs)
+		if config.ObjectiveIndex > 0 {
+			return WriteObjectiveIndex(config, okrID, specs)
+		}
+		return WriteSpecs(config, okrID, specs)
 	}
 	items := make([]map[string]any, 0, len(specs))
 	for index, spec := range specs {
@@ -267,6 +282,136 @@ func WriteObjectiveIndex(config WriteConfig, okrID string, specs []ObjectiveSpec
 			"objective": actualObjective,
 			"krs":       actualKRs,
 		},
+	}, nil
+}
+
+func WriteSpecs(config WriteConfig, okrID string, specs []ObjectiveSpec) (map[string]any, error) {
+	origin, err := OriginFor(config.URL)
+	if err != nil {
+		return nil, err
+	}
+	cookies, err := loadCookieObjects(config.CookiesPath)
+	if err != nil {
+		return nil, err
+	}
+	csrfURL := config.CSRFURL
+	if csrfURL == "" {
+		csrfURL = DefaultCSRFURL
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	lgwToken, cookies, err := ensureLGWCSRFToken(client, csrfURL, cookies)
+	if err != nil {
+		return nil, err
+	}
+	detail, err := getDetail(client, origin, config.URL, okrID, lgwToken, cookies)
+	if err != nil {
+		return nil, err
+	}
+	state := summarizeObjectives(detail)
+	connID := fmt.Sprintf("%d", time.Now().UnixNano())
+	targets := map[string]bool{}
+	for _, spec := range specs {
+		targets[spec.Objective] = true
+	}
+	if config.Prune {
+		for _, item := range state {
+			if targets[item.Objective] {
+				continue
+			}
+			cache := &draftVersionCache{}
+			if _, err := okrAPIWithVersion(client, "POST", origin, config.URL, okrID, "/okrx/api/draft_v2/enable/"+item.ID+"/", lgwToken, cookies, cache, connID, func(version string, conn string) map[string]any {
+				return draftBody(version, conn)
+			}); err != nil {
+				return nil, err
+			}
+			if _, err := okrAPIWithVersionParams(client, "DELETE", origin, config.URL, okrID, "/okrx/api/draft_v2/objective/"+item.ID+"/", lgwToken, cookies, cache, connID, deleteParams); err != nil {
+				return nil, err
+			}
+		}
+		state = filterObjectiveState(state, targets)
+	}
+	for _, spec := range specs {
+		existing := findObjectiveByText(state, spec.Objective)
+		cache := &draftVersionCache{}
+		if existing == nil {
+			objectiveID, err := createObjective(client, origin, config.URL, okrID, lgwToken, cookies, cache, connID, spec.Objective)
+			if err != nil {
+				return nil, err
+			}
+			for _, text := range spec.KRs {
+				if _, err := createKR(client, origin, config.URL, okrID, lgwToken, cookies, cache, connID, objectiveID, text); err != nil {
+					return nil, err
+				}
+			}
+			if _, err := publishObjective(client, origin, config.URL, okrID, lgwToken, cookies, cache, connID, objectiveID, nil); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if _, err := okrAPIWithVersion(client, "POST", origin, config.URL, okrID, "/okrx/api/draft_v2/enable/"+existing.ID+"/", lgwToken, cookies, cache, connID, func(version string, conn string) map[string]any {
+			return draftBody(version, conn)
+		}); err != nil {
+			return nil, err
+		}
+		deletedIDs := []string{}
+		targetIDs := []string{}
+		if config.Prune {
+			for _, kr := range existing.KRs {
+				deletedIDs = append(deletedIDs, kr.ID)
+				if _, err := okrAPIWithVersionParams(client, "DELETE", origin, config.URL, okrID, "/okrx/api/draft_v2/kr/"+kr.ID+"/", lgwToken, cookies, cache, connID, deleteParams); err != nil {
+					return nil, err
+				}
+			}
+			for _, text := range spec.KRs {
+				krID, err := createKR(client, origin, config.URL, okrID, lgwToken, cookies, cache, connID, existing.ID, text)
+				if err != nil {
+					return nil, err
+				}
+				targetIDs = append(targetIDs, krID)
+			}
+		} else {
+			existingByText := map[string]string{}
+			targetText := map[string]bool{}
+			for _, kr := range existing.KRs {
+				existingByText[kr.Text] = kr.ID
+			}
+			for _, text := range spec.KRs {
+				targetText[text] = true
+				if krID := existingByText[text]; krID != "" {
+					targetIDs = append(targetIDs, krID)
+					continue
+				}
+				krID, err := createKR(client, origin, config.URL, okrID, lgwToken, cookies, cache, connID, existing.ID, text)
+				if err != nil {
+					return nil, err
+				}
+				targetIDs = append(targetIDs, krID)
+			}
+			for _, kr := range existing.KRs {
+				if !targetText[kr.Text] {
+					targetIDs = append(targetIDs, kr.ID)
+				}
+			}
+			if _, err := orderKRs(client, origin, config.URL, okrID, lgwToken, cookies, cache, connID, existing.ID, targetIDs); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := publishObjective(client, origin, config.URL, okrID, lgwToken, cookies, cache, connID, existing.ID, deletedIDs); err != nil {
+			return nil, err
+		}
+	}
+	finalDetail, err := getDetail(client, origin, config.URL, okrID, lgwToken, cookies)
+	if err != nil {
+		return nil, err
+	}
+	final := summarizeObjectives(finalDetail)
+	if err := verifySpecs(final, specs, config.Prune); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"ok":         true,
+		"dryRun":     false,
+		"objectives": publicObjectiveSummary(final),
 	}, nil
 }
 
@@ -453,6 +598,47 @@ func okrAPIWithVersion(
 	return payload, nil
 }
 
+func okrAPIWithVersionParams(
+	client *http.Client,
+	method string,
+	origin string,
+	source string,
+	okrID string,
+	path string,
+	lgwToken string,
+	cookies []http.Cookie,
+	cache *draftVersionCache,
+	connID string,
+	makeParams func(version string, connID string) url.Values,
+) (map[string]any, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		version, err := cache.get(client, origin, source, okrID, lgwToken, cookies)
+		if err != nil {
+			return nil, err
+		}
+		payload, err := okrAPIParams(client, method, origin, source, path, lgwToken, cookies, makeParams(version, connID))
+		if errors.Is(err, errStaleDraftVersion) {
+			cache.clear()
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		cache.setFromPayload(payload)
+		return payload, nil
+	}
+	version, err := cache.get(client, origin, source, okrID, lgwToken, cookies)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := okrAPIParams(client, method, origin, source, path, lgwToken, cookies, makeParams(version, connID))
+	if err != nil {
+		return nil, err
+	}
+	cache.setFromPayload(payload)
+	return payload, nil
+}
+
 func okrAPI(client *http.Client, method string, origin string, source string, path string, lgwToken string, cookies []http.Cookie, body map[string]any) (map[string]any, error) {
 	var reader io.Reader
 	if body != nil {
@@ -486,12 +672,133 @@ func okrAPI(client *http.Client, method string, origin string, source string, pa
 	return payload, nil
 }
 
+func okrAPIParams(client *http.Client, method string, origin string, source string, path string, lgwToken string, cookies []http.Cookie, params url.Values) (map[string]any, error) {
+	target := origin + path
+	if len(params) > 0 {
+		target += "?" + params.Encode()
+	}
+	request, err := http.NewRequest(method, target, nil)
+	if err != nil {
+		return nil, err
+	}
+	addLGWHeaders(request, origin, source, lgwToken, cookies)
+	payload, err := doJSON(client, request, method+" "+path)
+	if err != nil {
+		return nil, err
+	}
+	if code, ok := payload["code"]; ok && asInt(code) != 0 {
+		if asInt(code) == 100001 {
+			return nil, errStaleDraftVersion
+		}
+		return nil, fmt.Errorf("%s %s failed with code %d", method, path, asInt(code))
+	}
+	if success, ok := payload["success"].(bool); ok && !success {
+		return nil, fmt.Errorf("%s %s failed", method, path)
+	}
+	return payload, nil
+}
+
 func draftBody(version string, connID string) map[string]any {
 	return map[string]any{
 		"draft_version": version,
 		"conn_uuid":     connID,
 		"token":         connID,
 	}
+}
+
+func deleteParams(version string, connID string) url.Values {
+	return url.Values{
+		"draft_version": {version},
+		"token":         {connID},
+		"conn_uuid":     {connID},
+	}
+}
+
+func createObjective(client *http.Client, origin string, source string, okrID string, lgwToken string, cookies []http.Cookie, cache *draftVersionCache, connID string, text string) (string, error) {
+	payload, err := okrAPIWithVersion(client, "POST", origin, source, okrID, "/okrx/api/draft_v2/objective/", lgwToken, cookies, cache, connID, func(version string, conn string) map[string]any {
+		return map[string]any{
+			"draft_version": version,
+			"conn_uuid":     conn,
+			"token":         conn,
+			"name":          deltaDocJSON(""),
+			"changesets":    "[]",
+			"okr_id":        okrID,
+		}
+	})
+	if err != nil {
+		return "", err
+	}
+	objectiveID := firstString(asMap(payload["data"]), "objective_id", "objectiveId")
+	if objectiveID == "" {
+		return "", fmt.Errorf("Objective creation did not return an identifier")
+	}
+	if _, err := okrAPIWithVersion(client, "PUT", origin, source, okrID, "/okrx/api/draft_v2/objective/"+objectiveID+"/", lgwToken, cookies, cache, connID, func(version string, conn string) map[string]any {
+		return map[string]any{
+			"draft_version": version,
+			"conn_uuid":     conn,
+			"name":          deltaDocJSON(text),
+			"changesets":    "[]",
+		}
+	}); err != nil {
+		return "", err
+	}
+	return objectiveID, nil
+}
+
+func createKR(client *http.Client, origin string, source string, okrID string, lgwToken string, cookies []http.Cookie, cache *draftVersionCache, connID string, objectiveID string, text string) (string, error) {
+	payload, err := okrAPIWithVersion(client, "POST", origin, source, okrID, "/okrx/api/draft_v2/kr/", lgwToken, cookies, cache, connID, func(version string, conn string) map[string]any {
+		return map[string]any{
+			"draft_version": version,
+			"conn_uuid":     conn,
+			"objective_id":  objectiveID,
+			"content":       deltaDocJSON(""),
+			"changesets":    "[]",
+		}
+	})
+	if err != nil {
+		return "", err
+	}
+	krID := firstString(asMap(payload["data"]), "kr_id", "krId")
+	if krID == "" {
+		return "", fmt.Errorf("KR creation did not return an identifier")
+	}
+	if _, err := okrAPIWithVersion(client, "PUT", origin, source, okrID, "/okrx/api/draft_v2/kr/"+krID+"/", lgwToken, cookies, cache, connID, func(version string, conn string) map[string]any {
+		return map[string]any{
+			"draft_version": version,
+			"conn_uuid":     conn,
+			"content":       deltaDocJSON(text),
+			"changesets":    "[]",
+		}
+	}); err != nil {
+		return "", err
+	}
+	return krID, nil
+}
+
+func orderKRs(client *http.Client, origin string, source string, okrID string, lgwToken string, cookies []http.Cookie, cache *draftVersionCache, connID string, objectiveID string, krIDs []string) (map[string]any, error) {
+	return okrAPIWithVersion(client, "POST", origin, source, okrID, "/okrx/api/draft_v2/kr/pos/", lgwToken, cookies, cache, connID, func(version string, conn string) map[string]any {
+		return map[string]any{
+			"draft_version": version,
+			"conn_uuid":     conn,
+			"token":         conn,
+			"objectiveId":   objectiveID,
+			"krIds":         krIDs,
+		}
+	})
+}
+
+func publishObjective(client *http.Client, origin string, source string, okrID string, lgwToken string, cookies []http.Cookie, cache *draftVersionCache, connID string, objectiveID string, deletedKRIDs []string) (map[string]any, error) {
+	if deletedKRIDs == nil {
+		deletedKRIDs = []string{}
+	}
+	return okrAPIWithVersion(client, "POST", origin, source, okrID, "/okrx/api/draft_v2/publish/"+objectiveID+"/", lgwToken, cookies, cache, connID, func(version string, conn string) map[string]any {
+		return map[string]any{
+			"draft_version":      version,
+			"conn_uuid":          conn,
+			"need_delete_kr_ids": deletedKRIDs,
+			"auto_notify":        false,
+		}
+	})
 }
 
 func deltaDocJSON(text string) string {
@@ -619,6 +926,82 @@ func RenderMarkdown(detail map[string]any, okrID string) string {
 		lines = append(lines, "")
 	}
 	return strings.Join(normalizeLines(lines), "\n") + "\n"
+}
+
+func summarizeObjectives(detail map[string]any) []objectiveState {
+	items := []objectiveState{}
+	for _, rawObjective := range asSlice(firstValue(detail, "objective_list", "objectiveList")) {
+		objective := asMap(rawObjective)
+		item := objectiveState{
+			ID:        asString(objective["id"]),
+			Objective: itemText(objective),
+			KRs:       []krState{},
+		}
+		for _, rawKR := range asSlice(firstValue(objective, "kr_list", "krList")) {
+			kr := asMap(rawKR)
+			item.KRs = append(item.KRs, krState{ID: asString(kr["id"]), Text: itemText(kr)})
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func findObjectiveByText(items []objectiveState, text string) *objectiveState {
+	for index := range items {
+		if items[index].Objective == text {
+			return &items[index]
+		}
+	}
+	return nil
+}
+
+func filterObjectiveState(items []objectiveState, keep map[string]bool) []objectiveState {
+	filtered := []objectiveState{}
+	for _, item := range items {
+		if keep[item.Objective] {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func publicObjectiveSummary(items []objectiveState) []map[string]any {
+	out := []map[string]any{}
+	for _, item := range items {
+		krs := []string{}
+		for _, kr := range item.KRs {
+			krs = append(krs, kr.Text)
+		}
+		out = append(out, map[string]any{"objective": item.Objective, "krs": krs})
+	}
+	return out
+}
+
+func verifySpecs(final []objectiveState, specs []ObjectiveSpec, prune bool) error {
+	finalByText := map[string]objectiveState{}
+	for _, item := range final {
+		finalByText[item.Objective] = item
+	}
+	if prune && len(final) != len(specs) {
+		return fmt.Errorf("pruned OKR still contains non-input Objectives")
+	}
+	for _, spec := range specs {
+		actual, ok := finalByText[spec.Objective]
+		if !ok {
+			return fmt.Errorf("Objective was not found after writing: %s", spec.Objective)
+		}
+		actualKRs := []string{}
+		for _, kr := range actual.KRs {
+			actualKRs = append(actualKRs, kr.Text)
+		}
+		if len(actualKRs) < len(spec.KRs) {
+			return fmt.Errorf("KR content did not match after writing: %s", spec.Objective)
+		}
+		if strings.Join(actualKRs[:len(spec.KRs)], "\n") != strings.Join(spec.KRs, "\n") {
+			return fmt.Errorf("KR content did not match after writing: %s", spec.Objective)
+		}
+	}
+	return nil
 }
 
 func ownerName(detail map[string]any) string {

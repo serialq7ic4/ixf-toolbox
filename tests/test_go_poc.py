@@ -31,7 +31,7 @@ def test_go_ixf_version_matches_python_release(tmp_path):
     binary = build_go_ixf(tmp_path)
     result = run_go_ixf(binary, "--version")
 
-    assert result.stdout.strip() == "ixf 2.1.0"
+    assert result.stdout.strip() == "ixf 2.2.0"
     assert result.stderr == ""
 
 
@@ -83,7 +83,7 @@ def test_go_ixf_doctor_json_is_secret_safe_and_reports_go_runtime(tmp_path):
     serialized = json.dumps(payload, ensure_ascii=False)
 
     assert payload["ok"] is True
-    assert payload["version"] == "2.1.0"
+    assert payload["version"] == "2.2.0"
     assert payload["runtime"] == "go"
     assert payload["capabilities"]["cookiesExport"] is True
     assert payload["skills"]["codex"]["ok"] is True
@@ -1895,11 +1895,308 @@ def test_go_ixf_okr_write_apply_retries_stale_draft_version(tmp_path):
     assert result.stderr == ""
 
 
-def test_go_ixf_okr_write_apply_requires_objective_index_before_cookies(tmp_path):
+def test_go_ixf_okr_write_apply_without_index_updates_and_creates_by_objective_text(tmp_path):
     binary = build_go_ixf(tmp_path)
     source = tmp_path / "okr.json"
     source.write_text(
-        json.dumps({"objectives": [{"objective": "New O", "krs": ["New KR"]}]}),
+        json.dumps(
+            {
+                "objectives": [
+                    {"objective": "O2", "krs": ["Keep KR", "New KR"]},
+                    {"objective": "Created O3", "krs": ["Created KR"]},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    cookies = tmp_path / "cookies.json"
+    write_cookie_fixture(cookies)
+    events = []
+
+    def detail_payload(final=False):
+        objectives = [
+            {"id": "o1", "name": {"blocks": [{"text": "O1"}]}, "kr_list": []},
+            {
+                "id": "o2",
+                "name": {"blocks": [{"text": "O2"}]},
+                "kr_list": (
+                    [
+                        {"id": "keep-kr", "content": {"blocks": [{"text": "Keep KR"}]}},
+                        {"id": "new-kr-1", "content": {"blocks": [{"text": "New KR"}]}},
+                        {"id": "extra-kr", "content": {"blocks": [{"text": "Extra KR"}]}},
+                    ]
+                    if final
+                    else [
+                        {"id": "keep-kr", "content": {"blocks": [{"text": "Keep KR"}]}},
+                        {"id": "extra-kr", "content": {"blocks": [{"text": "Extra KR"}]}},
+                    ]
+                ),
+            },
+        ]
+        if final:
+            objectives.append(
+                {
+                    "id": "new-o3",
+                    "name": {"blocks": [{"text": "Created O3"}]},
+                    "kr_list": [{"id": "new-kr-2", "content": {"blocks": [{"text": "Created KR"}]}}],
+                }
+            )
+        return {"code": 0, "okr_detail_data": {"name": "2026 Q3", "objective_list": objectives}}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            parsed = urlparse(self.path)
+            if parsed.path == "/lgw/csrf_token":
+                events.append(("csrf", "GET", parsed.path))
+                self.send_response(200)
+                self.send_header("Set-Cookie", "lgw_csrf_token=lgw-fixture; Path=/")
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+                return
+            if parsed.path == "/okrx/api/okr/owner/aggr_detail/":
+                events.append(("detail", "GET", parsed.path))
+                write_json_response(self, detail_payload(final=any(event[0] == "publish_o3" for event in events)))
+                return
+            if parsed.path == "/okrx/api/okr/example-okr/version/":
+                events.append(("version", "GET", parsed.path))
+                write_json_response(self, {"code": 0, "data": {"okr_draft_version": "version-1"}})
+                return
+            self.send_error(404)
+
+        def do_POST(self):
+            parsed = urlparse(self.path)
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+            if parsed.path == "/okrx/api/draft_v2/enable/o2/":
+                events.append(("enable_o2", "POST", parsed.path))
+                write_json_response(self, {"code": 0, "data": {"draft_version": "version-2"}})
+                return
+            if parsed.path == "/okrx/api/draft_v2/kr/":
+                index = 1 + len([event for event in events if event[0] == "create_kr"])
+                events.append(("create_kr", "POST", parsed.path))
+                assert payload["objective_id"] in {"o2", "new-o3"}
+                write_json_response(
+                    self,
+                    {"code": 0, "data": {"kr_id": f"new-kr-{index}", "draft_version": "version-4"}},
+                )
+                return
+            if parsed.path == "/okrx/api/draft_v2/kr/pos/":
+                events.append(("order_krs", "POST", parsed.path))
+                assert payload["objectiveId"] == "o2"
+                assert payload["krIds"] == ["keep-kr", "new-kr-1", "extra-kr"]
+                write_json_response(self, {"code": 0, "data": {"draft_version": "version-5"}})
+                return
+            if parsed.path == "/okrx/api/draft_v2/publish/o2/":
+                events.append(("publish_o2", "POST", parsed.path))
+                assert payload["need_delete_kr_ids"] == []
+                write_json_response(self, {"code": 0, "data": {"draft_version": "version-6"}})
+                return
+            if parsed.path == "/okrx/api/draft_v2/objective/":
+                events.append(("create_objective", "POST", parsed.path))
+                assert payload["okr_id"] == "example-okr"
+                write_json_response(
+                    self,
+                    {"code": 0, "data": {"objective_id": "new-o3", "draft_version": "version-7"}},
+                )
+                return
+            if parsed.path == "/okrx/api/draft_v2/publish/new-o3/":
+                events.append(("publish_o3", "POST", parsed.path))
+                assert payload["need_delete_kr_ids"] == []
+                write_json_response(self, {"code": 0, "data": {"draft_version": "version-10"}})
+                return
+            self.send_error(404)
+
+        def do_PUT(self):
+            parsed = urlparse(self.path)
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+            if parsed.path == "/okrx/api/draft_v2/objective/new-o3/":
+                events.append(("objective_o3", "PUT", parsed.path))
+                assert "Created O3" in payload["name"]
+                write_json_response(self, {"code": 0, "data": {"draft_version": "version-8"}})
+                return
+            if parsed.path in {"/okrx/api/draft_v2/kr/new-kr-1/", "/okrx/api/draft_v2/kr/new-kr-2/"}:
+                events.append(("kr_text", "PUT", parsed.path))
+                assert "New KR" in payload["content"] or "Created KR" in payload["content"]
+                write_json_response(self, {"code": 0, "data": {"draft_version": "version-9"}})
+                return
+            self.send_error(404)
+
+        def do_DELETE(self):
+            events.append(("unexpected_delete", "DELETE", urlparse(self.path).path))
+            self.send_error(404)
+
+    with serve_handler(Handler) as server:
+        result = run_go_ixf(
+            binary,
+            "okr",
+            "write",
+            "--url",
+            f"{server}/okr/user/example/?okrId=example-okr",
+            "--input",
+            str(source),
+            "--cookies",
+            str(cookies),
+            "--csrf-url",
+            f"{server}/lgw/csrf_token",
+            "--apply",
+        )
+
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["dryRun"] is False
+    assert payload["objectives"] == [
+        {"objective": "O1", "krs": []},
+        {"objective": "O2", "krs": ["Keep KR", "New KR", "Extra KR"]},
+        {"objective": "Created O3", "krs": ["Created KR"]},
+    ]
+    assert "unexpected_delete" not in [event[0] for event in events]
+    assert result.stderr == ""
+
+
+def test_go_ixf_okr_write_apply_prune_deletes_non_input_content(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    source = tmp_path / "okr.json"
+    source.write_text(
+        json.dumps({"objectives": [{"objective": "O2", "krs": ["Pruned KR"]}]}),
+        encoding="utf-8",
+    )
+    cookies = tmp_path / "cookies.json"
+    write_cookie_fixture(cookies)
+    events = []
+
+    def detail_payload(final=False):
+        objectives = [
+            {"id": "o1", "name": {"blocks": [{"text": "Delete Me"}]}, "kr_list": []},
+            {
+                "id": "o2",
+                "name": {"blocks": [{"text": "O2"}]},
+                "kr_list": (
+                    [{"id": "new-kr-1", "content": {"blocks": [{"text": "Pruned KR"}]}}]
+                    if final
+                    else [
+                        {"id": "old-kr", "content": {"blocks": [{"text": "Old KR"}]}},
+                        {"id": "extra-kr", "content": {"blocks": [{"text": "Extra KR"}]}},
+                    ]
+                ),
+            },
+        ]
+        if final:
+            objectives = objectives[1:]
+        return {"code": 0, "okr_detail_data": {"name": "2026 Q3", "objective_list": objectives}}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            parsed = urlparse(self.path)
+            if parsed.path == "/lgw/csrf_token":
+                events.append(("csrf", "GET", parsed.path))
+                self.send_response(200)
+                self.send_header("Set-Cookie", "lgw_csrf_token=lgw-fixture; Path=/")
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+                return
+            if parsed.path == "/okrx/api/okr/owner/aggr_detail/":
+                events.append(("detail", "GET", parsed.path))
+                write_json_response(self, detail_payload(final=any(event[0] == "publish" for event in events)))
+                return
+            if parsed.path == "/okrx/api/okr/example-okr/version/":
+                events.append(("version", "GET", parsed.path))
+                write_json_response(self, {"code": 0, "data": {"okr_draft_version": "version-1"}})
+                return
+            self.send_error(404)
+
+        def do_POST(self):
+            parsed = urlparse(self.path)
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+            if parsed.path == "/okrx/api/draft_v2/enable/o1/":
+                events.append(("enable_o1", "POST", parsed.path))
+                write_json_response(self, {"code": 0, "data": {"draft_version": "version-2"}})
+                return
+            if parsed.path == "/okrx/api/draft_v2/enable/o2/":
+                events.append(("enable_o2", "POST", parsed.path))
+                write_json_response(self, {"code": 0, "data": {"draft_version": "version-3"}})
+                return
+            if parsed.path == "/okrx/api/draft_v2/kr/":
+                events.append(("create_kr", "POST", parsed.path))
+                assert payload["objective_id"] == "o2"
+                write_json_response(self, {"code": 0, "data": {"kr_id": "new-kr-1", "draft_version": "version-6"}})
+                return
+            if parsed.path == "/okrx/api/draft_v2/publish/o2/":
+                events.append(("publish", "POST", parsed.path))
+                assert payload["need_delete_kr_ids"] == ["old-kr", "extra-kr"]
+                write_json_response(self, {"code": 0, "data": {"draft_version": "version-8"}})
+                return
+            self.send_error(404)
+
+        def do_PUT(self):
+            parsed = urlparse(self.path)
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+            if parsed.path == "/okrx/api/draft_v2/kr/new-kr-1/":
+                events.append(("kr_text", "PUT", parsed.path))
+                assert "Pruned KR" in payload["content"]
+                write_json_response(self, {"code": 0, "data": {"draft_version": "version-7"}})
+                return
+            self.send_error(404)
+
+        def do_DELETE(self):
+            parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+            assert query["draft_version"]
+            if parsed.path == "/okrx/api/draft_v2/objective/o1/":
+                events.append(("delete_o1", "DELETE", parsed.path))
+                write_json_response(self, {"code": 0, "data": {"draft_version": "version-4"}})
+                return
+            if parsed.path in {"/okrx/api/draft_v2/kr/old-kr/", "/okrx/api/draft_v2/kr/extra-kr/"}:
+                events.append(("delete_kr", "DELETE", parsed.path))
+                write_json_response(self, {"code": 0, "data": {"draft_version": "version-5"}})
+                return
+            self.send_error(404)
+
+    with serve_handler(Handler) as server:
+        result = run_go_ixf(
+            binary,
+            "okr",
+            "write",
+            "--url",
+            f"{server}/okr/user/example/?okrId=example-okr",
+            "--input",
+            str(source),
+            "--cookies",
+            str(cookies),
+            "--csrf-url",
+            f"{server}/lgw/csrf_token",
+            "--prune",
+            "--apply",
+        )
+
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["dryRun"] is False
+    assert payload["objectives"] == [{"objective": "O2", "krs": ["Pruned KR"]}]
+    assert [event[0] for event in events if event[0].startswith("delete")] == [
+        "delete_o1",
+        "delete_kr",
+        "delete_kr",
+    ]
+    assert result.stderr == ""
+
+
+def test_go_ixf_okr_write_apply_rejects_multi_objective_index_before_cookies(tmp_path):
+    binary = build_go_ixf(tmp_path)
+    source = tmp_path / "okr.json"
+    source.write_text(
+        json.dumps(
+            {
+                "objectives": [
+                    {"objective": "New O1", "krs": ["New KR1"]},
+                    {"objective": "New O2", "krs": ["New KR2"]},
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     missing_cookies = tmp_path / "missing-cookies.json"
@@ -1912,6 +2209,8 @@ def test_go_ixf_okr_write_apply_requires_objective_index_before_cookies(tmp_path
         "https://tenant.example.test/okr/user/example/?okrId=okr-fixture-200",
         "--input",
         str(source),
+        "--objective-index",
+        "3",
         "--cookies",
         str(missing_cookies),
         "--apply",
@@ -1919,7 +2218,7 @@ def test_go_ixf_okr_write_apply_requires_objective_index_before_cookies(tmp_path
     )
 
     assert result.returncode == 2
-    assert "--objective-index is required" in result.stderr
+    assert "--objective-index requires exactly one Objective" in result.stderr
     assert str(missing_cookies) not in result.stderr
     assert result.stdout == ""
 
@@ -1960,8 +2259,8 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     release.write_text(
         json.dumps(
             {
-                "tag_name": "v2.2.0",
-                "html_url": "https://github.example/releases/v2.2.0",
+                "tag_name": "v2.3.0",
+                "html_url": "https://github.example/releases/v2.3.0",
             }
         ),
         encoding="utf-8",
@@ -1978,9 +2277,9 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     payload = json.loads(result.stdout)
 
     assert payload["ok"] is True
-    assert payload["currentVersion"] == "2.1.0"
-    assert payload["latestVersion"] == "2.2.0"
-    assert payload["latestTag"] == "v2.2.0"
+    assert payload["currentVersion"] == "2.2.0"
+    assert payload["latestVersion"] == "2.3.0"
+    assert payload["latestTag"] == "v2.3.0"
     assert payload["updateAvailable"] is True
     assert payload["applied"] is False
     assert payload["commands"] == []
@@ -1989,7 +2288,7 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
 
 def test_go_ixf_update_self_apply_replaces_target_with_verified_asset(tmp_path):
     binary = build_go_ixf(tmp_path)
-    version = "2.2.0"
+    version = "2.3.0"
     goos = subprocess.run(
         ["go", "env", "GOOS"],
         cwd=ROOT,

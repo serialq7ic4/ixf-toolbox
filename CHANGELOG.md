@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.6.0 - 2026-07-15
+
+- Changed GitHub Releases to publish Go-only release artifacts: platform binaries plus checksums.
+- Stopped publishing Python wheel/sdist artifacts while keeping Python source temporarily for reference tests.
+- Changed release tag validation to use the runtime-neutral `VERSION` file instead of Python package metadata.
+- Updated README and release documentation to remove release-wheel install and smoke expectations.
+
 ## 2.5.1 - 2026-07-15
 
 - Added a runtime-neutral `VERSION` file so future Go-only release stages do not depend on Python package metadata as the only version source.

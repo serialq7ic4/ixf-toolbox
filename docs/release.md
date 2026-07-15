@@ -1,6 +1,8 @@
 # Release
 
-`ixf-toolbox` uses tagged GitHub Releases with wheel, source distribution, and staged Go binary artifacts.
+`ixf-toolbox` uses tagged GitHub Releases with staged Go binary artifacts.
+Python wheel and source distribution artifacts stopped being published in
+v2.6.0 while the Python source tree remains as temporary test/reference code.
 
 ## Changelog
 
@@ -28,8 +30,6 @@ go test ./...
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${RELEASE_VERSION}" -o /tmp/ixf-go ./cmd/ixf
 scripts/smoke-go-binary.sh /tmp/ixf-go "${RELEASE_VERSION}"
 rm -rf dist build
-python -m build
-scripts/smoke.sh
 ```
 
 ## Tag
@@ -40,14 +40,12 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-The GitHub Actions release workflow validates the tag against the package version, runs tests and lint, builds Python and Go artifacts, extracts release notes from `CHANGELOG.md`, and creates the GitHub Release. The `VERSION` file is the runtime-neutral version source for upcoming Go-only release stages.
+The GitHub Actions release workflow validates the tag against `VERSION`, runs tests and lint, builds Go artifacts, extracts release notes from `CHANGELOG.md`, and creates the GitHub Release.
 
 After release, confirm:
 
 - The release body matches the changelog section.
-- The wheel and source distribution are attached.
 - The Go binaries and checksum file are attached for macOS, Linux, and Windows.
 - A clean current-platform Go binary download can run `ixf --version`, `ixf --help`, `ixf setup skills --runtimes codex --json`, and a local `ixf docs read`.
-- A clean wheel installation can run `ixf --version`, `ixf --help`, and `ixf setup skills --runtimes codex --json`.
 
 Do not publish to PyPI until support status and privacy documentation are current.

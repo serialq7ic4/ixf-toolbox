@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ixf-toolbox"
-version = "2.5.1"
+version = "2.6.0"
 description = "Unified local toolbox for authorized iXunfei document and OKR workflows."
 readme = "README.md"
 requires-python = ">=3.11"

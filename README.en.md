@@ -45,27 +45,27 @@ The recommended path is to let the agent you are already using install Toolbox. 
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_2.5.1_darwin_arm64`, macOS Intel: `ixf_2.5.1_darwin_amd64`, Windows: `ixf_2.5.1_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_2.6.0_darwin_arm64`, macOS Intel: `ixf_2.6.0_darwin_amd64`, Windows: `ixf_2.6.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.5.1/ixf_2.5.1_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.6.0/ixf_2.6.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_2.5.1_darwin_amd64` instead.
+For macOS Intel, use `ixf_2.6.0_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.5.1/ixf_2.5.1_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.6.0/ixf_2.6.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -78,14 +78,9 @@ Use `--runtimes auto` instead of `--runtimes codex` to register both Codex and C
 
 ### Python Legacy / Reference
 
-Python wheel remains legacy/reference for rollback, parity checks, or callers that need the Python package API. Prefer the Go binary for new installs.
-
-```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.5.1/ixf_toolbox-2.5.1-py3-none-any.whl"
-ixf setup skills --runtimes auto --json
-```
-
-Use the `[windows]` extra when using the Python legacy/reference wheel on Windows.
+Starting with v2.6, GitHub Releases no longer publish Python wheel or sdist
+artifacts. Python source remains temporarily as legacy/reference for parity
+tests and migration coverage; new installs should use only the Go binary.
 
 ## Agent Usage
 
@@ -124,7 +119,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Runtime Status
 
-Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Python wheel remains legacy/reference for rollback, parity checks, and Python package API callers; the current [`docs/python-removal-readiness.md`](docs/python-removal-readiness.md) decision is to keep Python.
+Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums; Python source temporarily remains legacy/reference for parity tests and migration coverage.
 
 ## Manual Read Flow
 
@@ -231,6 +226,6 @@ python -m compileall -q src
 python -m pytest -q
 python -m ruff check .
 go test ./...
-python -m build
-scripts/smoke.sh
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(cat VERSION)" -o /tmp/ixf-go ./cmd/ixf
+scripts/smoke-go-binary.sh /tmp/ixf-go "$(cat VERSION)"
 ```

@@ -28,7 +28,7 @@ agent skills installed by `ixf setup skills`.
 Python remains in the tree for these reasons:
 
 - Python package API callers may still import `ixf_toolbox` modules directly.
-- The wheel and sdist are still published for rollback and reference parity.
+- GitHub Releases no longer publish Python wheel or sdist artifacts.
 - The pytest suite still uses Python fixtures and Python package tests to guard
   the public packaging contract.
 - The Python implementation remains a readable reference for remote API behavior
@@ -56,7 +56,7 @@ Python code can only be considered for deletion after all gates are true:
 
 - `docs/python-removal-readiness.md` exists, and its current decision is
   `Status: Not ready for deletion`.
-- The Python wheel and sdist are still release artifacts.
+- Python source still remains in the repository for reference and tests.
 - Python package API compatibility is still documented as legacy/reference.
 - The test harness still imports Python modules for packaging, fixture, and
   reference-contract coverage.

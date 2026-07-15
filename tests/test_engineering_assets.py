@@ -27,15 +27,16 @@ def test_release_workflow_validates_tag_builds_and_publishes_artifacts():
     text = read(".github/workflows/release.yml")
 
     assert "tag" in text.lower()
-    assert "pyproject.toml" in text
+    assert "VERSION" in text
     assert "actions/setup-go" in text
     assert "go test ./..." in text
     assert "Build Go binary artifacts" in text
     assert "ixf_${RELEASE_VERSION}_${goos}_${goarch}" in text
     assert "scripts/smoke-go-binary.sh" in text
-    assert "python -m build" in text
     assert "scripts/extract_changelog.py" in text
     assert "softprops/action-gh-release" in text
+    assert "python -m build" not in text
+    assert "ixf_toolbox-*.whl" not in text
 
 
 def test_release_notes_script_extracts_non_empty_changelog_section():
@@ -43,7 +44,7 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         [
             sys.executable,
             "scripts/extract_changelog.py",
-            "2.5.1",
+            "2.6.0",
             "CHANGELOG.md",
         ],
         cwd=ROOT,
@@ -52,15 +53,15 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         check=True,
     )
 
-    assert "runtime-neutral `VERSION` file" in result.stdout
-    assert "Python API sunset policy" in result.stdout
+    assert "Go-only release artifacts" in result.stdout
+    assert "wheel/sdist artifacts" in result.stdout
     assert "## 2.0.0" not in result.stdout
 
 
 def test_runtime_neutral_version_file_matches_public_versions():
     version = read("VERSION").strip()
 
-    assert version == "2.5.1"
+    assert version == "2.6.0"
     assert f'version = "{version}"' in read("pyproject.toml")
     assert f'__version__ = "{version}"' in read("src/ixf_toolbox/__init__.py")
     assert f'var version = "{version}"' in read("cmd/ixf/main.go")
@@ -152,14 +153,14 @@ def test_v2_docs_make_go_binary_the_default_install_path():
 
     assert "Go 二进制" in zh
     assert "默认安装方式" in zh
-    assert "Python wheel 保留为 legacy/reference" in zh
-    assert "ixf_2.5.1_darwin_arm64" in zh
+    assert "GitHub Release 只发布 Go 二进制和 checksum" in zh
+    assert "ixf_2.6.0_darwin_arm64" in zh
     assert "v1.x 仍以 Python 版作为默认安装方式" not in zh
 
     assert "Go binary" in en
     assert "default install path" in en
-    assert "Python wheel remains legacy/reference" in en
-    assert "ixf_2.5.1_darwin_arm64" in en
+    assert "GitHub Releases publish only Go binaries and checksums" in en
+    assert "ixf_2.6.0_darwin_arm64" in en
     assert "The v1.x line still uses the Python package" not in en
 
     assert "Go binary" in platforms
@@ -204,7 +205,7 @@ def test_python_removal_readiness_report_documents_decision_and_future_scope():
         "## Files Covered By A Future Removal",
         "## Removal Direction",
         "Go owns every documented CLI command family",
-        "Python wheel and sdist",
+        "GitHub Releases no longer publish Python wheel or sdist artifacts",
         "Python package API",
         "staged removal release",
         "Keep Python in this release",

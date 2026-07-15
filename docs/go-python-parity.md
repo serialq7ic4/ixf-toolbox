@@ -50,7 +50,7 @@ Python code can only be considered for deletion after all gates are true:
 - Remaining Python package API users either have a migration path or are
   explicitly treated as unsupported after a major release.
 - A dedicated Python removal readiness report has passed local verification,
-  GitHub CI, release-asset checks, and explicit user approval.
+  GitHub CI, and release-asset checks for a Go-only repository.
 
 ## Known Blockers
 
@@ -60,6 +60,7 @@ Python code can only be considered for deletion after all gates are true:
 - Python package API compatibility is still documented as legacy/reference.
 - The test harness still imports Python modules for packaging, fixture, and
   reference-contract coverage.
-- Python deletion does not have explicit user approval.
+- The destructive removal stage has not been reached because technical deletion
+  gates remain blocked.
 
 Until these blockers are resolved, keep Python in the repository.

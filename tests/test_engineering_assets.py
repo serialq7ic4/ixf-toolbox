@@ -43,7 +43,7 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         [
             sys.executable,
             "scripts/extract_changelog.py",
-            "2.4.0",
+            "2.5.0",
             "CHANGELOG.md",
         ],
         cwd=ROOT,
@@ -52,9 +52,33 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         check=True,
     )
 
-    assert "Python removal readiness report" in result.stdout
-    assert "Python wheel/sdist artifacts" in result.stdout
+    assert "runtime-neutral `VERSION` file" in result.stdout
+    assert "Python API sunset policy" in result.stdout
     assert "## 2.0.0" not in result.stdout
+
+
+def test_runtime_neutral_version_file_matches_public_versions():
+    version = read("VERSION").strip()
+
+    assert version == "2.5.0"
+    assert f'version = "{version}"' in read("pyproject.toml")
+    assert f'__version__ = "{version}"' in read("src/ixf_toolbox/__init__.py")
+    assert f'var version = "{version}"' in read("cmd/ixf/main.go")
+
+
+def test_python_api_sunset_policy_documents_no_new_python_runtime_features():
+    text = read("docs/python-api-sunset.md")
+
+    for expected in [
+        "## Support Status",
+        "Python package API",
+        "legacy/reference",
+        "No new Python runtime features",
+        "Go CLI is the supported runtime",
+        "future removal release",
+        "Go-only implementation",
+    ]:
+        assert expected in text
 
 
 def test_smoke_script_installs_toolbox_wheel_in_isolated_environment():
@@ -129,13 +153,13 @@ def test_v2_docs_make_go_binary_the_default_install_path():
     assert "Go 二进制" in zh
     assert "默认安装方式" in zh
     assert "Python wheel 保留为 legacy/reference" in zh
-    assert "ixf_2.4.0_darwin_arm64" in zh
+    assert "ixf_2.5.0_darwin_arm64" in zh
     assert "v1.x 仍以 Python 版作为默认安装方式" not in zh
 
     assert "Go binary" in en
     assert "default install path" in en
     assert "Python wheel remains legacy/reference" in en
-    assert "ixf_2.4.0_darwin_arm64" in en
+    assert "ixf_2.5.0_darwin_arm64" in en
     assert "The v1.x line still uses the Python package" not in en
 
     assert "Go binary" in platforms
@@ -164,7 +188,7 @@ def test_go_python_parity_matrix_documents_runtime_ownership_and_deletion_gates(
         "`update self`",
         "`update skills`",
         "Python package API",
-        "explicit user approval",
+        "Go-only repository",
     ]:
         assert expected in text
 
@@ -178,11 +202,11 @@ def test_python_removal_readiness_report_documents_decision_and_future_scope():
         "## Deletion Gates",
         "## Current Blockers",
         "## Files Covered By A Future Removal",
-        "## Required Approval",
+        "## Removal Direction",
         "Go owns every documented CLI command family",
         "Python wheel and sdist",
         "Python package API",
-        "explicit user approval",
+        "staged removal release",
         "Keep Python in this release",
     ]:
         assert expected in text

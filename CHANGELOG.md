@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.5.0 - 2026-07-15
+
+- Added a runtime-neutral `VERSION` file so future Go-only release stages do not depend on Python package metadata as the only version source.
+- Added a Python API sunset policy documenting the Python package API as legacy/reference with no new Python runtime features.
+- Updated install documentation to point at the v2.5.0 release artifacts while keeping Python deletion blocked.
+
 ## 2.4.0 - 2026-07-15
 
 - Added a Python removal readiness report that keeps Python in the release until deletion blockers are resolved.

@@ -8,7 +8,7 @@ Every release must have a human-written, non-empty section in `CHANGELOG.md`.
 
 Before tagging:
 
-1. Update `pyproject.toml` and `src/ixf_toolbox/__init__.py`.
+1. Update `VERSION`, `pyproject.toml`, `src/ixf_toolbox/__init__.py`, and the Go CLI version.
 2. Add a dated `CHANGELOG.md` section.
 3. Keep entries focused on supported behavior, safety changes, and migration notes.
 4. Verify the release notes section can be extracted:
@@ -40,7 +40,7 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-The GitHub Actions release workflow validates the tag against the package version, runs tests and lint, builds Python and Go artifacts, extracts release notes from `CHANGELOG.md`, and creates the GitHub Release.
+The GitHub Actions release workflow validates the tag against the package version, runs tests and lint, builds Python and Go artifacts, extracts release notes from `CHANGELOG.md`, and creates the GitHub Release. The `VERSION` file is the runtime-neutral version source for upcoming Go-only release stages.
 
 After release, confirm:
 

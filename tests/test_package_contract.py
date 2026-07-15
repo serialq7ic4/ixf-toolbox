@@ -11,25 +11,22 @@ def load_pyproject():
     return tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
 
-def test_runtime_dependencies_do_not_install_legacy_reader_or_writer():
+def test_pyproject_no_longer_declares_python_package_metadata():
     pyproject = load_pyproject()
-    dependencies = pyproject["project"]["dependencies"]
-    joined = "\n".join(dependencies)
 
-    assert dependencies == ["requests>=2.31"]
-    assert "ixunfei-docx-reader" not in joined
-    assert "ixunfei-docx-writer" not in joined
-    assert "ixfdoc" not in joined
-    assert "ixfwrite" not in joined
+    assert "build-system" not in pyproject
+    assert "project" not in pyproject
+    assert "tool" in pyproject
 
 
-def test_crypto_and_windows_extras_are_toolbox_owned():
-    optional = load_pyproject()["project"]["optional-dependencies"]
+def test_pyproject_keeps_only_test_tool_configuration():
+    pyproject = load_pyproject()
+    tool = pyproject["tool"]
 
-    assert "cryptography>=42.0" in optional["dev"]
-    assert optional["crypto"] == ["cryptography>=42.0"]
-    assert optional["windows"] == ["cryptography>=42.0", "pywin32>=306"]
+    assert tool["pytest"]["ini_options"]["testpaths"] == ["tests"]
+    assert tool["ruff"]["line-length"] == 100
+    assert tool["ruff"]["target-version"] == "py311"
 
 
-def test_delegate_bridge_has_been_removed():
-    assert not (ROOT / "src" / "ixf_toolbox" / "delegate.py").exists()
+def test_python_runtime_package_has_been_removed():
+    assert not (ROOT / "src" / "ixf_toolbox").exists()

@@ -17,10 +17,11 @@ def test_ci_workflow_covers_supported_platforms_and_quality_gates():
     assert "windows-latest" in text
     assert "actions/setup-go" in text
     assert "go test ./..." in text
-    assert "python -m compileall -q src" in text
+    assert "python -m compileall -q tests scripts" in text
     assert "python -m pytest -q" in text
     assert "python -m ruff check ." in text
-    assert "win32crypt" in text
+    assert "python -m pip install -e" not in text
+    assert "win32crypt" not in text
 
 
 def test_release_workflow_validates_tag_builds_and_publishes_artifacts():
@@ -44,7 +45,7 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         [
             sys.executable,
             "scripts/extract_changelog.py",
-            "2.18.0",
+            "3.0.0",
             "CHANGELOG.md",
         ],
         cwd=ROOT,
@@ -53,17 +54,15 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         check=True,
     )
 
-    assert "Python removal readiness as ready" in result.stdout
-    assert "next release deletes the Python implementation" in result.stdout
+    assert "Deleted the Python runtime/package implementation" in result.stdout
+    assert "Go-only runtime repository" in result.stdout
     assert "## 2.0.0" not in result.stdout
 
 
 def test_runtime_neutral_version_file_matches_public_versions():
     version = read("VERSION").strip()
 
-    assert version == "2.18.0"
-    assert f'version = "{version}"' in read("pyproject.toml")
-    assert f'__version__ = "{version}"' in read("src/ixf_toolbox/__init__.py")
+    assert version == "3.0.0"
     assert f'var version = "{version}"' in read("cmd/ixf/main.go")
 
 
@@ -72,27 +71,18 @@ def test_python_api_sunset_policy_documents_no_new_python_runtime_features():
 
     for expected in [
         "## Support Status",
-        "Python package API",
-        "temporary migration surface",
+        "Python package API has been removed",
         "No new Python runtime features",
         "Go CLI is the supported runtime",
-        "future removal release",
-        "Go-only implementation",
+        "longer contains the Python runtime/package implementation",
+        "not a user-facing runtime or package API",
     ]:
         assert expected in text
     assert "legacy/reference" not in text
 
 
-def test_smoke_script_installs_toolbox_wheel_in_isolated_environment():
-    text = read("scripts/smoke.sh")
-
-    assert "ixf_toolbox-*.whl" in text
-    assert "python -m venv" in text
-    assert "--system-site-packages" not in text
-    assert "--force-reinstall" in text
-    assert '"$venv_ixf" --version' in text
-    assert '"$venv_ixf" setup skills --runtimes codex --json' in text
-    assert '"$venv_ixf" docs read' in text
+def test_python_wheel_smoke_script_has_been_removed():
+    assert not (ROOT / "scripts" / "smoke.sh").exists()
 
 
 def test_go_binary_smoke_script_validates_default_release_artifact():
@@ -127,7 +117,7 @@ def test_default_readme_is_full_project_landing_page():
     text = read("README.md")
 
     for expected in [
-        "https://img.shields.io/badge/Python-3.11%2B-3776AB",
+        "https://img.shields.io/badge/Go-1.24%2B-00ADD8",
         "## 为什么做这个",
         "## 安装到 Codex / Claude Code",
         "## 在 Agent 里使用",
@@ -146,7 +136,7 @@ def test_default_readme_is_full_project_landing_page():
     assert "ixf okr write" in text
 
 
-def test_v2_docs_make_go_binary_the_default_install_path():
+def test_v3_docs_make_go_binary_the_only_runtime_path():
     zh = read("README.md")
     en = read("README.en.md")
     platforms = read("docs/supported-platforms.md")
@@ -155,13 +145,15 @@ def test_v2_docs_make_go_binary_the_default_install_path():
     assert "Go 二进制" in zh
     assert "默认安装方式" in zh
     assert "GitHub Release 只发布 Go 二进制和 checksum" in zh
-    assert "ixf_2.18.0_darwin_arm64" in zh
+    assert "ixf_3.0.0_darwin_arm64" in zh
+    assert "Python runtime/package 实现已删除" in zh
     assert "v1.x 仍以 Python 版作为默认安装方式" not in zh
 
     assert "Go binary" in en
     assert "default install path" in en
     assert "GitHub Releases publish only Go binaries and checksums" in en
-    assert "ixf_2.18.0_darwin_arm64" in en
+    assert "ixf_3.0.0_darwin_arm64" in en
+    assert "Python runtime/package implementation has been deleted" in en
     assert "The v1.x line still uses the Python package" not in en
 
     assert "Go binary" in platforms
@@ -176,7 +168,7 @@ def test_go_python_parity_matrix_documents_runtime_ownership_and_deletion_gates(
 
     for expected in [
         "## Go-owned Runtime",
-        "## Temporary Python Migration Surface",
+        "## Python Test Harness",
         "## Deletion Gates",
         "## Known Blockers",
         "`docs read`",
@@ -189,8 +181,8 @@ def test_go_python_parity_matrix_documents_runtime_ownership_and_deletion_gates(
         "`update check`",
         "`update self`",
         "`update skills`",
-        "Python package API",
-        "Go-only repository",
+        "Python package API is removed",
+        "Go-only runtime repository",
     ]:
         assert expected in text
 
@@ -200,28 +192,28 @@ def test_python_removal_readiness_report_documents_decision_and_future_scope():
 
     for expected in [
         "## Current Decision",
-        "Status: Ready for Python implementation deletion",
+        "Status: Python implementation deleted",
         "## Deletion Gates",
         "## Current Blockers",
-        "## Files Covered By The Removal Release",
-        "## Removal Direction",
+        "## Removed Areas",
+        "## Final State",
         "Go owns every documented CLI command family",
         "GitHub Releases no longer publish Python wheel or sdist artifacts",
         "No technical blockers remain",
-        "next release deletes the Python implementation",
-        "destructive removal release",
+        "already been removed",
+        "supported user runtime is the Go `ixf` binary",
     ]:
         assert expected in text
     assert "legacy/reference" not in text
 
 
-def test_python_removal_readiness_reports_ready_only_after_blockers_clear():
+def test_python_removal_readiness_reports_deletion_complete():
     text = read("docs/python-removal-readiness.md")
 
-    assert "Status: Ready for Python implementation deletion" in text
+    assert "Status: Python implementation deleted" in text
     assert "temporary migration surface because tests and packaging contracts" not in text
     assert "Python package API deletion is not complete" not in text
-    assert "next release deletes the Python implementation" in text
+    assert "src/ixf_toolbox/" in text
 
 
 def test_legacy_migration_doc_maps_old_commands_to_toolbox_commands():
@@ -283,3 +275,37 @@ def test_python_runtime_import_allowlist_shrinks_cli_and_update_contracts():
         "tests/test_update_cli.py",
     ]:
         assert removed not in text
+
+
+def test_repository_no_longer_contains_python_runtime_package():
+    assert not (ROOT / "src" / "ixf_toolbox").exists()
+    assert not (ROOT / "scripts" / "smoke.sh").exists()
+    assert not (ROOT / "tests" / "test_core_docs_publish.py").exists()
+    assert not (ROOT / "tests" / "test_core_okr_write.py").exists()
+
+
+def test_workflows_are_go_only_after_python_runtime_deletion():
+    ci = read(".github/workflows/ci.yml")
+    release = read(".github/workflows/release.yml")
+    combined = f"{ci}\n{release}"
+
+    assert "actions/setup-go" in combined
+    assert "go test ./..." in combined
+    assert "python -m pytest -q" in combined
+    assert "python -m ruff check ." in combined
+    assert "python -m pip install -e" not in combined
+    assert "python -m compileall -q src" not in combined
+    assert "win32crypt" not in combined
+    assert ".[dev" not in combined
+
+
+def test_pyproject_is_tooling_only_after_python_runtime_deletion():
+    text = read("pyproject.toml")
+
+    assert "[project]" not in text
+    assert "[build-system]" not in text
+    assert "hatchling" not in text
+    assert "ixf_toolbox" not in text
+    assert "pythonpath" not in text
+    assert "[tool.pytest.ini_options]" in text
+    assert "[tool.ruff]" in text

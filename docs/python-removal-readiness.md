@@ -1,18 +1,16 @@
 # Python Removal Readiness
 
-This report decides whether the repository can remove the Python runtime code in
-the next release.
+This report records the deletion decision and final state for the Python runtime
+implementation.
 
 ## Current Decision
 
-Status: Ready for Python implementation deletion.
+Status: Python implementation deleted.
 
 Go owns every documented CLI command family, the installed skills call the Go
 `ixf` binary, release artifacts are Go binaries plus checksums only, and the test
-suite no longer imports `ixf_toolbox` runtime modules. The remaining Python tree
-is migration-only source that can be removed in the next staged release.
-
-The next release deletes the Python implementation.
+suite no longer imports `ixf_toolbox` runtime modules. The repository no longer
+contains the Python runtime/package implementation.
 
 ## Deletion Gates
 
@@ -24,32 +22,27 @@ The next release deletes the Python implementation.
 | Tests no longer require Python runtime implementations | Pass | `scripts/audit_python_runtime_imports.py` reports a 0-file runtime import baseline. |
 | Rollback no longer needs in-repo Python implementation | Pass | GitHub Releases no longer publish Python wheel or sdist artifacts; rollback can use earlier tags if needed. |
 | New-install docs avoid Python as the default | Pass | README files direct new users to the Go binary first. |
-| Remaining Python package API users have a migration decision | Pass | `docs/python-api-sunset.md` says the Python package API is temporary and unsupported for new runtime work. |
-| Destructive removal stage is reached | Ready | The next release is the dedicated Python implementation deletion release. |
+| Remaining Python package API users have a migration decision | Pass | `docs/python-api-sunset.md` says the Python package API has been removed. |
+| Destructive removal stage is reached | Pass | `src/ixf_toolbox/` and Python package metadata have been removed. |
 
 ## Current Blockers
 
-No technical blockers remain for removing the Python runtime implementation.
+No technical blockers remain. The Python runtime/package implementation has
+already been removed.
 
-Deletion is still staged rather than bundled into this release so the repository
-keeps one non-destructive rollback point between readiness and removal.
+## Removed Areas
 
-## Files Covered By The Removal Release
-
-The next removal release needs to review and update these areas:
+The removal release deleted or replaced these areas:
 
 - `src/ixf_toolbox/` Python package modules.
 - Python package metadata and build settings in `pyproject.toml`.
-- Python-specific tests under `tests/`.
-- CI steps that install, compile, or validate the Python source tree.
-- README, migration, platform, privacy, and release documentation that mention
-  the temporary Python migration surface.
-- Any skill wrapper text that still references Python fallback behavior.
+- Python runtime tests under `tests/`.
+- CI steps that installed, compiled, or validated the Python source tree.
+- Python wheel smoke flow in `scripts/smoke.sh`.
 
-## Removal Direction
+## Final State
 
 Do not add new Python runtime work.
 
-The next safe step is the destructive removal release: delete Python package
-source, package metadata, and Python-source validation after replacing remaining
-packaging contracts with Go-only checks.
+Python remains only as a repository test harness for pytest/ruff and helper
+scripts. The supported user runtime is the Go `ixf` binary.

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 3.0.0 - 2026-07-16
+
+- Deleted the Python runtime/package implementation and removed the Python wheel smoke path.
+- Converted `pyproject.toml` to test-tool configuration only; release versioning is now owned by `VERSION` and the Go CLI.
+- Updated CI and Release workflows to install only pytest/ruff test tools while building and publishing Go binary artifacts.
+- Updated documentation to describe v3.0 as a Go-only runtime repository.
+
 ## 2.18.0 - 2026-07-16
 
 - Marked Python removal readiness as ready after Go-owned CLI parity, Go-only release assets, and a 0-file Python runtime import baseline.

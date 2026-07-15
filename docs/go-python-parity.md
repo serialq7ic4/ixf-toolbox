@@ -1,14 +1,13 @@
 # Go / Python Runtime Parity
 
 This document records the current runtime ownership boundary for `ixf-toolbox`.
-Go owns the installed CLI runtime. Python stays in the repository only as a
-temporary migration surface until the next staged removal release deletes it,
-leaving a Go-only repository.
+The repository is now a Go-only runtime repository: Go owns the installed CLI
+runtime, release artifacts, and agent skill execution path.
 
 ## Go-owned Runtime
 
-The GitHub Release Go binary is the default runtime for new installs and for the
-agent skills installed by `ixf setup skills`.
+The GitHub Release Go binary is the default and supported runtime for new
+installs and for the agent skills installed by `ixf setup skills`.
 
 | Command family | Go ownership | Notes |
 |---|---|---|
@@ -23,24 +22,21 @@ agent skills installed by `ixf setup skills`.
 | `update self` | Owned | Plans or applies local binary/package replacement with explicit `--apply`. |
 | `update skills` | Owned | Refreshes installed local skill wrappers. |
 
-## Temporary Python Migration Surface
+## Python Test Harness
 
-Python remains in the tree only for the final staged removal boundary:
+Python remains only as a repository development/test harness:
 
-- GitHub Releases no longer publish Python wheel or sdist artifacts.
-- The pytest suite still uses Python fixtures and Python package tests to guard
-  the final public packaging contract before deletion.
-- Python source remains temporarily for package/build metadata and removal
-  sequencing, not because pytest imports runtime modules.
-- Direct Python package API callers must migrate to the Go CLI before the
-  removal release; no new Python runtime support is planned.
+- Pytest drives fixture-heavy CLI contract tests.
+- Ruff checks Python test and helper scripts.
+- `scripts/extract_changelog.py` and `scripts/audit_python_runtime_imports.py`
+  remain small repository maintenance helpers.
 
-Python is no longer the recommended runtime for new agent installs. New users
-should install the Go binary and then run `ixf setup skills`.
+There is no Python package API, wheel, sdist, or Python runtime implementation.
+Direct Python package API callers must migrate to the Go CLI.
 
 ## Deletion Gates
 
-Python code is ready for deletion because all gates are true:
+Python runtime deletion is complete:
 
 - Go owns every documented CLI command family and every installed skill calls Go.
 - Fixture parity covers document read/publish, OKR read/write, cookie export,
@@ -48,20 +44,12 @@ Python code is ready for deletion because all gates are true:
 - No user-facing docs recommend Python for new installs.
 - CI and release workflows publish supported Go binaries and do not require the
   Python runtime implementation for CLI behavior.
-- Remaining Python package API users either have a migration path or are
-  explicitly treated as unsupported in the removal release.
-- A dedicated Python removal readiness report has passed local verification,
-  GitHub CI, and release-asset checks for the current Go-only runtime boundary.
+- Python package API is removed.
+- `docs/python-removal-readiness.md` records the final deletion state.
 
 ## Known Blockers
 
-- `docs/python-removal-readiness.md` now reports
-  `Status: Ready for Python implementation deletion`.
-- Python source still remains in the repository until the dedicated removal
-  release.
-- The test harness no longer imports `ixf_toolbox` runtime modules;
-  `tests/python_runtime_imports_allowlist.txt` tracks the current 0-file baseline.
-- The next staged release deletes the Python implementation and replaces
-  remaining packaging contracts with Go-only checks.
+No known blockers remain for Python runtime deletion.
 
-Until that removal release lands, do not add new Python runtime work.
+Future runtime work should be implemented in Go and covered by Go tests or CLI
+contract tests.

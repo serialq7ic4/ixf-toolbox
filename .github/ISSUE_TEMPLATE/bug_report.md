@@ -13,9 +13,8 @@ Describe the problem and expected behavior.
 ## Environment
 
 - OS:
-- Python version:
 - `ixf --version`:
-- Install method: release wheel / editable source / other
+- Install method: Go release binary / source build / other
 
 ## Command
 

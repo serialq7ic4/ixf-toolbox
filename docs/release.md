@@ -1,8 +1,8 @@
 # Release
 
-`ixf-toolbox` uses tagged GitHub Releases with staged Go binary artifacts.
-Python wheel and source distribution artifacts stopped being published in
-v2.6.0 while the Python source tree remains only as temporary migration code.
+`ixf-toolbox` uses tagged GitHub Releases with Go binary artifacts. Python wheel
+and source distribution artifacts stopped being published in v2.6.0, and the
+Python runtime/package implementation was removed in v3.0.0.
 
 ## Changelog
 
@@ -10,7 +10,7 @@ Every release must have a human-written, non-empty section in `CHANGELOG.md`.
 
 Before tagging:
 
-1. Update `VERSION`, `pyproject.toml`, `src/ixf_toolbox/__init__.py`, and the Go CLI version.
+1. Update `VERSION` and the Go CLI version.
 2. Add a dated `CHANGELOG.md` section.
 3. Keep entries focused on supported behavior, safety changes, and migration notes.
 4. Verify the release notes section can be extracted:
@@ -23,7 +23,7 @@ python scripts/extract_changelog.py X.Y.Z CHANGELOG.md
 
 ```bash
 RELEASE_VERSION=X.Y.Z
-python -m compileall -q src
+python -m compileall -q tests scripts
 python -m pytest -q
 python -m ruff check .
 go test ./...
@@ -48,4 +48,5 @@ After release, confirm:
 - The Go binaries and checksum file are attached for macOS, Linux, and Windows.
 - A clean current-platform Go binary download can run `ixf --version`, `ixf --help`, `ixf setup skills --runtimes codex --json`, and a local `ixf docs read`.
 
-Do not publish to PyPI until support status and privacy documentation are current.
+Do not publish Python package artifacts; supported release assets are Go
+binaries and checksums only.

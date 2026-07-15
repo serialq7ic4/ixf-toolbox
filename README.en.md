@@ -7,7 +7,7 @@ Let Codex, Claude Code, and other local coding agents read and publish authorize
 > Built for local agent workflows. `ixf` is the unified local command. It reuses your desktop login session, runs no hosted service, sends no telemetry, and requires no Open Platform app.
 
 <p>
-  <img alt="python" src="https://img.shields.io/badge/Python-3.11%2B-3776AB">
+  <img alt="go" src="https://img.shields.io/badge/Go-1.24%2B-00ADD8">
   <img alt="platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20experimental-lightgrey">
   <img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-green">
 </p>
@@ -45,27 +45,27 @@ The recommended path is to let the agent you are already using install Toolbox. 
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_2.18.0_darwin_arm64`, macOS Intel: `ixf_2.18.0_darwin_amd64`, Windows: `ixf_2.18.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.0.0_darwin_arm64`, macOS Intel: `ixf_3.0.0_darwin_amd64`, Windows: `ixf_3.0.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.18.0/ixf_2.18.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.0.0/ixf_3.0.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_2.18.0_darwin_amd64` instead.
+For macOS Intel, use `ixf_3.0.0_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.18.0/ixf_2.18.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.0.0/ixf_3.0.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -76,12 +76,12 @@ ixf doctor --json
 
 Use `--runtimes auto` instead of `--runtimes codex` to register both Codex and Claude Code skills.
 
-### Temporary Python Migration Surface
+### Go-only Runtime
 
-Starting with v2.6, GitHub Releases no longer publish Python wheel or sdist
-artifacts. Python source remains only as a temporary migration surface while
-the remaining test coverage is ported; the end state is deleting all Python
-implementation and keeping only Go. New installs should use only the Go binary.
+Starting with v3.0, the repository no longer contains the Python runtime/package
+implementation. The supported runtime is the Go `ixf` binary. Python may still
+be used as this repository's test harness, but there is no Python package,
+wheel, sdist, or Python API.
 
 ## Agent Usage
 
@@ -120,7 +120,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Runtime Status
 
-Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums; Python source remains only as a temporary migration surface for porting the remaining test coverage and will be removed in the deletion stage.
+Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted.
 
 ## Manual Read Flow
 
@@ -222,8 +222,8 @@ See `SECURITY.md`, `PRIVACY.md`, and `CONTRIBUTING.md`.
 ```bash
 git clone https://github.com/serialq7ic4/ixf-toolbox.git
 cd ixf-toolbox
-python -m pip install -e ".[crypto,dev]"
-python -m compileall -q src
+python -m pip install "pytest>=8.0" "ruff>=0.5"
+python -m compileall -q tests scripts
 python -m pytest -q
 python -m ruff check .
 go test ./...

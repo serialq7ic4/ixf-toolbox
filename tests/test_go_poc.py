@@ -26,7 +26,7 @@ def test_go_ixf_version_matches_python_release(tmp_path):
     binary = build_go_ixf(tmp_path)
     result = run_go_ixf(binary, "--version")
 
-    assert result.stdout.strip() == "ixf 2.18.0"
+    assert result.stdout.strip() == "ixf 3.0.0"
     assert result.stderr == ""
 
 
@@ -78,7 +78,7 @@ def test_go_ixf_doctor_json_is_secret_safe_and_reports_go_runtime(tmp_path):
     serialized = json.dumps(payload, ensure_ascii=False)
 
     assert payload["ok"] is True
-    assert payload["version"] == "2.18.0"
+    assert payload["version"] == "3.0.0"
     assert payload["runtime"] == "go"
     assert payload["capabilities"]["cookiesExport"] is True
     assert payload["skills"]["codex"]["ok"] is True
@@ -2268,8 +2268,8 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     release.write_text(
         json.dumps(
             {
-                "tag_name": "v2.19.0",
-                "html_url": "https://github.example/releases/v2.19.0",
+                "tag_name": "v3.1.0",
+                "html_url": "https://github.example/releases/v3.1.0",
             }
         ),
         encoding="utf-8",
@@ -2286,9 +2286,9 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     payload = json.loads(result.stdout)
 
     assert payload["ok"] is True
-    assert payload["currentVersion"] == "2.18.0"
-    assert payload["latestVersion"] == "2.19.0"
-    assert payload["latestTag"] == "v2.19.0"
+    assert payload["currentVersion"] == "3.0.0"
+    assert payload["latestVersion"] == "3.1.0"
+    assert payload["latestTag"] == "v3.1.0"
     assert payload["updateAvailable"] is True
     assert payload["applied"] is False
     assert payload["commands"] == []
@@ -2297,7 +2297,7 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
 
 def test_go_ixf_update_self_apply_replaces_target_with_verified_asset(tmp_path):
     binary = build_go_ixf(tmp_path)
-    version = "2.19.0"
+    version = "3.1.0"
     goos = subprocess.run(
         ["go", "env", "GOOS"],
         cwd=ROOT,

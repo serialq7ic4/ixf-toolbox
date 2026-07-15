@@ -2,19 +2,18 @@
 
 ## Support Status
 
-The Python package API is a temporary migration surface. The Go CLI is the supported runtime
-for document, OKR, cookie, doctor, setup, and update workflows.
+The Python package API has been removed. The Go CLI is the supported runtime for
+document, OKR, cookie, doctor, setup, and update workflows.
 
-This is not a long-term compatibility promise. The repository target is a
-Go-only implementation.
+The repository no longer publishes Python wheels or source distributions and no
+longer contains the Python runtime/package implementation.
 
 ## No New Python Runtime Features
 
 No new Python runtime features are allowed. New behavior must be implemented in
-Go and covered by Go or CLI contract tests.
+Go and covered by Go tests or CLI contract tests.
 
-## Removal Direction
+## Final State
 
-The end state is a Go-only implementation. Delete the Python runtime in a
-future removal release after release artifacts, tests, CI, and documentation no
-longer depend on it.
+Python may remain as a repository test harness for pytest/ruff and small
+maintenance scripts. It is not a user-facing runtime or package API.

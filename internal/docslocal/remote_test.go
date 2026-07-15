@@ -319,6 +319,70 @@ func TestReadSourcesWithOptionsExpandsRemoteDocxSheets(t *testing.T) {
 	assertResultCounts(t, result.Counts, map[string]int{"page": 1, "sheet": 1, "sheet_expanded": 1})
 }
 
+func TestReadSourcesWithOptionsKeepsMindnoteArtifactsEmptyWhenDownloadingImages(t *testing.T) {
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = append(requested, r.URL.String())
+		if r.URL.Path != "/mindnotes/mind_1" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.Header.Get("X-CSRFToken"); got != "csrf-fixture" {
+			t.Fatalf("X-CSRFToken = %q, want csrf-fixture", got)
+		}
+		payload := map[string]any{
+			"token": "mind_1",
+			"data": map[string]any{
+				"title": "Q3 Mindnote",
+				"collab_client_vars": map[string]any{
+					"nodes": []any{
+						map[string]any{
+							"text":     attributedTextValue("Root"),
+							"children": []any{},
+						},
+					},
+				},
+			},
+		}
+		content, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write([]byte("<html><script>window.bootstrap={clientVars: Object(" + string(content) + ")}</script></html>"))
+	}))
+	defer server.Close()
+	tmpDir := t.TempDir()
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	results, err := ReadSourcesWithOptions([]string{server.URL + "/mindnotes/mind_1?from=copy"}, ReadOptions{
+		CookiesPath:    cookiesPath,
+		DownloadImages: true,
+		OutputRoot:     tmpDir,
+	})
+	if err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+
+	if requested[0] != "/mindnotes/mind_1?from=copy" {
+		t.Fatalf("requested URLs = %#v", requested)
+	}
+	result := results[0]
+	if result.Kind != "mindnote" || result.Title != "Q3 Mindnote" || result.Token != "mind_1" {
+		t.Fatalf("result metadata = %#v", result)
+	}
+	if result.Content != "# Q3 Mindnote\n\n- Root\n" {
+		t.Fatalf("content = %q", result.Content)
+	}
+	assertResultCounts(t, result.Counts, map[string]int{"mindnote_nodes": 1})
+	if len(result.Assets) != 0 {
+		t.Fatalf("assets = %#v, want empty", result.Assets)
+	}
+	if len(result.Warnings) != 0 {
+		t.Fatalf("warnings = %#v, want empty", result.Warnings)
+	}
+}
+
 func writeCookieFixture(t *testing.T, path string) {
 	t.Helper()
 	content, err := json.Marshal([]map[string]string{

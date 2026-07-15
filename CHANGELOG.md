@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.15.0 - 2026-07-16
+
+- Added Go remote docs reader coverage for non-docx mindnote reads with image download enabled while keeping artifact collectors empty.
+- Removed the remote docs reader Python runtime test after equivalent Go coverage was in place.
+- Reduced `tests/python_runtime_imports_allowlist.txt` from 3 files to 2 files.
+- Updated Python removal readiness docs to point the next migration stage at OKR coverage and residual Python reference imports.
+
 ## 2.14.0 - 2026-07-16
 
 - Added Go docx converter tests for resolver panic redaction, nested resolver token leaks, ordered lists, and nested bullet/callout rendering.

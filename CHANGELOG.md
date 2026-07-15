@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.17.0 - 2026-07-16
+
+- Replaced residual Go POC Python reference imports with static Go-owned golden assertions.
+- Removed all remaining pytest imports of `ixf_toolbox` runtime modules.
+- Reduced `tests/python_runtime_imports_allowlist.txt` from 1 file to 0 files.
+- Updated Python removal readiness docs to point the next stage at destructive Python package removal.
+
 ## 2.16.0 - 2026-07-16
 
 - Added Go OKR reader tests for URL detection, LGW CSRF refresh, `okr_id` detail requests, exact Markdown rendering, and private-payload-safe API errors.

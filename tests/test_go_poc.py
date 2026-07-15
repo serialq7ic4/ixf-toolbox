@@ -18,20 +18,15 @@ from go_poc_support import remote_docx_parity_client_vars
 from go_poc_support import run_go_ixf
 from go_poc_support import serve_handler
 from go_poc_support import sheet_client_vars_payload
-from go_poc_support import sheet_expansion_lines
 from go_poc_support import write_cookie_fixture
 from go_poc_support import write_json_response
-from ixf_toolbox.core.docs.assets import has_valid_image_magic
-from ixf_toolbox.core.docs.converters.docx_markdown import ConversionOptions
-from ixf_toolbox.core.docs.converters.docx_markdown import ImageResolution
-from ixf_toolbox.core.docs.converters.docx_markdown import convert_docx_client_vars
 
 
 def test_go_ixf_version_matches_python_release(tmp_path):
     binary = build_go_ixf(tmp_path)
     result = run_go_ixf(binary, "--version")
 
-    assert result.stdout.strip() == "ixf 2.16.0"
+    assert result.stdout.strip() == "ixf 2.17.0"
     assert result.stderr == ""
 
 
@@ -83,7 +78,7 @@ def test_go_ixf_doctor_json_is_secret_safe_and_reports_go_runtime(tmp_path):
     serialized = json.dumps(payload, ensure_ascii=False)
 
     assert payload["ok"] is True
-    assert payload["version"] == "2.16.0"
+    assert payload["version"] == "2.17.0"
     assert payload["runtime"] == "go"
     assert payload["capabilities"]["cookiesExport"] is True
     assert payload["skills"]["codex"]["ok"] is True
@@ -1077,24 +1072,38 @@ def test_go_ixf_docs_read_remote_docx_matches_python_golden_for_mixed_blocks(tmp
     client_vars_data = remote_docx_parity_client_vars(image_token)
     errors: list[str] = []
 
-    def python_image_reference(_reference) -> ImageResolution:
-        assert not has_valid_image_magic("image/svg+xml", invalid_svg)
-        return ImageResolution(
-            markdown_path=None,
-            alt_text="Architecture diagram",
-            warning="image 1 download failed: content_error",
-        )
-
-    expected_conversion = convert_docx_client_vars(
-        client_vars_data,
-        "page_1",
-        ConversionOptions(
-            expand_sheet=lambda _token: sheet_expansion_lines(),
-            resolve_image=python_image_reference,
-        ),
+    expected_markdown = (
+        "# Parity Doc\n\n"
+        "## Plan\n\n"
+        "[Spec](https://example.test/spec) is ready\n\n"
+        "- [ ] Ship parity\n\n"
+        "> Quote line\n\n"
+        "[callout]\n\n"
+        "Callout body\n\n"
+        "| Metric | Value |\n"
+        "| --- | --- |\n"
+        "| Coverage | 100% |\n\n"
+        "[image]\n\n"
+        "[sheet token=shtr_fixture_sheet1]\n"
+        "[sheet-meta workbook_token=shtr_fixture sheet_id=sheet1 rows=2 cols=2]\n"
+        "```tsv\n"
+        "Name\tValue\n"
+        "Alpha\t42\n"
+        "```\n"
     )
-    expected_counts = dict(expected_conversion.counts)
-    expected_counts["sheet_expanded"] = 1
+    expected_counts = {
+        "page": 1,
+        "heading2": 1,
+        "text": 7,
+        "todo": 1,
+        "quote_container": 1,
+        "callout": 1,
+        "table": 1,
+        "table_cell": 4,
+        "image": 1,
+        "sheet": 1,
+        "sheet_expanded": 1,
+    }
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
@@ -1165,10 +1174,10 @@ def test_go_ixf_docs_read_remote_docx_matches_python_golden_for_mixed_blocks(tmp
     manifest = json.loads(result.stdout)
     item = manifest["docx_1"]
     markdown_path = Path(item["file"])
-    assert markdown_path.read_text(encoding="utf-8") == expected_conversion.markdown
+    assert markdown_path.read_text(encoding="utf-8") == expected_markdown
     assert item["counts"] == expected_counts
     assert item["assets"] == []
-    assert item["warnings"] == expected_conversion.warnings
+    assert item["warnings"] == ["image 1 download failed: content_error"]
     assert not (out_dir / "assets" / "docx_1" / "image-001.svg").exists()
     assert image_token not in json.dumps(manifest, ensure_ascii=False)
     assert errors == []
@@ -2259,8 +2268,8 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     release.write_text(
         json.dumps(
             {
-                "tag_name": "v2.17.0",
-                "html_url": "https://github.example/releases/v2.17.0",
+                "tag_name": "v2.18.0",
+                "html_url": "https://github.example/releases/v2.18.0",
             }
         ),
         encoding="utf-8",
@@ -2277,9 +2286,9 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
     payload = json.loads(result.stdout)
 
     assert payload["ok"] is True
-    assert payload["currentVersion"] == "2.16.0"
-    assert payload["latestVersion"] == "2.17.0"
-    assert payload["latestTag"] == "v2.17.0"
+    assert payload["currentVersion"] == "2.17.0"
+    assert payload["latestVersion"] == "2.18.0"
+    assert payload["latestTag"] == "v2.18.0"
     assert payload["updateAvailable"] is True
     assert payload["applied"] is False
     assert payload["commands"] == []
@@ -2288,7 +2297,7 @@ def test_go_ixf_update_self_json_defaults_to_dry_run_with_fixture(tmp_path):
 
 def test_go_ixf_update_self_apply_replaces_target_with_verified_asset(tmp_path):
     binary = build_go_ixf(tmp_path)
-    version = "2.17.0"
+    version = "2.18.0"
     goos = subprocess.run(
         ["go", "env", "GOOS"],
         cwd=ROOT,

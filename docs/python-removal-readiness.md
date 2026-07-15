@@ -21,7 +21,7 @@ Keep Python in this release.
 | Go owns every documented CLI command family | Pass | `docs/go-python-parity.md` marks each documented command family as Go-owned. |
 | Installed skills call Go `ixf` | Pass | `ixf setup skills` installs wrappers around the local `ixf` command. |
 | Release artifacts include supported Go binaries | Pass | The release workflow builds macOS, Windows, and Linux Go binaries plus checksums. |
-| Tests no longer require Python runtime implementations | Blocked | Tests still import Python modules for package, fixture, and reference-contract coverage. |
+| Tests no longer require Python runtime implementations | Pass | `scripts/audit_python_runtime_imports.py` reports a 0-file runtime import baseline. |
 | Rollback no longer needs in-repo Python implementation | Partial | GitHub Releases no longer publish Python wheel or sdist artifacts, but Python source still exists for reference and tests. |
 | New-install docs avoid Python as the default | Pass | README files direct new users to the Go binary first. |
 | Remaining Python package API users have a migration decision | Blocked | `docs/python-api-sunset.md` documents the Python package API as temporary migration surface pending deletion. |
@@ -29,11 +29,10 @@ Keep Python in this release.
 
 ## Current Blockers
 
-- The test harness still imports `ixf_toolbox` modules for packaging, fixtures,
-  and reference-contract coverage; `tests/python_runtime_imports_allowlist.txt`
-  is down to 1 file after moving local CLI/update/setup/doctor/cookie/local-docs/Markdown,
-  document image asset, document converter, remote document reader, and OKR
-  contracts to Go tests.
+- The test harness no longer imports `ixf_toolbox` runtime modules after moving
+  local CLI/update/setup/doctor/cookie/local-docs/Markdown, document image asset,
+  document converter, remote document reader, OKR contracts, and Go POC golden
+  references to Go-owned or static fixtures.
 - Python package API deletion is not complete; direct import users must move to
   the Go CLI before the removal release.
 - CI still validates the temporary Python source tree for reference coverage.
@@ -56,6 +55,6 @@ A later approved removal would need to review these areas:
 
 Do not delete Python code in this release.
 
-The next safe step is to shrink `tests/python_runtime_imports_allowlist.txt` by
-removing residual `tests/test_go_poc.py` Python reference imports, while keeping
-the Python source tree until test and API blockers are cleared.
+The next safe step is the destructive removal review: delete Python package
+source, package metadata, and CI steps only after replacing remaining packaging
+contracts with Go-only checks.

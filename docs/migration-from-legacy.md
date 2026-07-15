@@ -8,7 +8,7 @@ New installs should use the Toolbox Go binary:
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.0.0/ixf_2.0.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.1.0/ixf_2.1.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes auto --json
 ixf --version

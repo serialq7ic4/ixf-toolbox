@@ -45,27 +45,27 @@
 
 如果你正在使用 Codex，可以直接对 Codex 说：
 
-> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_2.0.0_darwin_arm64`，macOS Intel 用 `ixf_2.0.0_darwin_amd64`，Windows 用 `ixf_2.0.0_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
+> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_2.1.0_darwin_arm64`，macOS Intel 用 `ixf_2.1.0_darwin_amd64`，Windows 用 `ixf_2.1.0_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.0.0/ixf_2.0.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.1.0/ixf_2.1.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-macOS Intel 将文件名换成 `ixf_2.0.0_darwin_amd64`。
+macOS Intel 将文件名换成 `ixf_2.1.0_darwin_amd64`。
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.0.0/ixf_2.0.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.1.0/ixf_2.1.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -81,7 +81,7 @@ ixf doctor --json
 Python wheel 保留为 legacy/reference，用于回退、对照测试或需要 Python 包 API 的场景；新安装优先使用 Go 二进制。
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.0.0/ixf_toolbox-2.0.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.1.0/ixf_toolbox-2.1.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ```
 
@@ -259,7 +259,7 @@ ixf okr write \
   --apply
 ```
 
-`--objective-index` 用于只修改指定 Objective，并验证其他 Objective 未被改变。`--prune` 会删除输入中没有保留的内容，仅在明确需要时使用。
+`--objective-index` 用于只修改指定 Objective；当目标序号等于当前 Objective 数量 + 1 时会创建新的 Objective，并验证其他 Objective 未被改变。`--prune` 会删除输入中没有保留的内容，仅在明确需要时使用。
 
 ## 支持的能力
 
@@ -270,7 +270,7 @@ ixf okr write \
 - 直接 mindnote 链接读取，以及通过受支持文档 payload 暴露出来的 mindnote 标记和嵌入 sheet TSV 展开。
 - 简单表格、任务列表、代码块语言、富文本链接、图片块下载、嵌入 sheet 展开和安全资源清理。
 - 本地 Markdown 分块、读取、发布和测试。
-- 授权 OKR 页面读取、指定 Objective 写入、KR 创建/修改和发布。
+- 授权 OKR 页面读取、指定 Objective 更新/创建、KR 创建/修改和发布。
 - 本机 macOS / Windows 桌面端 cookie 导出、诊断和 skill 安装。
 
 部分云文档 block 格式无法和 Markdown 一一对应。当前转换器优先保证 agent 分析可用，而不是完全还原原始文档视觉效果。

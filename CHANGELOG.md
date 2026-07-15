@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.1.0 - 2026-07-15
+
+- Added Go OKR `write --apply --objective-index` support for creating the next Objective when the target index is exactly one past the current Objective count.
+- Added Go OKR draft-version retry handling for stale draft responses during Objective/KR writes.
+- Added a staged Go full-replacement plan that keeps Python until explicit deletion gates are met.
+
 ## 2.0.0 - 2026-07-15
 
 - Made the GitHub Release Go binary the default install path and default local runtime for new installs.

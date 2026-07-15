@@ -3,6 +3,7 @@ package okr
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,8 @@ import (
 )
 
 const DefaultCSRFURL = "https://www.xfchat.iflytek.com/lgw/csrf_token"
+
+var errStaleDraftVersion = errors.New("stale OKR draft version")
 
 type ReadConfig struct {
 	Source      string
@@ -137,34 +140,59 @@ func WriteObjectiveIndex(config WriteConfig, okrID string, specs []ObjectiveSpec
 		return nil, err
 	}
 	objectives := asSlice(firstValue(detail, "objective_list", "objectiveList"))
-	if config.ObjectiveIndex > len(objectives) {
-		return nil, fmt.Errorf("O%d was not found", config.ObjectiveIndex)
+	createTarget := config.ObjectiveIndex == len(objectives)+1
+	if config.ObjectiveIndex > len(objectives)+1 {
+		return nil, fmt.Errorf("--objective-index %d cannot skip positions; current objective count is %d", config.ObjectiveIndex, len(objectives))
 	}
-	target := asMap(objectives[config.ObjectiveIndex-1])
-	objectiveID := asString(target["id"])
-	if objectiveID == "" {
-		return nil, fmt.Errorf("target Objective did not include an identifier")
-	}
+	objectiveID := ""
 	oldKRIDs := []string{}
-	for _, rawKR := range asSlice(firstValue(target, "kr_list", "krList")) {
-		if id := asString(asMap(rawKR)["id"]); id != "" {
-			oldKRIDs = append(oldKRIDs, id)
+	if !createTarget {
+		target := asMap(objectives[config.ObjectiveIndex-1])
+		objectiveID = asString(target["id"])
+		if objectiveID == "" {
+			return nil, fmt.Errorf("target Objective did not include an identifier")
+		}
+		for _, rawKR := range asSlice(firstValue(target, "kr_list", "krList")) {
+			if id := asString(asMap(rawKR)["id"]); id != "" {
+				oldKRIDs = append(oldKRIDs, id)
+			}
 		}
 	}
-	version, err := currentDraftVersion(client, origin, config.URL, okrID, lgwToken, cookies)
-	if err != nil {
-		return nil, err
-	}
 	connID := fmt.Sprintf("%d", time.Now().UnixNano())
+	versionCache := &draftVersionCache{}
 	spec := specs[0]
-	if _, err := okrAPI(client, "POST", origin, config.URL, "/okrx/api/draft_v2/enable/"+objectiveID+"/", lgwToken, cookies, draftBody(version, connID)); err != nil {
-		return nil, err
+	if createTarget {
+		createPayload, err := okrAPIWithVersion(client, "POST", origin, config.URL, okrID, "/okrx/api/draft_v2/objective/", lgwToken, cookies, versionCache, connID, func(version string, conn string) map[string]any {
+			return map[string]any{
+				"draft_version": version,
+				"conn_uuid":     conn,
+				"token":         conn,
+				"name":          deltaDocJSON(""),
+				"changesets":    "[]",
+				"okr_id":        okrID,
+			}
+		})
+		if err != nil {
+			return nil, err
+		}
+		objectiveID = firstString(asMap(createPayload["data"]), "objective_id", "objectiveId")
+		if objectiveID == "" {
+			return nil, fmt.Errorf("Objective creation did not return an identifier")
+		}
+	} else {
+		if _, err := okrAPIWithVersion(client, "POST", origin, config.URL, okrID, "/okrx/api/draft_v2/enable/"+objectiveID+"/", lgwToken, cookies, versionCache, connID, func(version string, conn string) map[string]any {
+			return draftBody(version, conn)
+		}); err != nil {
+			return nil, err
+		}
 	}
-	if _, err := okrAPI(client, "PUT", origin, config.URL, "/okrx/api/draft_v2/objective/"+objectiveID+"/", lgwToken, cookies, map[string]any{
-		"draft_version": version,
-		"conn_uuid":     connID,
-		"name":          deltaDocJSON(spec.Objective),
-		"changesets":    "[]",
+	if _, err := okrAPIWithVersion(client, "PUT", origin, config.URL, okrID, "/okrx/api/draft_v2/objective/"+objectiveID+"/", lgwToken, cookies, versionCache, connID, func(version string, conn string) map[string]any {
+		return map[string]any{
+			"draft_version": version,
+			"conn_uuid":     conn,
+			"name":          deltaDocJSON(spec.Objective),
+			"changesets":    "[]",
+		}
 	}); err != nil {
 		return nil, err
 	}
@@ -174,12 +202,14 @@ func WriteObjectiveIndex(config WriteConfig, okrID string, specs []ObjectiveSpec
 		}
 	}
 	for _, text := range spec.KRs {
-		createPayload, err := okrAPI(client, "POST", origin, config.URL, "/okrx/api/draft_v2/kr/", lgwToken, cookies, map[string]any{
-			"draft_version": version,
-			"conn_uuid":     connID,
-			"objective_id":  objectiveID,
-			"content":       deltaDocJSON(""),
-			"changesets":    "[]",
+		createPayload, err := okrAPIWithVersion(client, "POST", origin, config.URL, okrID, "/okrx/api/draft_v2/kr/", lgwToken, cookies, versionCache, connID, func(version string, conn string) map[string]any {
+			return map[string]any{
+				"draft_version": version,
+				"conn_uuid":     conn,
+				"objective_id":  objectiveID,
+				"content":       deltaDocJSON(""),
+				"changesets":    "[]",
+			}
 		})
 		if err != nil {
 			return nil, err
@@ -188,20 +218,24 @@ func WriteObjectiveIndex(config WriteConfig, okrID string, specs []ObjectiveSpec
 		if krID == "" {
 			return nil, fmt.Errorf("KR creation did not return an identifier")
 		}
-		if _, err := okrAPI(client, "PUT", origin, config.URL, "/okrx/api/draft_v2/kr/"+krID+"/", lgwToken, cookies, map[string]any{
-			"draft_version": version,
-			"conn_uuid":     connID,
-			"content":       deltaDocJSON(text),
-			"changesets":    "[]",
+		if _, err := okrAPIWithVersion(client, "PUT", origin, config.URL, okrID, "/okrx/api/draft_v2/kr/"+krID+"/", lgwToken, cookies, versionCache, connID, func(version string, conn string) map[string]any {
+			return map[string]any{
+				"draft_version": version,
+				"conn_uuid":     conn,
+				"content":       deltaDocJSON(text),
+				"changesets":    "[]",
+			}
 		}); err != nil {
 			return nil, err
 		}
 	}
-	if _, err := okrAPI(client, "POST", origin, config.URL, "/okrx/api/draft_v2/publish/"+objectiveID+"/", lgwToken, cookies, map[string]any{
-		"draft_version":      version,
-		"conn_uuid":          connID,
-		"need_delete_kr_ids": oldKRIDs,
-		"auto_notify":        false,
+	if _, err := okrAPIWithVersion(client, "POST", origin, config.URL, okrID, "/okrx/api/draft_v2/publish/"+objectiveID+"/", lgwToken, cookies, versionCache, connID, func(version string, conn string) map[string]any {
+		return map[string]any{
+			"draft_version":      version,
+			"conn_uuid":          conn,
+			"need_delete_kr_ids": oldKRIDs,
+			"auto_notify":        false,
+		}
 	}); err != nil {
 		return nil, err
 	}
@@ -344,6 +378,81 @@ func currentDraftVersion(client *http.Client, origin string, source string, okrI
 	return version, nil
 }
 
+type draftVersionCache struct {
+	value string
+}
+
+func (cache *draftVersionCache) get(client *http.Client, origin string, source string, okrID string, lgwToken string, cookies []http.Cookie) (string, error) {
+	if cache.value != "" {
+		return cache.value, nil
+	}
+	version, err := currentDraftVersion(client, origin, source, okrID, lgwToken, cookies)
+	if err != nil {
+		return "", err
+	}
+	cache.value = version
+	return version, nil
+}
+
+func (cache *draftVersionCache) setFromPayload(payload map[string]any) {
+	if version := draftVersionFromPayload(payload); version != "" {
+		cache.value = version
+	}
+}
+
+func (cache *draftVersionCache) clear() {
+	cache.value = ""
+}
+
+func draftVersionFromPayload(payload map[string]any) string {
+	data := asMap(payload["data"])
+	if version := firstString(data, "draft_version", "draftVersion", "okr_draft_version", "okrDraftVersion", "version"); version != "" {
+		return version
+	}
+	return firstString(payload, "draft_version", "draftVersion", "okr_draft_version", "okrDraftVersion", "version")
+}
+
+func okrAPIWithVersion(
+	client *http.Client,
+	method string,
+	origin string,
+	source string,
+	okrID string,
+	path string,
+	lgwToken string,
+	cookies []http.Cookie,
+	cache *draftVersionCache,
+	connID string,
+	makeBody func(version string, connID string) map[string]any,
+) (map[string]any, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		version, err := cache.get(client, origin, source, okrID, lgwToken, cookies)
+		if err != nil {
+			return nil, err
+		}
+		payload, err := okrAPI(client, method, origin, source, path, lgwToken, cookies, makeBody(version, connID))
+		if errors.Is(err, errStaleDraftVersion) {
+			cache.clear()
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		cache.setFromPayload(payload)
+		return payload, nil
+	}
+	version, err := cache.get(client, origin, source, okrID, lgwToken, cookies)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := okrAPI(client, method, origin, source, path, lgwToken, cookies, makeBody(version, connID))
+	if err != nil {
+		return nil, err
+	}
+	cache.setFromPayload(payload)
+	return payload, nil
+}
+
 func okrAPI(client *http.Client, method string, origin string, source string, path string, lgwToken string, cookies []http.Cookie, body map[string]any) (map[string]any, error) {
 	var reader io.Reader
 	if body != nil {
@@ -366,6 +475,9 @@ func okrAPI(client *http.Client, method string, origin string, source string, pa
 		return nil, err
 	}
 	if code, ok := payload["code"]; ok && asInt(code) != 0 {
+		if asInt(code) == 100001 {
+			return nil, errStaleDraftVersion
+		}
 		return nil, fmt.Errorf("%s %s failed with code %d", method, path, asInt(code))
 	}
 	if success, ok := payload["success"].(bool); ok && !success {

@@ -31,7 +31,7 @@ Keep Python in this release.
 
 - The test harness still imports `ixf_toolbox` modules for packaging, fixtures,
   and reference-contract coverage; `tests/python_runtime_imports_allowlist.txt`
-  is down to 10 files after moving local CLI/update/setup/doctor contracts to Go tests.
+  is down to 8 files after moving local CLI/update/setup/doctor/cookie contracts to Go tests.
 - Python package API deletion is not complete; direct import users must move to
   the Go CLI before the removal release.
 - CI still validates the temporary Python source tree for reference coverage.

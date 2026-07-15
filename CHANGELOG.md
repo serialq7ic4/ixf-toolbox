@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.10.0 - 2026-07-15
+
+- Added Go cookie core tests for private cookie JSON writes, macOS cookie DB discovery, macOS plain-row export, and keychain command argument safety.
+- Added a testable keychain command seam while keeping production cookie export behavior unchanged.
+- Removed cookie core and CLI delegation Python runtime tests after equivalent Go coverage was in place.
+- Reduced `tests/python_runtime_imports_allowlist.txt` from 10 files to 8 files.
+
 ## 2.9.0 - 2026-07-15
 
 - Added Go setup and doctor contract tests covering runtime normalization, skill installation, secret-safe diagnostics, and doctor text/JSON output.

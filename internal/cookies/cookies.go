@@ -41,6 +41,10 @@ type ExportConfig struct {
 	LocalState      string
 }
 
+var commandOutput = func(name string, args ...string) ([]byte, error) {
+	return exec.Command(name, args...).Output()
+}
+
 type cookieRow struct {
 	Host           string
 	Name           string
@@ -371,7 +375,7 @@ func macOSKeyFromKeychain(service string, account string) ([]byte, error) {
 	if strings.TrimSpace(account) != "" {
 		args = append(args, "-a", account)
 	}
-	raw, err := exec.Command("security", args...).Output()
+	raw, err := commandOutput("security", args...)
 	if err != nil {
 		return nil, fmt.Errorf("could not read macOS Keychain password for service %q", service)
 	}

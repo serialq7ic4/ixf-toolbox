@@ -44,7 +44,7 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         [
             sys.executable,
             "scripts/extract_changelog.py",
-            "2.9.0",
+            "2.10.0",
             "CHANGELOG.md",
         ],
         cwd=ROOT,
@@ -53,15 +53,15 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         check=True,
     )
 
-    assert "setup and doctor Python runtime tests" in result.stdout
-    assert "10 files" in result.stdout
+    assert "cookie core and CLI delegation Python runtime tests" in result.stdout
+    assert "8 files" in result.stdout
     assert "## 2.0.0" not in result.stdout
 
 
 def test_runtime_neutral_version_file_matches_public_versions():
     version = read("VERSION").strip()
 
-    assert version == "2.9.0"
+    assert version == "2.10.0"
     assert f'version = "{version}"' in read("pyproject.toml")
     assert f'__version__ = "{version}"' in read("src/ixf_toolbox/__init__.py")
     assert f'var version = "{version}"' in read("cmd/ixf/main.go")
@@ -155,13 +155,13 @@ def test_v2_docs_make_go_binary_the_default_install_path():
     assert "Go 二进制" in zh
     assert "默认安装方式" in zh
     assert "GitHub Release 只发布 Go 二进制和 checksum" in zh
-    assert "ixf_2.9.0_darwin_arm64" in zh
+    assert "ixf_2.10.0_darwin_arm64" in zh
     assert "v1.x 仍以 Python 版作为默认安装方式" not in zh
 
     assert "Go binary" in en
     assert "default install path" in en
     assert "GitHub Releases publish only Go binaries and checksums" in en
-    assert "ixf_2.9.0_darwin_arm64" in en
+    assert "ixf_2.10.0_darwin_arm64" in en
     assert "The v1.x line still uses the Python package" not in en
 
     assert "Go binary" in platforms
@@ -259,7 +259,9 @@ def test_python_runtime_import_allowlist_shrinks_cli_and_update_contracts():
 
     for removed in [
         "tests/test_cli_contract.py",
+        "tests/test_cli_delegate.py",
         "tests/test_cli_help.py",
+        "tests/test_core_cookies.py",
         "tests/test_doctor.py",
         "tests/test_doctor_cli.py",
         "tests/test_setup.py",

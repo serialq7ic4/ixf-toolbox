@@ -1,7 +1,5 @@
 # Tests still importing the temporary Python runtime/reference package.
 # Remove entries only after equivalent Go coverage exists.
-tests/test_cli_delegate.py
-tests/test_core_cookies.py
 tests/test_core_cookies_windows.py
 tests/test_core_docs.py
 tests/test_core_docs_assets.py

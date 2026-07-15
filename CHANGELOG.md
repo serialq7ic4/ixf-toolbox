@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.5.1 - 2026-07-15
+
+- Added a runtime-neutral `VERSION` file so future Go-only release stages do not depend on Python package metadata as the only version source.
+- Added a Python API sunset policy documenting the Python package API as legacy/reference with no new Python runtime features.
+- Updated install documentation to point at the v2.5.1 release artifacts while keeping Python deletion blocked by technical gates only.
+- Corrected the Go `update self --apply` release fixture to test an upgrade from the current version to the next version.
+
 ## 2.5.0 - 2026-07-15
 
 - Added a runtime-neutral `VERSION` file so future Go-only release stages do not depend on Python package metadata as the only version source.

@@ -43,7 +43,7 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         [
             sys.executable,
             "scripts/extract_changelog.py",
-            "2.5.0",
+            "2.5.1",
             "CHANGELOG.md",
         ],
         cwd=ROOT,
@@ -60,7 +60,7 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
 def test_runtime_neutral_version_file_matches_public_versions():
     version = read("VERSION").strip()
 
-    assert version == "2.5.0"
+    assert version == "2.5.1"
     assert f'version = "{version}"' in read("pyproject.toml")
     assert f'__version__ = "{version}"' in read("src/ixf_toolbox/__init__.py")
     assert f'var version = "{version}"' in read("cmd/ixf/main.go")
@@ -153,13 +153,13 @@ def test_v2_docs_make_go_binary_the_default_install_path():
     assert "Go 二进制" in zh
     assert "默认安装方式" in zh
     assert "Python wheel 保留为 legacy/reference" in zh
-    assert "ixf_2.5.0_darwin_arm64" in zh
+    assert "ixf_2.5.1_darwin_arm64" in zh
     assert "v1.x 仍以 Python 版作为默认安装方式" not in zh
 
     assert "Go binary" in en
     assert "default install path" in en
     assert "Python wheel remains legacy/reference" in en
-    assert "ixf_2.5.0_darwin_arm64" in en
+    assert "ixf_2.5.1_darwin_arm64" in en
     assert "The v1.x line still uses the Python package" not in en
 
     assert "Go binary" in platforms

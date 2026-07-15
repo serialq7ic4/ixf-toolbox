@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.8.0 - 2026-07-15
+
+- Added Go tests for CLI version/help contracts and update version/release checks.
+- Removed local CLI/update Python runtime tests from the deletion allowlist after equivalent Go coverage was in place.
+- Reduced `tests/python_runtime_imports_allowlist.txt` from 17 files to 13 files.
+
 ## 2.7.0 - 2026-07-15
 
 - Added a Python runtime import audit script to keep the remaining Python test dependency list explicit.

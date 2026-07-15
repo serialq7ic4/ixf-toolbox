@@ -60,7 +60,7 @@ Python code can only be considered for deletion after all gates are true:
 - Python package API compatibility is still documented as legacy/reference.
 - The test harness still imports Python modules for packaging, fixture, and
   reference-contract coverage; `tests/python_runtime_imports_allowlist.txt`
-  tracks the current baseline.
+  tracks the current 13-file baseline.
 - The destructive removal stage has not been reached because technical deletion
   gates remain blocked.
 

@@ -26,6 +26,7 @@ def build_go_ixf(tmp_path: Path) -> Path:
         cwd=ROOT,
         env=GO_ENV,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         check=True,
     )
@@ -46,6 +47,7 @@ def run_go_ixf(
         cwd=ROOT,
         env=env,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         check=check,
     )

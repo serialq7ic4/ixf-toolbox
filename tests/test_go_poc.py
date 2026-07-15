@@ -35,6 +35,21 @@ def test_go_ixf_version_matches_python_release(tmp_path):
     assert result.stderr == ""
 
 
+def test_go_ixf_helper_decodes_cli_output_as_utf8(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, stdout="提升平台稳定性\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = run_go_ixf(tmp_path / "ixf-go", "okr", "read")
+
+    assert result.stdout == "提升平台稳定性\n"
+    assert calls[0]["encoding"] == "utf-8"
+
+
 def test_go_ixf_root_help_writes_stdout_and_exits_zero(tmp_path):
     binary = build_go_ixf(tmp_path)
     result = run_go_ixf(binary, "--help")

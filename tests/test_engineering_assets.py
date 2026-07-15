@@ -43,7 +43,7 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         [
             sys.executable,
             "scripts/extract_changelog.py",
-            "2.2.0",
+            "2.3.0",
             "CHANGELOG.md",
         ],
         cwd=ROOT,
@@ -52,8 +52,8 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         check=True,
     )
 
-    assert "full-spec OKR writes" in result.stdout
-    assert "explicit prune support" in result.stdout
+    assert "Go/Python parity matrix" in result.stdout
+    assert "Python deletion gates" in result.stdout
     assert "## 2.0.0" not in result.stdout
 
 
@@ -129,13 +129,13 @@ def test_v2_docs_make_go_binary_the_default_install_path():
     assert "Go 二进制" in zh
     assert "默认安装方式" in zh
     assert "Python wheel 保留为 legacy/reference" in zh
-    assert "ixf_2.2.0_darwin_arm64" in zh
+    assert "ixf_2.3.0_darwin_arm64" in zh
     assert "v1.x 仍以 Python 版作为默认安装方式" not in zh
 
     assert "Go binary" in en
     assert "default install path" in en
     assert "Python wheel remains legacy/reference" in en
-    assert "ixf_2.2.0_darwin_arm64" in en
+    assert "ixf_2.3.0_darwin_arm64" in en
     assert "The v1.x line still uses the Python package" not in en
 
     assert "Go binary" in platforms
@@ -143,6 +143,30 @@ def test_v2_docs_make_go_binary_the_default_install_path():
     assert "%TEMP%" not in platforms
     assert "$env:TEMP\\ixf_cookies.json" in platforms
     assert "Go binary" in migration
+
+
+def test_go_python_parity_matrix_documents_runtime_ownership_and_deletion_gates():
+    text = read("docs/go-python-parity.md")
+
+    for expected in [
+        "## Go-owned Runtime",
+        "## Python Legacy/Reference",
+        "## Deletion Gates",
+        "## Known Blockers",
+        "`docs read`",
+        "`docs publish`",
+        "`okr read`",
+        "`okr write`",
+        "`cookies export`",
+        "`doctor`",
+        "`setup skills`",
+        "`update check`",
+        "`update self`",
+        "`update skills`",
+        "Python package API",
+        "explicit user approval",
+    ]:
+        assert expected in text
 
 
 def test_legacy_migration_doc_maps_old_commands_to_toolbox_commands():

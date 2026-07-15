@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.3.0 - 2026-07-15
+
+- Added a Go/Python parity matrix documenting Go-owned CLI runtime behavior and Python legacy/reference scope.
+- Documented Python deletion gates and known blockers before any Python removal can be considered.
+- Updated install documentation to point at the v2.3.0 release artifacts.
+
 ## 2.2.0 - 2026-07-15
 
 - Added Go OKR full-spec OKR writes with `write --apply` support without `--objective-index`, matching Objectives by text.

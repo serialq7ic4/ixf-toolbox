@@ -45,27 +45,27 @@ The recommended path is to let the agent you are already using install Toolbox. 
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_2.2.0_darwin_arm64`, macOS Intel: `ixf_2.2.0_darwin_amd64`, Windows: `ixf_2.2.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_2.3.0_darwin_arm64`, macOS Intel: `ixf_2.3.0_darwin_amd64`, Windows: `ixf_2.3.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.2.0/ixf_2.2.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.3.0/ixf_2.3.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_2.2.0_darwin_amd64` instead.
+For macOS Intel, use `ixf_2.3.0_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.2.0/ixf_2.2.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.3.0/ixf_2.3.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -81,7 +81,7 @@ Use `--runtimes auto` instead of `--runtimes codex` to register both Codex and C
 Python wheel remains legacy/reference for rollback, parity checks, or callers that need the Python package API. Prefer the Go binary for new installs.
 
 ```bash
-python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.2.0/ixf_toolbox-2.2.0-py3-none-any.whl"
+python -m pip install "ixf-toolbox[crypto] @ https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.3.0/ixf_toolbox-2.3.0-py3-none-any.whl"
 ixf setup skills --runtimes auto --json
 ```
 
@@ -124,7 +124,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Runtime Status
 
-Starting with v2.0, the Go binary is the default install path and default local runtime. It covers document reads and publishing, OKR reads, selected Objective writes, cookie export, doctor, skill setup, and update flows. Python wheel remains legacy/reference for rollback, parity checks, and Python package API callers; remaining remote parity for wiki edge variants and broader OKR mutation flows still follow the Python reference behavior.
+Starting with v2.3, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Python wheel remains legacy/reference for rollback, parity checks, and Python package API callers; Python deletion must satisfy the gates in [`docs/go-python-parity.md`](docs/go-python-parity.md) first.
 
 ## Manual Read Flow
 
@@ -189,7 +189,7 @@ Toolbox currently supports:
 - Direct mindnote link reads, plus mindnote markers and embedded sheet TSV expansion exposed by supported document payloads.
 - Simple tables, task lists, code languages, rich-text links, image block download, embedded sheet expansion, and safe artifact cleanup.
 - Local Markdown chunking, reading, publishing, and test workflows.
-- Authorized OKR reading, selected Objective update/create, KR create/update, and publish-after-edit.
+- Authorized OKR reading, selected Objective update/create, multi-Objective writes by Objective text, KR create/update/order, explicit prune, and publish-after-edit.
 - macOS and experimental Windows desktop-session cookie export, diagnostics, and skill installation.
 
 Some cloud document blocks do not map perfectly to Markdown. The converter prioritizes agent analysis usefulness over visual fidelity.

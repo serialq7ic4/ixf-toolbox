@@ -157,11 +157,11 @@ Expected: OKR read, targeted write, full-spec write, and prune tests pass.
 - Consumes: current Go command surface and Python package API surface.
 - Produces: explicit checklist of Go-owned behaviors, Python-only behaviors, intentional legacy/reference behaviors, and deletion blockers.
 
-- [ ] **Step 1: Write documentation contract test**
+- [x] **Step 1: Write documentation contract test**
 
 Add a test that requires `docs/go-python-parity.md` to contain sections `Go-owned Runtime`, `Python Legacy/Reference`, `Deletion Gates`, and `Known Blockers`.
 
-- [ ] **Step 2: Observe red**
+- [x] **Step 2: Observe red**
 
 Run:
 
@@ -171,11 +171,11 @@ python -m pytest tests/test_engineering_assets.py -q
 
 Expected: FAIL because the parity document does not exist yet.
 
-- [ ] **Step 3: Write the parity matrix**
+- [x] **Step 3: Write the parity matrix**
 
 Document every command family: `docs read`, `docs publish`, `okr read`, `okr write`, `cookies export`, `doctor`, `setup skills`, `update check`, `update self`, and `update skills`. Mark Python-only package API as legacy unless a current consumer requires it.
 
-- [ ] **Step 4: Verify docs contract**
+- [x] **Step 4: Verify docs contract**
 
 Run:
 

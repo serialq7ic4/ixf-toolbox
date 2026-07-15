@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.14.0 - 2026-07-16
+
+- Added Go docx converter tests for resolver panic redaction, nested resolver token leaks, ordered lists, and nested bullet/callout rendering.
+- Hardened image resolver token scanning for typed nested string maps and string slices.
+- Removed the document converter Python runtime test after equivalent Go coverage was in place.
+- Reduced `tests/python_runtime_imports_allowlist.txt` from 4 files to 3 files.
+
 ## 2.13.0 - 2026-07-16
 
 - Added Go image asset writer tests for safe downloads, deduplication, caption preservation, sanitized failure warnings, fallback image magic validation, and stale generated-file cleanup.

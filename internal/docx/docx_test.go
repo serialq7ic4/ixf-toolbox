@@ -315,6 +315,141 @@ func TestConvertClientVarsRejectsUnsafeImageResolverOutput(t *testing.T) {
 	}
 }
 
+func TestConvertClientVarsRejectsNestedResolverOutputContainingImageToken(t *testing.T) {
+	token := "raw-image-token"
+	clientVars := map[string]any{
+		"block_map": map[string]any{
+			"page_1": blockData(map[string]any{"type": "page", "children": []any{"image_1"}}),
+			"image_1": blockData(map[string]any{
+				"type":      "image",
+				"parent_id": "page_1",
+				"image":     map[string]any{"token": token},
+			}),
+		},
+	}
+
+	result := ConvertClientVarsWithOptions(clientVars, "page_1", Options{
+		ResolveImage: func(_ ImageReference) ImageResolution {
+			return ImageResolution{
+				MarkdownPath: "assets/docx_1/image-001.png",
+				AltText:      "Architecture diagram",
+				Asset: map[string]any{
+					"path":   "assets/docx_1/image-001.png",
+					"source": map[string]string{"resourceToken": token},
+				},
+			}
+		},
+	})
+
+	if result.Markdown != "[image]\n" {
+		t.Fatalf("markdown = %q", result.Markdown)
+	}
+	if len(result.Assets) != 0 {
+		t.Fatalf("assets = %#v, want empty", result.Assets)
+	}
+	assertStringSlice(t, result.Warnings, []string{"image resolution rejected unsafe output"})
+}
+
+func TestConvertClientVarsPreservesImageMarkerWhenResolverPanics(t *testing.T) {
+	token := "raw-image-token"
+	clientVars := map[string]any{
+		"block_map": map[string]any{
+			"page_1": blockData(map[string]any{"type": "page", "children": []any{"image_1"}}),
+			"image_1": blockData(map[string]any{
+				"type":      "image",
+				"parent_id": "page_1",
+				"image":     map[string]any{"token": token},
+			}),
+		},
+	}
+
+	result := ConvertClientVarsWithOptions(clientVars, "page_1", Options{
+		ResolveImage: func(_ ImageReference) ImageResolution {
+			panic("download failed for " + token)
+		},
+	})
+
+	if result.Markdown != "[image]\n" {
+		t.Fatalf("markdown = %q", result.Markdown)
+	}
+	if len(result.Assets) != 0 {
+		t.Fatalf("assets = %#v, want empty", result.Assets)
+	}
+	assertStringSlice(t, result.Warnings, []string{"image resolution failed"})
+	if containsString(result.Warnings[0], token) {
+		t.Fatalf("image token leaked in panic warning: %#v", result.Warnings)
+	}
+}
+
+func TestConvertClientVarsNumbersOrderedSiblings(t *testing.T) {
+	clientVars := map[string]any{
+		"block_map": map[string]any{
+			"page_1": blockData(map[string]any{
+				"type":     "page",
+				"children": []any{"ordered_1", "ordered_2"},
+			}),
+			"ordered_1": blockData(map[string]any{
+				"type":      "ordered",
+				"parent_id": "page_1",
+				"text":      attributedText("First"),
+			}),
+			"ordered_2": blockData(map[string]any{
+				"type":      "ordered",
+				"parent_id": "page_1",
+				"text":      attributedText("Second"),
+			}),
+		},
+	}
+
+	result := ConvertClientVars(clientVars, "page_1")
+
+	if result.Markdown != "1. First\n\n2. Second\n" {
+		t.Fatalf("markdown = %q", result.Markdown)
+	}
+	assertCounts(t, result.Counts, map[string]int{"page": 1, "ordered": 2})
+	assertStringSlice(t, result.Warnings, nil)
+}
+
+func TestConvertClientVarsIndentsNestedBulletsAndCalloutBullets(t *testing.T) {
+	clientVars := map[string]any{
+		"block_map": map[string]any{
+			"page_1": blockData(map[string]any{
+				"type":     "page",
+				"children": []any{"bullet_1", "callout_1"},
+			}),
+			"bullet_1": blockData(map[string]any{
+				"type":      "bullet",
+				"parent_id": "page_1",
+				"children":  []any{"bullet_2"},
+				"text":      attributedText("Parent"),
+			}),
+			"bullet_2": blockData(map[string]any{
+				"type":      "bullet",
+				"parent_id": "bullet_1",
+				"text":      attributedText("Child"),
+			}),
+			"callout_1": blockData(map[string]any{
+				"type":      "callout",
+				"parent_id": "page_1",
+				"children":  []any{"bullet_3"},
+			}),
+			"bullet_3": blockData(map[string]any{
+				"type":      "bullet",
+				"parent_id": "callout_1",
+				"text":      attributedText("Callout child"),
+			}),
+		},
+	}
+
+	result := ConvertClientVars(clientVars, "page_1")
+
+	if result.Markdown != "- Parent\n\n  - Child\n\n[callout]\n\n  - Callout child\n" {
+		t.Fatalf("markdown = %q", result.Markdown)
+	}
+	assertCounts(t, result.Counts, map[string]int{"page": 1, "bullet": 3, "callout": 1})
+	assertStringSlice(t, result.Warnings, nil)
+}
+
 func TestConvertClientVarsPreservesUnknownBlocksAndIndentsChildren(t *testing.T) {
 	clientVars := map[string]any{
 		"block_map": map[string]any{

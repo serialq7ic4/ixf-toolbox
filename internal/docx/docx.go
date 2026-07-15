@@ -418,7 +418,19 @@ func valueContainsToken(value any, token string) bool {
 				return true
 			}
 		}
+	case map[string]string:
+		for key, item := range typed {
+			if valueContainsToken(key, token) || valueContainsToken(item, token) {
+				return true
+			}
+		}
 	case []any:
+		for _, item := range typed {
+			if valueContainsToken(item, token) {
+				return true
+			}
+		}
+	case []string:
 		for _, item := range typed {
 			if valueContainsToken(item, token) {
 				return true

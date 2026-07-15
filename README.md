@@ -45,27 +45,27 @@
 
 如果你正在使用 Codex，可以直接对 Codex 说：
 
-> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_2.8.0_darwin_arm64`，macOS Intel 用 `ixf_2.8.0_darwin_amd64`，Windows 用 `ixf_2.8.0_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
+> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_2.9.0_darwin_arm64`，macOS Intel 用 `ixf_2.9.0_darwin_amd64`，Windows 用 `ixf_2.9.0_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.8.0/ixf_2.8.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.9.0/ixf_2.9.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-macOS Intel 将文件名换成 `ixf_2.8.0_darwin_amd64`。
+macOS Intel 将文件名换成 `ixf_2.9.0_darwin_amd64`。
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.8.0/ixf_2.8.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.9.0/ixf_2.9.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -76,10 +76,9 @@ ixf doctor --json
 
 将上面的 `--runtimes codex` 换成 `--runtimes auto`，即可同时注册 Codex 和 Claude Code skill。
 
-### Python Legacy / Reference
+### Python 临时迁移面
 
-v2.6 起 GitHub Release 不再发布 Python wheel 或 sdist。Python 源码仅作为临时
-legacy/reference 留在仓库里，用于对照测试和迁移剩余覆盖；新安装只使用 Go 二进制。
+v2.6 起 GitHub Release 不再发布 Python wheel 或 sdist。Python 源码只作为临时迁移面留在仓库里，用于迁移剩余测试覆盖；最终目标是删除全部 Python 实现，只保留 Go 实现。新安装只使用 Go 二进制。
 
 ## 在 Agent 里使用
 
@@ -120,7 +119,7 @@ legacy/reference 留在仓库里，用于对照测试和迁移剩余覆盖；新
 
 ### Runtime 状态
 
-v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；Python 源码暂时保留为 legacy/reference，用于对照测试和迁移剩余覆盖。
+v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；Python 源码只作为临时迁移面保留，用于迁移剩余测试覆盖，最终会在删除阶段移除。
 
 ## 更新
 

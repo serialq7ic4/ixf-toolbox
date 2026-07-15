@@ -24,7 +24,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "2.8.0"
+var version = "2.9.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -1206,6 +1206,80 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 		fmt.Fprintln(w, "overall ok")
 	} else {
 		fmt.Fprintln(w, "overall fail")
+	}
+
+	capabilities := payload["capabilities"]
+	fmt.Fprintf(
+		w,
+		"native docsRead=%t docsPublish=%t okrRead=%t okrWrite=%t cookiesExport=%t\n",
+		boolFromMap(capabilities, "docsRead"),
+		boolFromMap(capabilities, "docsPublish"),
+		boolFromMap(capabilities, "okrRead"),
+		boolFromMap(capabilities, "okrWrite"),
+		boolFromMap(capabilities, "cookiesExport"),
+	)
+
+	if skills, ok := payload["skills"].(map[string]any); ok {
+		runtimes := make([]string, 0, len(skills))
+		for runtime := range skills {
+			runtimes = append(runtimes, runtime)
+		}
+		sort.Strings(runtimes)
+		for _, runtime := range runtimes {
+			status, _ := skills[runtime].(map[string]any)
+			fmt.Fprintf(w, "skill %s ok=%t", runtime, boolFromMap(status, "ok"))
+			if dir, _ := status["dir"].(string); dir != "" {
+				fmt.Fprintf(w, " dir=%s", dir)
+			}
+			fmt.Fprintln(w)
+		}
+	}
+
+	if cookies, ok := payload["cookies"].(map[string]any); ok {
+		fmt.Fprintf(
+			w,
+			"cookies %s count=%d csrf=%t lgw_csrf=%t\n",
+			okWord(boolFromMap(cookies, "ok")),
+			intFromMap(cookies, "cookieCount"),
+			boolFromMap(cookies, "hasCsrf"),
+			boolFromMap(cookies, "hasLgwCsrf"),
+		)
+	}
+}
+
+func okWord(ok bool) string {
+	if ok {
+		return "ok"
+	}
+	return "fail"
+}
+
+func boolFromMap(raw any, key string) bool {
+	switch value := raw.(type) {
+	case map[string]bool:
+		return value[key]
+	case map[string]any:
+		result, _ := value[key].(bool)
+		return result
+	default:
+		return false
+	}
+}
+
+func intFromMap(raw any, key string) int {
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return 0
+	}
+	switch value := values[key].(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	default:
+		return 0
 	}
 }
 

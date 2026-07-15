@@ -2,7 +2,7 @@
 
 `ixf-toolbox` uses tagged GitHub Releases with staged Go binary artifacts.
 Python wheel and source distribution artifacts stopped being published in
-v2.6.0 while the Python source tree remains as temporary test/reference code.
+v2.6.0 while the Python source tree remains only as temporary migration code.
 
 ## Changelog
 

@@ -45,27 +45,27 @@ The recommended path is to let the agent you are already using install Toolbox. 
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_2.8.0_darwin_arm64`, macOS Intel: `ixf_2.8.0_darwin_amd64`, Windows: `ixf_2.8.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_2.9.0_darwin_arm64`, macOS Intel: `ixf_2.9.0_darwin_amd64`, Windows: `ixf_2.9.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.8.0/ixf_2.8.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.9.0/ixf_2.9.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_2.8.0_darwin_amd64` instead.
+For macOS Intel, use `ixf_2.9.0_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.8.0/ixf_2.8.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v2.9.0/ixf_2.9.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -76,11 +76,12 @@ ixf doctor --json
 
 Use `--runtimes auto` instead of `--runtimes codex` to register both Codex and Claude Code skills.
 
-### Python Legacy / Reference
+### Temporary Python Migration Surface
 
 Starting with v2.6, GitHub Releases no longer publish Python wheel or sdist
-artifacts. Python source remains temporarily as legacy/reference for parity
-tests and migration coverage; new installs should use only the Go binary.
+artifacts. Python source remains only as a temporary migration surface while
+the remaining test coverage is ported; the end state is deleting all Python
+implementation and keeping only Go. New installs should use only the Go binary.
 
 ## Agent Usage
 
@@ -119,7 +120,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Runtime Status
 
-Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums; Python source temporarily remains legacy/reference for parity tests and migration coverage.
+Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums; Python source remains only as a temporary migration surface for porting the remaining test coverage and will be removed in the deletion stage.
 
 ## Manual Read Flow
 

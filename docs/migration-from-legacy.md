@@ -15,7 +15,7 @@ ixf --version
 ixf doctor --json
 ```
 
-Use the matching Go binary for your platform. The Python wheel remains legacy/reference for rollback and parity checks; the current Python removal readiness report keeps Python in the release.
+Use the matching Go binary for your platform. Python package installs are not the supported path for new use; the current Python source is only a temporary migration surface on the way to a Go-only repository.
 
 ## Command Mapping
 

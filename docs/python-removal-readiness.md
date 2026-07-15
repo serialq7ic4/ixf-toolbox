@@ -8,10 +8,9 @@ the current release.
 Status: Not ready for deletion.
 
 Go owns every documented CLI command family, and the Go binary is the default
-runtime for new agent installs. Python still remains in this release because the
-repository documents the Python package API as legacy/reference in
-`docs/python-api-sunset.md`, and uses Python modules in the test and packaging
-contracts.
+runtime for new agent installs. Python still remains in this release only as a
+temporary migration surface because tests and packaging contracts still import
+Python modules.
 
 Keep Python in this release.
 
@@ -25,16 +24,16 @@ Keep Python in this release.
 | Tests no longer require Python runtime implementations | Blocked | Tests still import Python modules for package, fixture, and reference-contract coverage. |
 | Rollback no longer needs in-repo Python implementation | Partial | GitHub Releases no longer publish Python wheel or sdist artifacts, but Python source still exists for reference and tests. |
 | New-install docs avoid Python as the default | Pass | README files direct new users to the Go binary first. |
-| Remaining Python package API users have a migration decision | Blocked | `docs/python-api-sunset.md` documents the Python package API as legacy/reference, but it is not removed. |
+| Remaining Python package API users have a migration decision | Blocked | `docs/python-api-sunset.md` documents the Python package API as temporary migration surface pending deletion. |
 | Destructive removal stage is reached | Blocked | Technical deletion gates are still blocked in this release. |
 
 ## Current Blockers
 
-- Python package API compatibility is still documented as legacy/reference in
-  `docs/python-api-sunset.md`.
 - The test harness still imports `ixf_toolbox` modules for packaging, fixtures,
   and reference-contract coverage; `tests/python_runtime_imports_allowlist.txt`
-  is down to 13 files after moving local CLI/update contracts to Go tests.
+  is down to 10 files after moving local CLI/update/setup/doctor contracts to Go tests.
+- Python package API deletion is not complete; direct import users must move to
+  the Go CLI before the removal release.
 - CI still validates the temporary Python source tree for reference coverage.
 - Python deletion must wait for the staged removal release after technical gates
   are cleared.
@@ -48,7 +47,7 @@ A later approved removal would need to review these areas:
 - Python-specific tests under `tests/`.
 - CI steps that still import or validate Python source for reference coverage.
 - README, migration, platform, privacy, and release documentation that mention
-  Python legacy/reference support.
+  the temporary Python migration surface.
 - Any skill wrapper text that still references Python fallback behavior.
 
 ## Removal Direction
@@ -56,6 +55,5 @@ A later approved removal would need to review these areas:
 Do not delete Python code in this release.
 
 The next safe step is to shrink `tests/python_runtime_imports_allowlist.txt` by
-porting remaining local setup, cookie, and document utility coverage to Go
-fixtures, while keeping the Python source tree until test and API blockers are
-cleared.
+porting remaining cookie, document, and OKR reference coverage to Go fixtures,
+while keeping the Python source tree until test and API blockers are cleared.

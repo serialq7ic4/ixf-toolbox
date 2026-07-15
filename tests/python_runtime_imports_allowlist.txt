@@ -9,7 +9,4 @@ tests/test_core_docs_converter.py
 tests/test_core_docs_markdown_chunks.py
 tests/test_core_docs_reader_remote.py
 tests/test_core_okr.py
-tests/test_doctor.py
-tests/test_doctor_cli.py
 tests/test_go_poc.py
-tests/test_setup.py

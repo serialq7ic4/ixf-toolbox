@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.9.0 - 2026-07-15
+
+- Added Go setup and doctor contract tests covering runtime normalization, skill installation, secret-safe diagnostics, and doctor text/JSON output.
+- Removed setup and doctor Python runtime tests after equivalent Go coverage was in place.
+- Reduced `tests/python_runtime_imports_allowlist.txt` from 13 files to 10 files.
+- Clarified current documentation that Python is a temporary migration surface on the path to deletion, not a long-term legacy/reference runtime.
+
 ## 2.8.0 - 2026-07-15
 
 - Added Go tests for CLI version/help contracts and update version/release checks.

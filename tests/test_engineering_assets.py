@@ -44,7 +44,7 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         [
             sys.executable,
             "scripts/extract_changelog.py",
-            "2.8.0",
+            "2.9.0",
             "CHANGELOG.md",
         ],
         cwd=ROOT,
@@ -53,15 +53,15 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         check=True,
     )
 
-    assert "local CLI/update Python runtime tests" in result.stdout
-    assert "13 files" in result.stdout
+    assert "setup and doctor Python runtime tests" in result.stdout
+    assert "10 files" in result.stdout
     assert "## 2.0.0" not in result.stdout
 
 
 def test_runtime_neutral_version_file_matches_public_versions():
     version = read("VERSION").strip()
 
-    assert version == "2.8.0"
+    assert version == "2.9.0"
     assert f'version = "{version}"' in read("pyproject.toml")
     assert f'__version__ = "{version}"' in read("src/ixf_toolbox/__init__.py")
     assert f'var version = "{version}"' in read("cmd/ixf/main.go")
@@ -73,13 +73,14 @@ def test_python_api_sunset_policy_documents_no_new_python_runtime_features():
     for expected in [
         "## Support Status",
         "Python package API",
-        "legacy/reference",
+        "temporary migration surface",
         "No new Python runtime features",
         "Go CLI is the supported runtime",
         "future removal release",
         "Go-only implementation",
     ]:
         assert expected in text
+    assert "legacy/reference" not in text
 
 
 def test_smoke_script_installs_toolbox_wheel_in_isolated_environment():
@@ -154,13 +155,13 @@ def test_v2_docs_make_go_binary_the_default_install_path():
     assert "Go 二进制" in zh
     assert "默认安装方式" in zh
     assert "GitHub Release 只发布 Go 二进制和 checksum" in zh
-    assert "ixf_2.8.0_darwin_arm64" in zh
+    assert "ixf_2.9.0_darwin_arm64" in zh
     assert "v1.x 仍以 Python 版作为默认安装方式" not in zh
 
     assert "Go binary" in en
     assert "default install path" in en
     assert "GitHub Releases publish only Go binaries and checksums" in en
-    assert "ixf_2.8.0_darwin_arm64" in en
+    assert "ixf_2.9.0_darwin_arm64" in en
     assert "The v1.x line still uses the Python package" not in en
 
     assert "Go binary" in platforms
@@ -175,7 +176,7 @@ def test_go_python_parity_matrix_documents_runtime_ownership_and_deletion_gates(
 
     for expected in [
         "## Go-owned Runtime",
-        "## Python Legacy/Reference",
+        "## Temporary Python Migration Surface",
         "## Deletion Gates",
         "## Known Blockers",
         "`docs read`",
@@ -206,11 +207,12 @@ def test_python_removal_readiness_report_documents_decision_and_future_scope():
         "## Removal Direction",
         "Go owns every documented CLI command family",
         "GitHub Releases no longer publish Python wheel or sdist artifacts",
-        "Python package API",
+        "temporary migration surface",
         "staged removal release",
         "Keep Python in this release",
     ]:
         assert expected in text
+    assert "legacy/reference" not in text
 
 
 def test_legacy_migration_doc_maps_old_commands_to_toolbox_commands():
@@ -258,6 +260,9 @@ def test_python_runtime_import_allowlist_shrinks_cli_and_update_contracts():
     for removed in [
         "tests/test_cli_contract.py",
         "tests/test_cli_help.py",
+        "tests/test_doctor.py",
+        "tests/test_doctor_cli.py",
+        "tests/test_setup.py",
         "tests/test_update.py",
         "tests/test_update_cli.py",
     ]:

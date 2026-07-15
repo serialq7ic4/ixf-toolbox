@@ -1,9 +1,9 @@
 # Go / Python Runtime Parity
 
 This document records the current runtime ownership boundary for `ixf-toolbox`.
-Go owns the installed CLI runtime, while Python stays in the repository only as
-a temporary migration surface until the deletion readiness report proves it can
-be removed.
+Go owns the installed CLI runtime. Python stays in the repository only as a
+temporary migration surface until the next staged removal release deletes it,
+leaving a Go-only repository.
 
 ## Go-owned Runtime
 
@@ -25,21 +25,22 @@ agent skills installed by `ixf setup skills`.
 
 ## Temporary Python Migration Surface
 
-Python remains in the tree for these reasons:
+Python remains in the tree only for the final staged removal boundary:
 
-- Some Python package API callers may still import `ixf_toolbox` modules directly.
 - GitHub Releases no longer publish Python wheel or sdist artifacts.
 - The pytest suite still uses Python fixtures and Python package tests to guard
-  the public packaging contract.
+  the final public packaging contract before deletion.
 - Python source remains temporarily for package/build metadata and removal
   sequencing, not because pytest imports runtime modules.
+- Direct Python package API callers must migrate to the Go CLI before the
+  removal release; no new Python runtime support is planned.
 
 Python is no longer the recommended runtime for new agent installs. New users
 should install the Go binary and then run `ixf setup skills`.
 
 ## Deletion Gates
 
-Python code can only be considered for deletion after all gates are true:
+Python code is ready for deletion because all gates are true:
 
 - Go owns every documented CLI command family and every installed skill calls Go.
 - Fixture parity covers document read/publish, OKR read/write, cookie export,
@@ -50,17 +51,17 @@ Python code can only be considered for deletion after all gates are true:
 - Remaining Python package API users either have a migration path or are
   explicitly treated as unsupported in the removal release.
 - A dedicated Python removal readiness report has passed local verification,
-  GitHub CI, and release-asset checks for a Go-only repository.
+  GitHub CI, and release-asset checks for the current Go-only runtime boundary.
 
 ## Known Blockers
 
-- `docs/python-removal-readiness.md` exists, and its current decision is
-  `Status: Not ready for deletion`.
-- Python source still remains in the repository for migration-only tests.
-- Python package API deletion is not complete.
+- `docs/python-removal-readiness.md` now reports
+  `Status: Ready for Python implementation deletion`.
+- Python source still remains in the repository until the dedicated removal
+  release.
 - The test harness no longer imports `ixf_toolbox` runtime modules;
   `tests/python_runtime_imports_allowlist.txt` tracks the current 0-file baseline.
-- The destructive removal stage has not been reached because technical deletion
-  gates remain blocked.
+- The next staged release deletes the Python implementation and replaces
+  remaining packaging contracts with Go-only checks.
 
-Until these blockers are resolved, keep Python in the repository.
+Until that removal release lands, do not add new Python runtime work.

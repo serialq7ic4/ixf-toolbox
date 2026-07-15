@@ -44,7 +44,7 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         [
             sys.executable,
             "scripts/extract_changelog.py",
-            "2.17.0",
+            "2.18.0",
             "CHANGELOG.md",
         ],
         cwd=ROOT,
@@ -53,15 +53,15 @@ def test_release_notes_script_extracts_non_empty_changelog_section():
         check=True,
     )
 
-    assert "residual Go POC Python reference imports" in result.stdout
-    assert "0 files" in result.stdout
+    assert "Python removal readiness as ready" in result.stdout
+    assert "next release deletes the Python implementation" in result.stdout
     assert "## 2.0.0" not in result.stdout
 
 
 def test_runtime_neutral_version_file_matches_public_versions():
     version = read("VERSION").strip()
 
-    assert version == "2.17.0"
+    assert version == "2.18.0"
     assert f'version = "{version}"' in read("pyproject.toml")
     assert f'__version__ = "{version}"' in read("src/ixf_toolbox/__init__.py")
     assert f'var version = "{version}"' in read("cmd/ixf/main.go")
@@ -155,13 +155,13 @@ def test_v2_docs_make_go_binary_the_default_install_path():
     assert "Go 二进制" in zh
     assert "默认安装方式" in zh
     assert "GitHub Release 只发布 Go 二进制和 checksum" in zh
-    assert "ixf_2.17.0_darwin_arm64" in zh
+    assert "ixf_2.18.0_darwin_arm64" in zh
     assert "v1.x 仍以 Python 版作为默认安装方式" not in zh
 
     assert "Go binary" in en
     assert "default install path" in en
     assert "GitHub Releases publish only Go binaries and checksums" in en
-    assert "ixf_2.17.0_darwin_arm64" in en
+    assert "ixf_2.18.0_darwin_arm64" in en
     assert "The v1.x line still uses the Python package" not in en
 
     assert "Go binary" in platforms
@@ -200,19 +200,28 @@ def test_python_removal_readiness_report_documents_decision_and_future_scope():
 
     for expected in [
         "## Current Decision",
-        "Status: Not ready for deletion",
+        "Status: Ready for Python implementation deletion",
         "## Deletion Gates",
         "## Current Blockers",
-        "## Files Covered By A Future Removal",
+        "## Files Covered By The Removal Release",
         "## Removal Direction",
         "Go owns every documented CLI command family",
         "GitHub Releases no longer publish Python wheel or sdist artifacts",
-        "temporary migration surface",
-        "staged removal release",
-        "Keep Python in this release",
+        "No technical blockers remain",
+        "next release deletes the Python implementation",
+        "destructive removal release",
     ]:
         assert expected in text
     assert "legacy/reference" not in text
+
+
+def test_python_removal_readiness_reports_ready_only_after_blockers_clear():
+    text = read("docs/python-removal-readiness.md")
+
+    assert "Status: Ready for Python implementation deletion" in text
+    assert "temporary migration surface because tests and packaging contracts" not in text
+    assert "Python package API deletion is not complete" not in text
+    assert "next release deletes the Python implementation" in text
 
 
 def test_legacy_migration_doc_maps_old_commands_to_toolbox_commands():

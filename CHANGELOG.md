@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 2.18.0 - 2026-07-16
+
+- Marked Python removal readiness as ready after Go-owned CLI parity, Go-only release assets, and a 0-file Python runtime import baseline.
+- Documented that the next release deletes the Python implementation rather than adding more migration-only Python work.
+- Updated install examples and version metadata for the final non-destructive readiness release.
+
 ## 2.17.0 - 2026-07-16
 
 - Replaced residual Go POC Python reference imports with static Go-owned golden assertions.

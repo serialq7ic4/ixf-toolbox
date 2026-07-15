@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
 )
@@ -44,6 +45,8 @@ type ExportConfig struct {
 var commandOutput = func(name string, args ...string) ([]byte, error) {
 	return exec.Command(name, args...).Output()
 }
+
+var dpapiUnprotectBytes = dpapiUnprotect
 
 type cookieRow struct {
 	Host           string
@@ -435,7 +438,11 @@ func loadWindowsMasterKey(localState string) ([]byte, error) {
 	if bytes.HasPrefix(wrapped, []byte("DPAPI")) {
 		wrapped = wrapped[len("DPAPI"):]
 	}
-	return dpapiUnprotect(wrapped)
+	key, err := dpapiUnprotectBytes(wrapped)
+	if err != nil {
+		return nil, fmt.Errorf("could not decrypt Windows LarkShell Local State key: %w", err)
+	}
+	return key, nil
 }
 
 func decryptWindowsCookieValue(encrypted []byte, masterKey []byte) (string, error) {
@@ -460,9 +467,12 @@ func decryptWindowsCookieValue(encrypted []byte, masterKey []byte) (string, erro
 		}
 		return string(plain), nil
 	}
-	plain, err := dpapiUnprotect(encrypted)
+	plain, err := dpapiUnprotectBytes(encrypted)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("could not decrypt Windows cookie value: %w", err)
+	}
+	if !utf8.Valid(plain) {
+		return "", fmt.Errorf("decrypted Windows Chromium cookie value is not valid UTF-8")
 	}
 	return string(plain), nil
 }

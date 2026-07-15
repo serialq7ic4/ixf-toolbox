@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 2.11.0 - 2026-07-16
+
+- Added Go Windows cookie provider tests for cookie DB and Local State discovery, DPAPI master-key unwrapping, AES-GCM cookie decrypt, legacy DPAPI cookie decrypt, and Windows export fixtures.
+- Added a testable DPAPI seam and normalized Windows decrypt errors without changing production behavior.
+- Removed the Windows cookie provider Python runtime test after equivalent Go coverage was in place.
+- Reduced `tests/python_runtime_imports_allowlist.txt` from 8 files to 7 files.
+
 ## 2.10.0 - 2026-07-15
 
 - Added Go cookie core tests for private cookie JSON writes, macOS cookie DB discovery, macOS plain-row export, and keychain command argument safety.

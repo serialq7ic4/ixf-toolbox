@@ -30,6 +30,40 @@ func (session *remoteReadSession) renderEmbeddedSheetAsTSV(origin string, hostPa
 	if err != nil {
 		return nil, err
 	}
+	return renderSheetDataAsTSV(data, workbookToken, sheetID)
+}
+
+func (session *remoteReadSession) readDirectSheet(source string, origin string, parsed *url.URL) (Result, error) {
+	workbookToken := tokenAfter(parsed.Path, "/sheets/")
+	sheetID := parsed.Query().Get("sheet")
+	if workbookToken == "" {
+		return Result{}, fmt.Errorf("direct sheet URL missing workbook token")
+	}
+	if sheetID == "" {
+		return Result{}, fmt.Errorf("direct sheet URL missing sheet query parameter")
+	}
+	data, err := session.fetchSheetClientVars(origin, workbookToken, workbookToken, sheetID, source)
+	if err != nil {
+		return Result{}, err
+	}
+	lines, err := renderSheetDataAsTSV(data, workbookToken, sheetID)
+	if err != nil {
+		return Result{}, err
+	}
+	title := workbookToken + " " + sheetID
+	return Result{
+		Source:   source,
+		Kind:     "sheet",
+		Title:    title,
+		Token:    workbookToken + "_" + sheetID,
+		Content:  "# " + title + "\n\n" + strings.Join(lines, "\n"),
+		Counts:   map[string]int{"sheet": 1},
+		Assets:   []map[string]any{},
+		Warnings: []string{},
+	}, nil
+}
+
+func renderSheetDataAsTSV(data map[string]any, workbookToken string, sheetID string) ([]string, error) {
 	clientvars := asMap(asMap(data["formerlySchema"])["clientvars"])
 	snapshot, err := decodeGzipJSON(stringValue(clientvars["gzip_snapshot"]))
 	if err != nil {
@@ -89,8 +123,12 @@ func (session *remoteReadSession) renderEmbeddedSheetAsTSV(origin string, hostPa
 }
 
 func (session *remoteReadSession) fetchEmbeddedSheet(origin string, hostPageToken string, workbookToken string, sheetID string) (map[string]any, error) {
+	return session.fetchSheetClientVars(origin, hostPageToken, workbookToken, sheetID, origin+"/docx/"+hostPageToken)
+}
+
+func (session *remoteReadSession) fetchSheetClientVars(origin string, hostToken string, workbookToken string, sheetID string, referer string) (map[string]any, error) {
 	requestURL := origin + "/space/api/v3/sheet/client_vars?synced_block_host_token=" +
-		url.QueryEscape(hostPageToken) + "&synced_block_host_type=22"
+		url.QueryEscape(hostToken) + "&synced_block_host_type=22"
 	body, err := json.Marshal(map[string]any{
 		"memberId":      0,
 		"schemaVersion": 9,
@@ -110,7 +148,7 @@ func (session *remoteReadSession) fetchEmbeddedSheet(origin string, hostPageToke
 	}
 	request.Header.Set("User-Agent", "ixf-toolbox-go")
 	request.Header.Set("Origin", origin)
-	request.Header.Set("Referer", origin+"/docx/"+hostPageToken)
+	request.Header.Set("Referer", referer)
 	request.Header.Set("X-CSRFToken", session.csrfToken)
 	request.Header.Set("Content-Type", "application/json")
 	for _, cookie := range session.cookies {

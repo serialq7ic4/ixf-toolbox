@@ -191,6 +191,9 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 	if kind == "mindnote" {
 		return session.readMindnote(source, origin, parsed.Path)
 	}
+	if kind == "sheet" {
+		return session.readDirectSheet(source, origin, parsed)
+	}
 	token := tokenAfter(parsed.Path, "/docx/")
 	if token == "" && kind == "wiki" {
 		html, err := session.fetchHTML(source, origin)
@@ -259,6 +262,9 @@ func remoteKindFromPath(path string) string {
 	}
 	if tokenAfter(path, "/mindnotes/") != "" {
 		return "mindnote"
+	}
+	if tokenAfter(path, "/sheets/") != "" {
+		return "sheet"
 	}
 	if strings.Contains(path, "/okr/user/") {
 		return "okr"
@@ -645,6 +651,7 @@ func inspectRemoteSource(source string) (map[string]any, error) {
 	route := "remote_read"
 	token := ""
 	ownerID := ""
+	sheetID := ""
 
 	if strings.Contains(parsed.Path, "/okr/user/") {
 		pathType = "okr"
@@ -657,7 +664,7 @@ func inspectRemoteSource(source string) (map[string]any, error) {
 			token = query.Get("okr_id")
 		}
 	} else {
-		for _, candidate := range []string{"docx", "wiki", "mindnotes"} {
+		for _, candidate := range []string{"docx", "wiki", "mindnotes", "sheets"} {
 			if value := tokenAfter(parsed.Path, "/"+candidate+"/"); value != "" {
 				pathType = candidate
 				token = value
@@ -674,12 +681,16 @@ func inspectRemoteSource(source string) (map[string]any, error) {
 		case "mindnotes":
 			kind = "mindnote"
 			route = "mindnote_client_vars"
+		case "sheets":
+			kind = "sheet"
+			route = "sheet_client_vars"
+			sheetID = parsed.Query().Get("sheet")
 		}
 	}
 
 	return map[string]any{
 		"ok":          true,
-		"sourceRef":   redactedRemoteSource(parsed.Path, parsed.Host, parsed.RawQuery, []string{ownerID, token}),
+		"sourceRef":   redactedRemoteSource(parsed.Path, parsed.Host, parsed.RawQuery, []string{ownerID, token, sheetID}),
 		"remote":      true,
 		"kind":        kind,
 		"host":        parsed.Host,

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -538,7 +539,7 @@ func TestCLIOKRWriteCreatesAndPrunesViaAPI(t *testing.T) {
 
 func TestCLIUpdateSelfUsesGoReleaseArtifacts(t *testing.T) {
 	tmpDir := t.TempDir()
-	nextVersion := "3.2.0"
+	nextVersion := nextPatchVersion(t, version)
 	artifactName := fmt.Sprintf("ixf_%s_%s_%s", nextVersion, runtime.GOOS, runtime.GOARCH)
 	if runtime.GOOS == "windows" {
 		artifactName += ".exe"
@@ -585,6 +586,19 @@ func TestCLIUpdateSelfUsesGoReleaseArtifacts(t *testing.T) {
 		t.Fatalf("update self payload = %+v", payload)
 	}
 	assertFileText(t, target, string(replacement))
+}
+
+func nextPatchVersion(t *testing.T, current string) string {
+	t.Helper()
+	parts := strings.Split(current, ".")
+	if len(parts) != 3 {
+		t.Fatalf("current version = %q, want semantic version", current)
+	}
+	patch, err := strconv.Atoi(parts[2])
+	if err != nil {
+		t.Fatalf("current patch version = %q: %v", parts[2], err)
+	}
+	return fmt.Sprintf("%s.%s.%d", parts[0], parts[1], patch+1)
 }
 
 func runCLITest(t *testing.T, args ...string) (string, string, int) {

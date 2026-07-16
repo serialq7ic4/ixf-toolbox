@@ -45,27 +45,27 @@
 
 如果你正在使用 Codex，可以直接对 Codex 说：
 
-> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.1.0_darwin_arm64`，macOS Intel 用 `ixf_3.1.0_darwin_amd64`，Windows 用 `ixf_3.1.0_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
+> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.2.0_darwin_arm64`，macOS Intel 用 `ixf_3.2.0_darwin_amd64`，Windows 用 `ixf_3.2.0_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.1.0/ixf_3.1.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.2.0/ixf_3.2.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-macOS Intel 将文件名换成 `ixf_3.1.0_darwin_amd64`。
+macOS Intel 将文件名换成 `ixf_3.2.0_darwin_amd64`。
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.1.0/ixf_3.1.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.2.0/ixf_3.2.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -170,6 +170,7 @@ ixf docs inspect \
 
 ixf docs read \
   "https://tenant.example.test/wiki/example" \
+  "https://tenant.example.test/sheets/example?sheet=sheet1" \
   --cookies /tmp/ixf_cookies.json \
   --out-dir ./out \
   --expand-sheets \
@@ -185,7 +186,7 @@ ixf docs read \
 |---|---|
 | `--out-dir <dir>` | 生成产物目录 |
 | `--cookies <file>` | `ixf cookies export` 导出的 cookie JSON 文件 |
-| `--expand-sheets` | 将支持的嵌入 sheet 展开为 TSV sidecar 文件 |
+| `--expand-sheets` | 将支持的 docx 嵌入 sheet 展开为 TSV；直接 sheets 链接会默认读取为 TSV |
 | `--download-images` | 下载可认证访问的 docx 图片块到本地 assets 目录 |
 | `--print-manifest` | 输出 JSON manifest，包含产物路径和元数据 |
 | `--cleanup` | 命令退出前删除本次命令生成的文件 |
@@ -258,8 +259,8 @@ ixf okr write \
 
 - i讯飞/LarkShell `docx` 文档读取与 Markdown 转换。
 - 可解析到受支持文档类型的 `wiki` 链接读取，包括 docx token 解析和 bitable TSV 输出。
-- 直接 mindnote 链接读取，以及通过受支持文档 payload 暴露出来的 mindnote 标记和嵌入 sheet TSV 展开。
-- 简单表格、任务列表、代码块语言、富文本链接、图片块下载、嵌入 sheet 展开和安全资源清理。
+- 直接 mindnote / sheets 链接读取，以及通过受支持文档 payload 暴露出来的 mindnote 标记和嵌入 sheet TSV 展开。
+- 简单表格、任务列表、代码块语言、富文本链接、图片块下载、直接 sheets 读取、嵌入 sheet 展开和安全资源清理。
 - 本地 Markdown 分块、读取、发布和测试。
 - 授权 OKR 页面读取、指定 Objective 更新/创建、按 Objective 文本写入多个 Objective、KR 创建/修改/排序、显式 prune 和发布。
 - 本机 macOS / Windows 桌面端 cookie 导出、诊断和 skill 安装。

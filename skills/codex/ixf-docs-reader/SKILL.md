@@ -1,6 +1,6 @@
 ---
 name: ixf-docs-reader
-description: Use when reading authorized i讯飞 cloud document, wiki, docx, mindnote, bitable, embedded sheet, or local Markdown sources into local artifacts for analysis.
+description: Use when reading authorized i讯飞 cloud document, wiki, docx, mindnote, bitable, direct sheets link, embedded sheet, or local Markdown sources into local artifacts for analysis.
 ---
 
 # ixf Docs Reader

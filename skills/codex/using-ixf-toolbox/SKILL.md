@@ -1,6 +1,6 @@
 ---
 name: using-ixf-toolbox
-description: Use when an i讯飞/LarkShell document, wiki, docx, cloud document, or OKR request needs routing to the correct ixf Toolbox reader or writer skill.
+description: Use when an i讯飞/LarkShell document, wiki, docx, sheets, cloud document, or OKR request needs routing to the correct ixf Toolbox reader or writer skill.
 ---
 
 # Using ixf Toolbox
@@ -9,7 +9,7 @@ Use this as a lightweight routing skill for ixf Toolbox workflows. It does not r
 
 ## Routing
 
-- Use `ixf-docs-reader` for authorized document, wiki, docx, cloud-doc, embedded sheet, mindnote, image artifact, or local Markdown reading.
+- Use `ixf-docs-reader` for authorized document, wiki, docx, cloud-doc, direct sheets link, embedded sheet, mindnote, image artifact, or local Markdown reading.
 - Use `ixf-docs-writer` for approved Markdown publishing or document modification.
 - Use `ixf-okr-reader` for authorized OKR reading, summary, ownership, mention, or alignment analysis.
 - Use `ixf-okr-writer` for approved Objective and Key Result creation or modification.

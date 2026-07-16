@@ -184,3 +184,33 @@ func TestInspectSourceRedactsRemoteTokensAndAvoidsLocalContentLeakage(t *testing
 		t.Fatalf("remote inspect = %s, want %s", remoteJSON, wantJSON)
 	}
 }
+
+func TestInspectSourceRecognizesDirectSheetLinks(t *testing.T) {
+	remote, err := InspectSource("https://tenant.example.test/sheets/shtrfixturetoken?sheet=sheet1&from=copy")
+	if err != nil {
+		t.Fatalf("InspectSource(sheet) returned error: %v", err)
+	}
+
+	want := map[string]any{
+		"ok":          true,
+		"sourceRef":   "https://tenant.example.test/sheets/<redacted>?sheet=<redacted>&from=copy",
+		"remote":      true,
+		"kind":        "sheet",
+		"host":        "tenant.example.test",
+		"pathType":    "sheets",
+		"tokenPrefix": "sht",
+		"tokenLength": len("shtrfixturetoken"),
+		"route":       "sheet_client_vars",
+	}
+	wantJSON, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remoteJSON, err := json.Marshal(remote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(remoteJSON) != string(wantJSON) {
+		t.Fatalf("remote inspect = %s, want %s", remoteJSON, wantJSON)
+	}
+}

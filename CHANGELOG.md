@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 3.2.0 - 2026-07-16
+
+- Added direct `/sheets/...` document reads through the Go `docs read` flow, including safe `inspect` routing and TSV rendering via the existing sheet `client_vars` decoder.
+
 ## 3.1.0 - 2026-07-16
 
 - Removed the Python pytest harness and repository maintenance Python scripts; `go test ./...` is now the primary project test entrypoint.

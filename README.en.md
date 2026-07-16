@@ -45,27 +45,27 @@ The recommended path is to let the agent you are already using install Toolbox. 
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.1.0_darwin_arm64`, macOS Intel: `ixf_3.1.0_darwin_amd64`, Windows: `ixf_3.1.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.2.0_darwin_arm64`, macOS Intel: `ixf_3.2.0_darwin_amd64`, Windows: `ixf_3.2.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.1.0/ixf_3.1.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.2.0/ixf_3.2.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_3.1.0_darwin_amd64` instead.
+For macOS Intel, use `ixf_3.2.0_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.1.0/ixf_3.1.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.2.0/ixf_3.2.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -136,6 +136,7 @@ ixf docs inspect \
 
 ixf docs read \
   "https://tenant.example.test/wiki/example" \
+  "https://tenant.example.test/sheets/example?sheet=sheet1" \
   --cookies /tmp/ixf_cookies.json \
   --out-dir ./out \
   --expand-sheets \
@@ -179,8 +180,8 @@ Toolbox currently supports:
 
 - i讯飞/LarkShell `docx` document reading and Markdown conversion.
 - Supported `wiki` links, including docx token resolution and bitable TSV output.
-- Direct mindnote link reads, plus mindnote markers and embedded sheet TSV expansion exposed by supported document payloads.
-- Simple tables, task lists, code languages, rich-text links, image block download, embedded sheet expansion, and safe artifact cleanup.
+- Direct mindnote and sheets link reads, plus mindnote markers and embedded sheet TSV expansion exposed by supported document payloads.
+- Simple tables, task lists, code languages, rich-text links, image block download, direct sheets reads, embedded sheet expansion, and safe artifact cleanup.
 - Local Markdown chunking, reading, publishing, and test workflows.
 - Authorized OKR reading, selected Objective update/create, multi-Objective writes by Objective text, KR create/update/order, explicit prune, and publish-after-edit.
 - macOS and experimental Windows desktop-session cookie export, diagnostics, and skill installation.

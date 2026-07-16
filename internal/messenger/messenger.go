@@ -1,6 +1,7 @@
 package messenger
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -71,9 +72,37 @@ type CloneResult struct {
 
 type OpenConfig struct {
 	Config
-	Target string
-	Mode   string
-	DryRun bool
+	Target               string
+	Mode                 string
+	DryRun               bool
+	Apply                bool
+	Headless             bool
+	AllowVisibleFallback bool
+	KeepProfileClone     bool
+	TimeoutMS            int
+}
+
+type Automator interface {
+	Open(context.Context, BrowserOpenRequest) (BrowserOpenResult, error)
+}
+
+type BrowserOpenRequest struct {
+	BrowserPath          string
+	UserDataDir          string
+	CookiePath           string
+	URL                  string
+	Target               string
+	Mode                 string
+	Headless             bool
+	AllowVisibleFallback bool
+	TimeoutMS            int
+}
+
+type BrowserOpenResult struct {
+	OpenedTitle    string `json:"openedTitle,omitempty"`
+	TargetVerified bool   `json:"targetVerified"`
+	Headless       bool   `json:"headless"`
+	FallbackUsed   bool   `json:"fallbackUsed,omitempty"`
 }
 
 func SupportedOS(goos string) bool {
@@ -126,8 +155,11 @@ func PlanOpen(config OpenConfig) (map[string]any, error) {
 	if mode != "person" && mode != "conversation" {
 		return nil, fmt.Errorf("--mode must be person or conversation")
 	}
-	if !config.DryRun {
-		return nil, fmt.Errorf("messenger open is dry-run-only in this release")
+	if config.DryRun && config.Apply {
+		return nil, fmt.Errorf("--dry-run and --apply are mutually exclusive")
+	}
+	if !config.DryRun && !config.Apply {
+		return nil, fmt.Errorf("messenger open requires --dry-run or --apply")
 	}
 	goos := normalizedGOOS(config.GOOS)
 	profile := DiscoverProfile(ProfileConfig{
@@ -138,16 +170,17 @@ func PlanOpen(config OpenConfig) (map[string]any, error) {
 		ProfileDir: config.ProfileDir,
 	})
 	browser := DiscoverBrowser(config.Config)
-	return map[string]any{
+	payload := map[string]any{
 		"ok":             SupportedOS(goos) && profile.OK && browser.OK,
 		"action":         "open",
-		"dryRun":         true,
+		"dryRun":         config.DryRun,
+		"apply":          config.Apply,
 		"target":         target,
 		"mode":           mode,
 		"willSend":       false,
 		"targetVerified": false,
 		"browserLaunch":  false,
-		"note":           "v3.3.0 plans a safe messenger open only; browser automation and target verification land in a later release.",
+		"note":           "messenger open never sends messages; --apply may mark the opened chat as read.",
 		"messenger": map[string]any{
 			"supportedPlatform": SupportedOS(goos),
 			"goos":              goos,
@@ -155,7 +188,75 @@ func PlanOpen(config OpenConfig) (map[string]any, error) {
 		},
 		"profile": profile,
 		"browser": browser,
-	}, nil
+	}
+	return payload, nil
+}
+
+func OpenTarget(ctx context.Context, config OpenConfig, automator Automator) (map[string]any, error) {
+	payload, err := PlanOpen(config)
+	if err != nil {
+		return nil, err
+	}
+	if !config.Apply {
+		return payload, nil
+	}
+	if automator == nil {
+		return nil, fmt.Errorf("browser automator is required for --apply")
+	}
+	if ok, _ := payload["ok"].(bool); !ok {
+		return payload, fmt.Errorf("messenger open prerequisites are not ready")
+	}
+	profile, ok := payload["profile"].(ProfileDiscovery)
+	if !ok || !profile.OK {
+		return payload, fmt.Errorf("messenger profile is not ready")
+	}
+	browser, ok := payload["browser"].(BrowserDiscovery)
+	if !ok || !browser.OK {
+		return payload, fmt.Errorf("messenger browser is not ready")
+	}
+	clone, err := CloneProfile(profile.Path, "")
+	if err != nil {
+		return nil, err
+	}
+	cloneRoot := filepath.Dir(clone.Path)
+	defer func() {
+		if !config.KeepProfileClone {
+			_ = os.RemoveAll(cloneRoot)
+		}
+	}()
+	headless := true
+	if !config.Headless && config.AllowVisibleFallback {
+		headless = false
+	}
+	timeoutMS := config.TimeoutMS
+	if timeoutMS <= 0 {
+		timeoutMS = 45_000
+	}
+	result, err := automator.Open(ctx, BrowserOpenRequest{
+		BrowserPath:          browser.Path,
+		UserDataDir:          clone.Path,
+		CookiePath:           expandUser(config.CookiesPath),
+		URL:                  DefaultMessengerURL,
+		Target:               strings.TrimSpace(config.Target),
+		Mode:                 strings.TrimSpace(config.Mode),
+		Headless:             headless,
+		AllowVisibleFallback: config.AllowVisibleFallback,
+		TimeoutMS:            timeoutMS,
+	})
+	if err != nil {
+		return nil, err
+	}
+	payload["browserLaunch"] = true
+	payload["targetVerified"] = result.TargetVerified
+	payload["openedTitle"] = result.OpenedTitle
+	payload["headless"] = result.Headless
+	payload["fallbackUsed"] = result.FallbackUsed
+	payload["ok"] = result.TargetVerified
+	payload["clone"] = map[string]any{
+		"kept": config.KeepProfileClone,
+		"path": clone.Path,
+	}
+	return payload, nil
 }
 
 func DiscoverProfile(config ProfileConfig) ProfileDiscovery {

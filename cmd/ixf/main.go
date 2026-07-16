@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -25,7 +26,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "3.3.0"
+var version = "3.4.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -640,15 +641,23 @@ func runMessengerOpen(args []string, stdout io.Writer, stderr io.Writer) int {
 	target := flags.String("to", "", "")
 	mode := flags.String("mode", "", "")
 	dryRun := flags.Bool("dry-run", false, "")
+	apply := flags.Bool("apply", false, "")
+	allowVisibleFallback := flags.Bool("allow-visible-fallback", false, "")
+	keepProfileClone := flags.Bool("keep-profile-clone", false, "")
+	timeoutMS := flags.Int("timeout-ms", 45000, "")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	payload, err := messenger.PlanOpen(messenger.OpenConfig{
-		Config: config(),
-		Target: *target,
-		Mode:   *mode,
-		DryRun: *dryRun,
-	})
+	payload, err := messenger.OpenTarget(context.Background(), messenger.OpenConfig{
+		Config:               config(),
+		Target:               *target,
+		Mode:                 *mode,
+		DryRun:               *dryRun,
+		Apply:                *apply,
+		AllowVisibleFallback: *allowVisibleFallback,
+		KeepProfileClone:     *keepProfileClone,
+		TimeoutMS:            *timeoutMS,
+	}, messenger.ChromedpAutomator{})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
 		return 2
@@ -660,6 +669,7 @@ func runMessengerOpen(args []string, stdout io.Writer, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "target %s\n", payload["target"])
 	fmt.Fprintf(stdout, "mode %s\n", payload["mode"])
 	fmt.Fprintf(stdout, "dry_run %t\n", payload["dryRun"])
+	fmt.Fprintf(stdout, "apply %t\n", payload["apply"])
 	fmt.Fprintf(stdout, "will_send %t\n", payload["willSend"])
 	fmt.Fprintf(stdout, "target_verified %t\n", payload["targetVerified"])
 	return 0
@@ -1218,13 +1228,14 @@ func collectDiagnostics(cookiesPath string) map[string]any {
 		"version": version,
 		"runtime": "go",
 		"capabilities": map[string]bool{
-			"docsRead":          true,
-			"docsPublish":       true,
-			"okrRead":           true,
-			"okrWrite":          true,
-			"cookiesExport":     true,
-			"messengerDoctor":   true,
-			"messengerOpenPlan": true,
+			"docsRead":           true,
+			"docsPublish":        true,
+			"okrRead":            true,
+			"okrWrite":           true,
+			"cookiesExport":      true,
+			"messengerDoctor":    true,
+			"messengerOpenPlan":  true,
+			"messengerOpenApply": true,
 		},
 		"skills":  skills,
 		"cookies": cookies,
@@ -1316,7 +1327,7 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 	capabilities := payload["capabilities"]
 	fmt.Fprintf(
 		w,
-		"native docsRead=%t docsPublish=%t okrRead=%t okrWrite=%t cookiesExport=%t messengerDoctor=%t messengerOpenPlan=%t\n",
+		"native docsRead=%t docsPublish=%t okrRead=%t okrWrite=%t cookiesExport=%t messengerDoctor=%t messengerOpenPlan=%t messengerOpenApply=%t\n",
 		boolFromMap(capabilities, "docsRead"),
 		boolFromMap(capabilities, "docsPublish"),
 		boolFromMap(capabilities, "okrRead"),
@@ -1324,6 +1335,7 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 		boolFromMap(capabilities, "cookiesExport"),
 		boolFromMap(capabilities, "messengerDoctor"),
 		boolFromMap(capabilities, "messengerOpenPlan"),
+		boolFromMap(capabilities, "messengerOpenApply"),
 	)
 
 	if skills, ok := payload["skills"].(map[string]any); ok {

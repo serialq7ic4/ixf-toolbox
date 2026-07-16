@@ -5,7 +5,7 @@ description: Use when planning an approved i讯飞 Messenger send target or mess
 
 # ixf Messenger Writer
 
-Use `ixf messenger open` through the local Toolbox CLI for dry-run send planning only.
+Use `ixf messenger open` through the local Toolbox CLI for send-target planning only.
 
 ## Workflow
 
@@ -15,7 +15,8 @@ Use `ixf messenger open` through the local Toolbox CLI for dry-run send planning
 3. Run dry-run target planning:
    `ixf messenger open --to "<target>" --mode person|conversation --dry-run --json`
 4. Report that Real sends are not available in this release.
+5. Do not use --apply for sending; `open --apply` only verifies the target and may mark a chat as read.
 
 ## Safety
 
-Real sends are not available. Do not simulate success, type into a chat manually, or fall back to another messenger script. Future send support must verify the opened target before typing and re-open a fresh session after send.
+Real sends are not available. Do not simulate success, type into a chat manually, or fall back to another messenger script. Do not use --apply for sending. Future send support must verify the opened target before typing and re-open a fresh session after send.

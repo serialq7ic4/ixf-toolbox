@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.4.0 - 2026-07-16
+
+- Added Go-native Messenger `open --apply` browser automation through a cloned LarkShell profile, with target verification and no message sending.
+- Added `chromedp`-based Messenger automation, cookie injection, title matching, headless default behavior, and explicit visible fallback opt-in.
+- Updated Messenger skills and documentation to distinguish dry-run planning from applied open verification, and to keep real sends unavailable.
+
 ## 3.3.0 - 2026-07-16
 
 - Added the first Go-native Messenger foundation commands: `ixf messenger doctor` and dry-run-only `ixf messenger open`.

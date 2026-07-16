@@ -155,6 +155,57 @@ func TestMessengerOpenDryRunValidatesArgumentsAndPrintsPlan(t *testing.T) {
 	}
 }
 
+func TestMessengerOpenApplyFlagsAreAcceptedAndValidatedBeforeBrowserLaunch(t *testing.T) {
+	home := t.TempDir()
+	profile := filepath.Join(home, "profile_explorer")
+	missingBrowser := filepath.Join(home, "missing-chrome")
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatalf("mkdir profile: %v", err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := run([]string{
+		"messenger", "open",
+		"--to", "示例群聊",
+		"--mode", "conversation",
+		"--profile-dir", profile,
+		"--browser-path", missingBrowser,
+		"--goos", "darwin",
+		"--apply",
+		"--allow-visible-fallback",
+		"--timeout-ms", "1000",
+		"--json",
+	}, &stdout, &stderr)
+
+	if code != 2 {
+		t.Fatalf("messenger open --apply with missing browser exit code = %d, want 2; stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	if strings.Contains(stderr.String(), "flag provided but not defined") {
+		t.Fatalf("messenger open did not parse apply flags: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "prerequisites") {
+		t.Fatalf("messenger open --apply stderr missing prerequisite failure: %q", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{
+		"messenger", "open",
+		"--to", "示例群聊",
+		"--mode", "conversation",
+		"--profile-dir", profile,
+		"--browser-path", missingBrowser,
+		"--goos", "darwin",
+		"--dry-run",
+		"--apply",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "mutually exclusive") {
+		t.Fatalf("messenger open --dry-run --apply code=%d stderr=%q", code, stderr.String())
+	}
+}
+
 func TestNormalizeRuntimesSupportsAutoAliasesAndValidation(t *testing.T) {
 	tests := []struct {
 		name string
@@ -270,7 +321,7 @@ func TestCollectDiagnosticsReportsGoRuntimeSkillsCookiesAndNoSecrets(t *testing.
 		t.Fatalf("diagnostics should not report legacy engines: %+v", payload["engines"])
 	}
 	capabilities := payload["capabilities"].(map[string]bool)
-	for _, name := range []string{"docsRead", "docsPublish", "okrRead", "okrWrite", "cookiesExport", "messengerDoctor", "messengerOpenPlan"} {
+	for _, name := range []string{"docsRead", "docsPublish", "okrRead", "okrWrite", "cookiesExport", "messengerDoctor", "messengerOpenPlan", "messengerOpenApply"} {
 		if !capabilities[name] {
 			t.Fatalf("capability %s = false", name)
 		}
@@ -312,13 +363,14 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 		"ok":      false,
 		"version": version,
 		"capabilities": map[string]bool{
-			"docsRead":          true,
-			"docsPublish":       true,
-			"okrRead":           true,
-			"okrWrite":          true,
-			"cookiesExport":     true,
-			"messengerDoctor":   true,
-			"messengerOpenPlan": true,
+			"docsRead":           true,
+			"docsPublish":        true,
+			"okrRead":            true,
+			"okrWrite":           true,
+			"cookiesExport":      true,
+			"messengerDoctor":    true,
+			"messengerOpenPlan":  true,
+			"messengerOpenApply": true,
 		},
 		"skills": map[string]any{
 			"codex": map[string]any{
@@ -345,7 +397,7 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 	for _, expected := range []string{
 		"ixf-toolbox " + version,
 		"overall fail",
-		"native docsRead=true docsPublish=true okrRead=true okrWrite=true cookiesExport=true messengerDoctor=true messengerOpenPlan=true",
+		"native docsRead=true docsPublish=true okrRead=true okrWrite=true cookiesExport=true messengerDoctor=true messengerOpenPlan=true messengerOpenApply=true",
 		"skill codex ok=true",
 		"cookies ok count=1 csrf=true lgw_csrf=false",
 	} {

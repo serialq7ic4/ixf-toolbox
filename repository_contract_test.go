@@ -99,14 +99,14 @@ func TestMessengerSkillsAreRoutedAndDocumentDryRunSafety(t *testing.T) {
 		}
 
 		reader := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, "ixf-messenger-reader", "SKILL.md")))
-		for _, expected := range []string{"name: ixf-messenger-reader", "ixf messenger doctor --json", "read-only"} {
+		for _, expected := range []string{"name: ixf-messenger-reader", "ixf messenger doctor --json", "read-only", "--apply", "never sends"} {
 			if !strings.Contains(reader, expected) {
 				t.Fatalf("%s messenger reader missing %q:\n%s", runtimeDir, expected, reader)
 			}
 		}
 
 		writer := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, "ixf-messenger-writer", "SKILL.md")))
-		for _, expected := range []string{"name: ixf-messenger-writer", "dry-run", "Real sends are not available"} {
+		for _, expected := range []string{"name: ixf-messenger-writer", "dry-run", "Real sends are not available", "Do not use --apply for sending"} {
 			if !strings.Contains(writer, expected) {
 				t.Fatalf("%s messenger writer missing %q:\n%s", runtimeDir, expected, writer)
 			}

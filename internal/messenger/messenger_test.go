@@ -1,6 +1,7 @@
 package messenger
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -149,6 +150,147 @@ func TestPlanOpenIsDryRunOnlyAndValidatesTargetMode(t *testing.T) {
 	if payload["willSend"] != false || payload["targetVerified"] != false {
 		t.Fatalf("PlanOpen should not send or claim verification: %+v", payload)
 	}
+}
+
+func TestOpenTargetDryRunDoesNotInvokeAutomator(t *testing.T) {
+	automator := &recordingAutomator{}
+
+	payload, err := OpenTarget(context.Background(), OpenConfig{
+		Target: "示例群聊",
+		Mode:   "conversation",
+		DryRun: true,
+	}, automator)
+
+	if err != nil {
+		t.Fatalf("OpenTarget dry-run returned error: %v", err)
+	}
+	if automator.called {
+		t.Fatal("OpenTarget dry-run invoked the browser automator")
+	}
+	if payload["browserLaunch"] != false || payload["targetVerified"] != false {
+		t.Fatalf("dry-run payload should not launch or verify target: %+v", payload)
+	}
+}
+
+func TestOpenTargetApplyClonesProfileInvokesAutomatorAndCleansClone(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "profile_explorer")
+	browser := filepath.Join(t.TempDir(), "chrome")
+	cookies := filepath.Join(t.TempDir(), "cookies.json")
+	mustMkdir(t, filepath.Join(source, "Default"))
+	mustWrite(t, filepath.Join(source, "Default", "Preferences"), []byte("prefs"))
+	mustWrite(t, filepath.Join(source, "SingletonLock"), []byte("lock"))
+	mustWrite(t, browser, []byte("browser"))
+	mustWrite(t, cookies, []byte(`[{"name":"_csrf_token","value":"secret-csrf"}]`))
+	automator := &recordingAutomator{result: BrowserOpenResult{
+		OpenedTitle:    "示例群聊",
+		TargetVerified: true,
+		Headless:       true,
+	}}
+
+	payload, err := OpenTarget(context.Background(), OpenConfig{
+		Config: Config{
+			GOOS:        "darwin",
+			ProfileDir:  source,
+			BrowserPath: browser,
+			CookiesPath: cookies,
+		},
+		Target:    "示例群聊",
+		Mode:      "conversation",
+		Apply:     true,
+		TimeoutMS: 1500,
+	}, automator)
+
+	if err != nil {
+		t.Fatalf("OpenTarget apply returned error: %v", err)
+	}
+	if !automator.called {
+		t.Fatal("OpenTarget apply did not invoke the browser automator")
+	}
+	if automator.request.UserDataDir == source || automator.request.UserDataDir == "" {
+		t.Fatalf("automator used live or empty profile path: %+v", automator.request)
+	}
+	if !automator.sawProfileData || !automator.sawNoSingleton {
+		t.Fatalf("automator did not see the expected safe clone state: data=%t noSingleton=%t", automator.sawProfileData, automator.sawNoSingleton)
+	}
+	if automator.request.BrowserPath != browser || automator.request.CookiePath != cookies {
+		t.Fatalf("automator request paths = %+v", automator.request)
+	}
+	if automator.request.Target != "示例群聊" || automator.request.Mode != "conversation" || !automator.request.Headless {
+		t.Fatalf("automator request target/mode/headless = %+v", automator.request)
+	}
+	if automator.request.TimeoutMS != 1500 {
+		t.Fatalf("automator timeout = %d, want 1500", automator.request.TimeoutMS)
+	}
+	if payload["browserLaunch"] != true || payload["targetVerified"] != true || payload["willSend"] != false {
+		t.Fatalf("apply payload = %+v", payload)
+	}
+	if strings.Contains(fmtSprint(payload), "secret-csrf") {
+		t.Fatalf("apply payload leaked cookie value: %+v", payload)
+	}
+	if _, err := os.Stat(automator.request.UserDataDir); !os.IsNotExist(err) {
+		t.Fatalf("temporary cloned profile still exists after apply: %s", automator.request.UserDataDir)
+	}
+}
+
+func TestOpenTargetApplyCanKeepProfileCloneForDebugging(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "profile_explorer")
+	browser := filepath.Join(t.TempDir(), "chrome")
+	mustMkdir(t, source)
+	mustWrite(t, browser, []byte("browser"))
+	automator := &recordingAutomator{result: BrowserOpenResult{OpenedTitle: "示例群聊", TargetVerified: true}}
+
+	payload, err := OpenTarget(context.Background(), OpenConfig{
+		Config: Config{
+			GOOS:        "darwin",
+			ProfileDir:  source,
+			BrowserPath: browser,
+		},
+		Target:           "示例群聊",
+		Mode:             "conversation",
+		Apply:            true,
+		KeepProfileClone: true,
+	}, automator)
+
+	if err != nil {
+		t.Fatalf("OpenTarget keep clone returned error: %v", err)
+	}
+	if _, err := os.Stat(automator.request.UserDataDir); err != nil {
+		t.Fatalf("kept clone missing: %v", err)
+	}
+	clone, _ := payload["clone"].(map[string]any)
+	if clone["kept"] != true {
+		t.Fatalf("payload clone metadata = %+v", payload["clone"])
+	}
+}
+
+type recordingAutomator struct {
+	called         bool
+	sawProfileData bool
+	sawNoSingleton bool
+	request        BrowserOpenRequest
+	result         BrowserOpenResult
+	err            error
+}
+
+func (automator *recordingAutomator) Open(_ context.Context, request BrowserOpenRequest) (BrowserOpenResult, error) {
+	automator.called = true
+	automator.request = request
+	if content, err := os.ReadFile(filepath.Join(request.UserDataDir, "Default", "Preferences")); err == nil && string(content) == "prefs" {
+		automator.sawProfileData = true
+	}
+	if _, err := os.Stat(filepath.Join(request.UserDataDir, "SingletonLock")); os.IsNotExist(err) {
+		automator.sawNoSingleton = true
+	}
+	return automator.result, automator.err
+}
+
+func fmtSprint(value any) string {
+	return strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(jsonString(value)), "\\u003c", "<"), "\\u003e", ">")
+}
+
+func jsonString(value any) string {
+	content, _ := json.Marshal(value)
+	return string(content)
 }
 
 func mustMkdir(t *testing.T, path string) {

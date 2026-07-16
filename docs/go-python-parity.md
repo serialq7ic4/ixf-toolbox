@@ -22,14 +22,16 @@ installs and for the agent skills installed by `ixf setup skills`.
 | `update self` | Owned | Plans or applies local binary/package replacement with explicit `--apply`. |
 | `update skills` | Owned | Refreshes installed local skill wrappers. |
 
-## Python Test Harness
+## Test Harness
 
-Python remains only as a repository development/test harness:
+The repository test harness is Go-only:
 
-- Pytest drives fixture-heavy CLI contract tests.
-- Ruff checks Python test and helper scripts.
-- `scripts/extract_changelog.py` and `scripts/audit_python_runtime_imports.py`
-  remain small repository maintenance helpers.
+- `go test ./...` covers unit, integration, CLI contract, and repository
+  contract tests.
+- `go vet ./...` is the supported static analysis gate in CI and release
+  workflows.
+- Release note extraction uses shell tooling in GitHub Actions instead of a
+  repository Python script.
 
 There is no Python package API, wheel, sdist, or Python runtime implementation.
 Direct Python package API callers must migrate to the Go CLI.

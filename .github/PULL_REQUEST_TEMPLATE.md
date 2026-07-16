@@ -24,10 +24,8 @@ Describe the problem and user-visible change.
 ## Verification
 
 ```bash
-python -m compileall -q tests scripts
-python -m pytest -q
-python -m ruff check .
 go test ./...
+go vet ./...
 ```
 
 If packaging or release behavior changed:

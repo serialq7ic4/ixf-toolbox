@@ -22,12 +22,10 @@
 ## 开发与验证
 
 ```bash
-python -m pip install -e ".[crypto,dev]"
-python -m compileall -q src
-python -m pytest -q
-python -m ruff check .
-python -m build
-scripts/smoke.sh
+go test ./...
+go vet ./...
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(cat VERSION)" -o /tmp/ixf-go ./cmd/ixf
+scripts/smoke-go-binary.sh /tmp/ixf-go "$(cat VERSION)"
 ```
 
 行为变更先写失败测试，再实现最小修复。影响用户的变更需要同步更新 README 和 `CHANGELOG.md`。

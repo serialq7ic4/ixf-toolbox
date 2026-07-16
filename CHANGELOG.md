@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 3.1.0 - 2026-07-16
+
+- Removed the Python pytest harness and repository maintenance Python scripts; `go test ./...` is now the primary project test entrypoint.
+- Added Go CLI integration tests for document publish, document read cleanup, OKR write apply flows, and self-update release artifacts.
+- Updated CI and Release workflows to use the Go toolchain only.
+- Updated README agent usage examples so users describe the task naturally while `using-ixf-toolbox` handles routing in the background.
+
 ## 3.0.0 - 2026-07-16
 
 - Deleted the Python runtime/package implementation and removed the Python wheel smoke path.

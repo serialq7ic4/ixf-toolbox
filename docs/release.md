@@ -1,8 +1,9 @@
 # Release
 
 `ixf-toolbox` uses tagged GitHub Releases with Go binary artifacts. Python wheel
-and source distribution artifacts stopped being published in v2.6.0, and the
-Python runtime/package implementation was removed in v3.0.0.
+and source distribution artifacts stopped being published in v2.6.0, the Python
+runtime/package implementation was removed in v3.0.0, and the Python test
+harness was removed in v3.1.0.
 
 ## Changelog
 
@@ -13,20 +14,19 @@ Before tagging:
 1. Update `VERSION` and the Go CLI version.
 2. Add a dated `CHANGELOG.md` section.
 3. Keep entries focused on supported behavior, safety changes, and migration notes.
-4. Verify the release notes section can be extracted:
+4. Verify the release notes section is non-empty:
 
 ```bash
-python scripts/extract_changelog.py X.Y.Z CHANGELOG.md
+version=X.Y.Z
+awk -v version="${version}" '$0 ~ "^## " version "([[:space:]-]|$)" { found=1; next } found && /^## / { exit } found { print }' CHANGELOG.md | sed '/^[[:space:]]*$/d'
 ```
 
 ## Local Checks
 
 ```bash
 RELEASE_VERSION=X.Y.Z
-python -m compileall -q tests scripts
-python -m pytest -q
-python -m ruff check .
 go test ./...
+go vet ./...
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${RELEASE_VERSION}" -o /tmp/ixf-go ./cmd/ixf
 scripts/smoke-go-binary.sh /tmp/ixf-go "${RELEASE_VERSION}"
 rm -rf dist build
@@ -40,7 +40,7 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-The GitHub Actions release workflow validates the tag against `VERSION`, runs tests and lint, builds Go artifacts, extracts release notes from `CHANGELOG.md`, and creates the GitHub Release.
+The GitHub Actions release workflow validates the tag against `VERSION`, runs Go tests and `go vet`, builds Go artifacts, extracts release notes from `CHANGELOG.md`, and creates the GitHub Release.
 
 After release, confirm:
 

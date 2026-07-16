@@ -15,5 +15,6 @@ Go and covered by Go tests or CLI contract tests.
 
 ## Final State
 
-Python may remain as a repository test harness for pytest/ruff and small
-maintenance scripts. It is not a user-facing runtime or package API.
+The repository no longer uses Python source files, pytest, ruff, or Python
+maintenance scripts. It is not a user-facing runtime, package API, or test
+harness.

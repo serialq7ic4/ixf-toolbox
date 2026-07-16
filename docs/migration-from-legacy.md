@@ -8,7 +8,7 @@ New installs should use the Toolbox Go binary:
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.0.0/ixf_3.0.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.1.0/ixf_3.1.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes auto --json
 ixf --version
@@ -16,7 +16,8 @@ ixf doctor --json
 ```
 
 Use the matching Go binary for your platform. Python package installs are not
-supported for new use; v3.0.0 removed the Python runtime/package implementation.
+supported for new use; v3.0.0 removed the Python runtime/package implementation,
+and v3.1.0 removed the Python test harness.
 
 ## Command Mapping
 

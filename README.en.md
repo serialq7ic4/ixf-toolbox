@@ -41,31 +41,31 @@ Compared with browser export tools, Toolbox is optimized for agent workflows:
 
 ## Install Into Codex / Claude Code
 
-The recommended path is to let the agent you are already using install Toolbox. In v2.0, the default install path is the GitHub Release Go binary, followed by skill registration for Codex or Claude Code; a local Python environment is no longer required for new installs.
+The recommended path is to let the agent you are already using install Toolbox. The default install path is the GitHub Release Go binary, followed by skill registration for Codex or Claude Code; a local Python environment is not required.
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.0.0_darwin_arm64`, macOS Intel: `ixf_3.0.0_darwin_amd64`, Windows: `ixf_3.0.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.1.0_darwin_arm64`, macOS Intel: `ixf_3.1.0_darwin_amd64`, Windows: `ixf_3.1.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.0.0/ixf_3.0.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.1.0/ixf_3.1.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_3.0.0_darwin_amd64` instead.
+For macOS Intel, use `ixf_3.1.0_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.0.0/ixf_3.0.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.1.0/ixf_3.1.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -78,24 +78,21 @@ Use `--runtimes auto` instead of `--runtimes codex` to register both Codex and C
 
 ### Go-only Runtime
 
-Starting with v3.0, the repository no longer contains the Python runtime/package
-implementation. The supported runtime is the Go `ixf` binary. Python may still
-be used as this repository's test harness, but there is no Python package,
-wheel, sdist, or Python API.
+Starting with v3.1, the repository no longer contains the Python runtime/package
+implementation or Python test harness. The supported runtime is the Go `ixf`
+binary, and development, CI, and release checks use the Go toolchain.
 
 ## Agent Usage
 
-After installing the skills, ask your agent to work with authorized links or local files:
+After installing the skills, ask your agent to work with authorized links or local files. You do not need to name a specific skill. Describe the task naturally; `using-ixf-toolbox` routes in the background based on link type, read/write intent, and safety boundaries.
 
-> Use using-ixf-toolbox to decide whether this link should use a document or OKR workflow, and whether it is read or write.
+> Summarize this document: https://tenant.example.test/wiki/example
 
-> Use ixf-docs-reader to read and summarize this document: https://tenant.example.test/wiki/example
+> Review this OKR page and summarize the objectives, key results, owners, and mentions relevant to me.
 
-> Use ixf-docs-writer to publish `notes/review.md` to `https://tenant.example.test`. Show the dry-run first and only apply after confirmation.
+> Publish `notes/review.md` to `https://tenant.example.test`. Show the dry-run first and only apply after I confirm.
 
-> Use ixf-okr-reader to read this OKR page and summarize objectives, key results, owners, and mentions.
-
-> Use ixf-okr-writer to write my approved O3 and three KRs into this OKR page. Only modify O3 and show the dry-run plan first.
+> Write my approved O3 and three KRs into this OKR page. Only modify O3 and show the dry-run plan first.
 
 Before the first private remote read or write, make sure the local i讯飞/LarkShell desktop client is logged in.
 
@@ -120,7 +117,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Runtime Status
 
-Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted.
+Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python.
 
 ## Manual Read Flow
 
@@ -222,11 +219,8 @@ See `SECURITY.md`, `PRIVACY.md`, and `CONTRIBUTING.md`.
 ```bash
 git clone https://github.com/serialq7ic4/ixf-toolbox.git
 cd ixf-toolbox
-python -m pip install "pytest>=8.0" "ruff>=0.5"
-python -m compileall -q tests scripts
-python -m pytest -q
-python -m ruff check .
 go test ./...
+go vet ./...
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(cat VERSION)" -o /tmp/ixf-go ./cmd/ixf
 scripts/smoke-go-binary.sh /tmp/ixf-go "$(cat VERSION)"
 ```

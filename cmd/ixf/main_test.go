@@ -33,7 +33,7 @@ func TestRootHelpListsCommands(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
-	for _, expected := range []string{"usage: ixf", "docs", "okr", "update"} {
+	for _, expected := range []string{"usage: ixf", "docs", "okr", "messenger", "update"} {
 		if !strings.Contains(stdout.String(), expected) {
 			t.Fatalf("stdout missing %q: %s", expected, stdout.String())
 		}
@@ -47,6 +47,7 @@ func TestDocsAndOKRHelpListSupportedSubcommands(t *testing.T) {
 	}{
 		{args: []string{"docs", "--help"}, expected: []string{"usage: ixf docs", "read", "publish", "inspect"}},
 		{args: []string{"okr", "--help"}, expected: []string{"usage: ixf okr", "read", "write"}},
+		{args: []string{"messenger", "--help"}, expected: []string{"usage: ixf messenger", "doctor", "open"}},
 	}
 	for _, test := range tests {
 		var stdout bytes.Buffer
@@ -62,6 +63,95 @@ func TestDocsAndOKRHelpListSupportedSubcommands(t *testing.T) {
 				t.Fatalf("run(%v) stdout missing %q: %s", test.args, expected, stdout.String())
 			}
 		}
+	}
+}
+
+func TestMessengerDoctorJSONIsSecretSafe(t *testing.T) {
+	home := t.TempDir()
+	profile := filepath.Join(home, "profile_explorer")
+	browser := filepath.Join(home, "chrome")
+	cookiesPath := filepath.Join(home, "cookies.json")
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatalf("mkdir profile: %v", err)
+	}
+	if err := os.WriteFile(browser, []byte("browser"), 0o600); err != nil {
+		t.Fatalf("write browser: %v", err)
+	}
+	if err := os.WriteFile(cookiesPath, []byte(`[{"name":"_csrf_token","value":"dummy-csrf"}]`), 0o600); err != nil {
+		t.Fatalf("write cookies: %v", err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := run([]string{
+		"messenger", "doctor",
+		"--profile-dir", profile,
+		"--browser-path", browser,
+		"--cookies", cookiesPath,
+		"--goos", "darwin",
+		"--json",
+	}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("messenger doctor exit code = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	if strings.Contains(stdout.String(), "dummy-csrf") {
+		t.Fatalf("messenger doctor leaked cookie value: %s", stdout.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode messenger doctor json: %v\n%s", err, stdout.String())
+	}
+	if payload["runtime"] != "go" || payload["domain"] != "messenger" {
+		t.Fatalf("messenger doctor payload = %+v", payload)
+	}
+}
+
+func TestMessengerOpenDryRunValidatesArgumentsAndPrintsPlan(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := run([]string{"messenger", "open", "--mode", "conversation", "--dry-run", "--json"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("missing target exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "--to is required") {
+		t.Fatalf("missing target stderr = %q", stderr.String())
+	}
+
+	home := t.TempDir()
+	profile := filepath.Join(home, "profile_explorer")
+	browser := filepath.Join(home, "chrome")
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatalf("mkdir profile: %v", err)
+	}
+	if err := os.WriteFile(browser, []byte("browser"), 0o600); err != nil {
+		t.Fatalf("write browser: %v", err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+
+	code := run([]string{
+		"messenger", "open",
+		"--to", "示例群聊",
+		"--mode", "conversation",
+		"--profile-dir", profile,
+		"--browser-path", browser,
+		"--goos", "darwin",
+		"--dry-run",
+		"--json",
+	}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("messenger open dry-run exit code = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode messenger open json: %v\n%s", err, stdout.String())
+	}
+	if payload["target"] != "示例群聊" || payload["mode"] != "conversation" || payload["dryRun"] != true {
+		t.Fatalf("messenger open payload = %+v", payload)
+	}
+	if payload["willSend"] != false || payload["targetVerified"] != false {
+		t.Fatalf("messenger open should not send or claim verification: %+v", payload)
 	}
 }
 
@@ -180,7 +270,7 @@ func TestCollectDiagnosticsReportsGoRuntimeSkillsCookiesAndNoSecrets(t *testing.
 		t.Fatalf("diagnostics should not report legacy engines: %+v", payload["engines"])
 	}
 	capabilities := payload["capabilities"].(map[string]bool)
-	for _, name := range []string{"docsRead", "docsPublish", "okrRead", "okrWrite", "cookiesExport"} {
+	for _, name := range []string{"docsRead", "docsPublish", "okrRead", "okrWrite", "cookiesExport", "messengerDoctor", "messengerOpenPlan"} {
 		if !capabilities[name] {
 			t.Fatalf("capability %s = false", name)
 		}
@@ -222,11 +312,13 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 		"ok":      false,
 		"version": version,
 		"capabilities": map[string]bool{
-			"docsRead":      true,
-			"docsPublish":   true,
-			"okrRead":       true,
-			"okrWrite":      true,
-			"cookiesExport": true,
+			"docsRead":          true,
+			"docsPublish":       true,
+			"okrRead":           true,
+			"okrWrite":          true,
+			"cookiesExport":     true,
+			"messengerDoctor":   true,
+			"messengerOpenPlan": true,
 		},
 		"skills": map[string]any{
 			"codex": map[string]any{
@@ -253,7 +345,7 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 	for _, expected := range []string{
 		"ixf-toolbox " + version,
 		"overall fail",
-		"native docsRead=true docsPublish=true okrRead=true okrWrite=true cookiesExport=true",
+		"native docsRead=true docsPublish=true okrRead=true okrWrite=true cookiesExport=true messengerDoctor=true messengerOpenPlan=true",
 		"skill codex ok=true",
 		"cookies ok count=1 csrf=true lgw_csrf=false",
 	} {

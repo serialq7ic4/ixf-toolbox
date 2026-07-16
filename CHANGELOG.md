@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 3.3.0 - 2026-07-16
+
+- Added the first Go-native Messenger foundation commands: `ixf messenger doctor` and dry-run-only `ixf messenger open`.
+- Added Messenger desktop profile discovery, safe profile cloning primitives, browser readiness checks, and secret-safe diagnostics.
+- Added Messenger reader/writer agent skills and routed Messenger requests through `using-ixf-toolbox` while keeping real sends unavailable until verification support lands.
+- Updated README and platform documentation for the staged Messenger rollout.
+
 ## 3.2.0 - 2026-07-16
 
 - Added direct `/sheets/...` document reads through the Go `docs read` flow, including safe `inspect` routing and TSV rendering via the existing sheet `client_vars` decoder.

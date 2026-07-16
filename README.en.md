@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.md)
 
-Let Codex, Claude Code, and other local coding agents read and publish authorized i讯飞/LarkShell cloud documents, and read or write confirmed OKR content.
+Let Codex, Claude Code, and other local coding agents read and publish authorized i讯飞/LarkShell cloud documents, read or write confirmed OKR content, and gradually use local Messenger workflows.
 
 > Built for local agent workflows. `ixf` is the unified local command. It reuses your desktop login session, runs no hosted service, sends no telemetry, and requires no Open Platform app.
 
@@ -12,19 +12,21 @@ Let Codex, Claude Code, and other local coding agents read and publish authorize
   <img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-green">
 </p>
 
-`ixf-toolbox` provides one local CLI and five agent skills:
+`ixf-toolbox` provides one local CLI and seven agent skills:
 
-- `using-ixf-toolbox`: lightweight routing entry point for choosing the right document/OKR and reader/writer skill.
+- `using-ixf-toolbox`: lightweight routing entry point for choosing the right document/OKR/Messenger and reader/writer skill.
 - `ixf-docs-reader`: read-only document reading, chunking, and image artifact handling.
 - `ixf-docs-writer`: dry-run-first Markdown to docx publishing.
 - `ixf-okr-reader`: read-only Objective / Key Result extraction from authorized OKR pages.
 - `ixf-okr-writer`: dry-run-first creation or update of confirmed Objective / Key Result content.
+- `ixf-messenger-reader`: read-only Messenger readiness checks and message workflow planning.
+- `ixf-messenger-writer`: write-side planning only; real sends remain unavailable until target and post-send verification are implemented.
 
 This project is intentionally local and narrow. It is not a browser extension, daemon, sync service, bulk migration tool, or substitute for organizational data-access rules.
 
 ## Why This Exists
 
-Private i讯飞/LarkShell documents and OKR pages are often inaccessible to coding agents through ordinary HTTP fetches. `ixf-toolbox` bridges that local workflow:
+Private i讯飞/LarkShell documents, OKR pages, and desktop Messenger are often inaccessible to coding agents through ordinary HTTP fetches. `ixf-toolbox` bridges that local workflow:
 
 - The agent calls `ixf` through Codex / Claude Code skills.
 - `ixf` reuses the desktop session you already authorized.
@@ -41,31 +43,31 @@ Compared with browser export tools, Toolbox is optimized for agent workflows:
 
 ## Install Into Codex / Claude Code
 
-The recommended path is to let the agent you are already using install Toolbox. The default install path is the GitHub Release Go binary, followed by skill registration for Codex or Claude Code; a local Python environment is not required.
+The recommended path is to let the agent you are already using install Toolbox. The default install path is the GitHub Release Go binary, followed by seven-skill registration for Codex or Claude Code; a local Python environment is not required.
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.2.0_darwin_arm64`, macOS Intel: `ixf_3.2.0_darwin_amd64`, Windows: `ixf_3.2.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.3.0_darwin_arm64`, macOS Intel: `ixf_3.3.0_darwin_amd64`, Windows: `ixf_3.3.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.2.0/ixf_3.2.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.3.0/ixf_3.3.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_3.2.0_darwin_amd64` instead.
+For macOS Intel, use `ixf_3.3.0_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.2.0/ixf_3.2.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.3.0/ixf_3.3.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -84,7 +86,7 @@ binary, and development, CI, and release checks use the Go toolchain.
 
 ## Agent Usage
 
-After installing the skills, ask your agent to work with authorized links or local files. You do not need to name a specific skill. Describe the task naturally; `using-ixf-toolbox` routes in the background based on link type, read/write intent, and safety boundaries.
+After installing the skills, ask your agent to work with authorized links, local files, or Messenger requests. You do not need to name a specific skill. Describe the task naturally; `using-ixf-toolbox` routes in the background based on link type, read/write intent, and safety boundaries.
 
 > Summarize this document: https://tenant.example.test/wiki/example
 
@@ -93,6 +95,10 @@ After installing the skills, ask your agent to work with authorized links or loc
 > Publish `notes/review.md` to `https://tenant.example.test`. Show the dry-run first and only apply after I confirm.
 
 > Write my approved O3 and three KRs into this OKR page. Only modify O3 and show the dry-run plan first.
+
+> Check unread messages and summarize what needs my attention.
+
+> Send this message to the group. Show the dry-run plan first and wait for my confirmation.
 
 Before the first private remote read or write, make sure the local i讯飞/LarkShell desktop client is logged in.
 
@@ -108,6 +114,8 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf docs publish <file.md>` | Publish Markdown as a new authorized docx document |
 | `ixf okr read <url>` | Read an authorized OKR page as Markdown |
 | `ixf okr write --url <url> --input <file.json>` | Create or update confirmed Objective / KR content |
+| `ixf messenger doctor --json` | Inspect Messenger desktop profile, browser, and cookie readiness |
+| `ixf messenger open --to <target> --mode person\|conversation --dry-run --json` | Plan opening a person or conversation without sending |
 | `ixf cookies export` | Export cookies from the local desktop session |
 | `ixf doctor --json` | Inspect runtime, skills, and cookie metadata without printing cookie values |
 | `ixf setup skills --runtimes auto --json` | Install Codex / Claude Code skills |
@@ -117,7 +125,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Runtime Status
 
-Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python.
+Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout with diagnostics and dry-run open planning.
 
 ## Manual Read Flow
 
@@ -184,6 +192,7 @@ Toolbox currently supports:
 - Simple tables, task lists, code languages, rich-text links, image block download, direct sheets reads, embedded sheet expansion, and safe artifact cleanup.
 - Local Markdown chunking, reading, publishing, and test workflows.
 - Authorized OKR reading, selected Objective update/create, multi-Objective writes by Objective text, KR create/update/order, explicit prune, and publish-after-edit.
+- Messenger readiness diagnostics, profile discovery, safe profile cloning, and dry-run open planning; real reads and sends will ship in later stages.
 - macOS and experimental Windows desktop-session cookie export, diagnostics, and skill installation.
 
 Some cloud document blocks do not map perfectly to Markdown. The converter prioritizes agent analysis usefulness over visual fidelity.
@@ -192,8 +201,8 @@ Some cloud document blocks do not map perfectly to Markdown. The converter prior
 
 | Platform | Status | Notes |
 |---|---|---|
-| macOS | Tier 1 | Reads the LarkShell Chromium profile and decrypts cookies with Keychain. |
-| Windows | CI-tested / experimental | Reads the LarkShell Chromium profile and decrypts cookies with DPAPI; more live desktop validation is needed. |
+| macOS | Tier 1 | Reads the LarkShell Chromium profile, decrypts cookies with Keychain, and discovers `profile_explorer` for Messenger. |
+| Windows | CI-tested / experimental | Reads the LarkShell Chromium profile and decrypts cookies with DPAPI; Messenger profile discovery needs more live desktop validation. |
 
 Linux desktop-session export is not supported because i讯飞 does not ship a Linux desktop client. Pure parsing and dry-run components may still work when dependencies are available.
 
@@ -209,6 +218,7 @@ See [`docs/migration-from-legacy.md`](docs/migration-from-legacy.md) for command
 - `doctor` does not print cookie values.
 - Remote read errors do not echo raw API payloads.
 - Remote writes default to dry-run and require explicit `--apply`.
+- Messenger currently supports diagnostics and dry-run open planning only; real sends are not exposed.
 - Destructive OKR pruning requires explicit `--prune`.
 - Generated Markdown, TSV, images, manifests, and OKR JSON may contain private content.
 - Do not commit cookies, generated artifacts, full private URLs, internal responses, or sensitive diagnostics.

@@ -81,9 +81,35 @@ func TestReadmeDescribesNaturalAgentPromptsAndBackgroundRouting(t *testing.T) {
 		"using-ixf-toolbox 会在后台识别",
 		"帮我总结一下这个文档",
 		"把我确认后的 O3 和 3 个 KR 写入这个 OKR 页面",
+		"看一下未读消息",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("README.md missing natural usage text %q", expected)
+		}
+	}
+}
+
+func TestMessengerSkillsAreRoutedAndDocumentDryRunSafety(t *testing.T) {
+	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
+		routing := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, "using-ixf-toolbox", "SKILL.md")))
+		for _, expected := range []string{"ixf-messenger-reader", "ixf-messenger-writer", "Default to read-only"} {
+			if !strings.Contains(routing, expected) {
+				t.Fatalf("%s routing skill missing %q:\n%s", runtimeDir, expected, routing)
+			}
+		}
+
+		reader := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, "ixf-messenger-reader", "SKILL.md")))
+		for _, expected := range []string{"name: ixf-messenger-reader", "ixf messenger doctor --json", "read-only"} {
+			if !strings.Contains(reader, expected) {
+				t.Fatalf("%s messenger reader missing %q:\n%s", runtimeDir, expected, reader)
+			}
+		}
+
+		writer := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, "ixf-messenger-writer", "SKILL.md")))
+		for _, expected := range []string{"name: ixf-messenger-writer", "dry-run", "Real sends are not available"} {
+			if !strings.Contains(writer, expected) {
+				t.Fatalf("%s messenger writer missing %q:\n%s", runtimeDir, expected, writer)
+			}
 		}
 	}
 }

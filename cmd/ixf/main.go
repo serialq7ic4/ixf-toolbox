@@ -18,13 +18,14 @@ import (
 	"github.com/serialq7ic4/ixf-toolbox/internal/docslocal"
 	"github.com/serialq7ic4/ixf-toolbox/internal/docspublish"
 	"github.com/serialq7ic4/ixf-toolbox/internal/markdown"
+	"github.com/serialq7ic4/ixf-toolbox/internal/messenger"
 	ixfokr "github.com/serialq7ic4/ixf-toolbox/internal/okr"
 	ixfupdate "github.com/serialq7ic4/ixf-toolbox/internal/update"
 )
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "3.2.0"
+var version = "3.3.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -32,6 +33,8 @@ var skillNames = []string{
 	"ixf-docs-writer",
 	"ixf-okr-reader",
 	"ixf-okr-writer",
+	"ixf-messenger-reader",
+	"ixf-messenger-writer",
 }
 
 type runtimeTarget struct {
@@ -70,6 +73,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runDocs(args[1:], stdout, stderr)
 	case "okr":
 		return runOKR(args[1:], stdout, stderr)
+	case "messenger":
+		return runMessenger(args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(args[1:], stdout, stderr)
 	case "setup":
@@ -89,6 +94,7 @@ func printRootHelp(w io.Writer) {
 	rows := [][2]string{
 		{"docs", "Read, inspect, chunk, clean up, or publish authorized documents."},
 		{"okr", "Read or plan approved OKR changes."},
+		{"messenger", "Inspect and plan safe i讯飞 Messenger automation."},
 		{"doctor", "Inspect local Toolbox setup without printing secrets."},
 		{"setup", "Install agent skill wrappers."},
 		{"cookies", "Export local desktop session cookies."},
@@ -580,6 +586,103 @@ func runOKRWrite(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	writeJSON(stdout, payload)
 	return 0
+}
+
+func runMessenger(args []string, stdout io.Writer, stderr io.Writer) int {
+	rows := [][2]string{
+		{"doctor", "Inspect local Messenger automation readiness."},
+		{"open", "Plan opening a person or conversation without sending."},
+	}
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "ERROR messenger requires a subcommand.")
+		printCommandHelp(stderr, "ixf messenger", rows)
+		return 2
+	}
+	if args[0] == "-h" || args[0] == "--help" {
+		printCommandHelp(stdout, "ixf messenger", rows)
+		return 0
+	}
+	switch args[0] {
+	case "doctor":
+		return runMessengerDoctor(args[1:], stdout, stderr)
+	case "open":
+		return runMessengerOpen(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "ERROR unsupported messenger subcommand: %s\n", args[0])
+		printCommandHelp(stderr, "ixf messenger", rows)
+		return 2
+	}
+}
+
+func runMessengerDoctor(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("ixf messenger doctor", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	config, asJSON := messengerFlags(flags)
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	payload := messenger.Doctor(config())
+	if *asJSON {
+		writeJSON(stdout, payload)
+	} else {
+		formatMessengerDiagnostics(stdout, payload)
+	}
+	if ok, _ := payload["ok"].(bool); ok {
+		return 0
+	}
+	return 1
+}
+
+func runMessengerOpen(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("ixf messenger open", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	config, asJSON := messengerFlags(flags)
+	target := flags.String("to", "", "")
+	mode := flags.String("mode", "", "")
+	dryRun := flags.Bool("dry-run", false, "")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	payload, err := messenger.PlanOpen(messenger.OpenConfig{
+		Config: config(),
+		Target: *target,
+		Mode:   *mode,
+		DryRun: *dryRun,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	if *asJSON {
+		writeJSON(stdout, payload)
+		return 0
+	}
+	fmt.Fprintf(stdout, "target %s\n", payload["target"])
+	fmt.Fprintf(stdout, "mode %s\n", payload["mode"])
+	fmt.Fprintf(stdout, "dry_run %t\n", payload["dryRun"])
+	fmt.Fprintf(stdout, "will_send %t\n", payload["willSend"])
+	fmt.Fprintf(stdout, "target_verified %t\n", payload["targetVerified"])
+	return 0
+}
+
+func messengerFlags(flags *flag.FlagSet) (func() messenger.Config, *bool) {
+	profileDir := flags.String("profile-dir", "", "")
+	appSupport := flags.String("app-support", "", "")
+	appData := flags.String("app-data", "", "")
+	browserPath := flags.String("browser-path", "", "")
+	cookiesPath := flags.String("cookies", messenger.DefaultCookieJSON, "")
+	goos := flags.String("goos", "", "")
+	asJSON := flags.Bool("json", false, "")
+	return func() messenger.Config {
+		return messenger.Config{
+			GOOS:        *goos,
+			AppSupport:  *appSupport,
+			AppData:     *appData,
+			ProfileDir:  *profileDir,
+			BrowserPath: *browserPath,
+			CookiesPath: *cookiesPath,
+		}
+	}, asJSON
 }
 
 type outlineArgs struct {
@@ -1115,11 +1218,13 @@ func collectDiagnostics(cookiesPath string) map[string]any {
 		"version": version,
 		"runtime": "go",
 		"capabilities": map[string]bool{
-			"docsRead":      true,
-			"docsPublish":   true,
-			"okrRead":       true,
-			"okrWrite":      true,
-			"cookiesExport": true,
+			"docsRead":          true,
+			"docsPublish":       true,
+			"okrRead":           true,
+			"okrWrite":          true,
+			"cookiesExport":     true,
+			"messengerDoctor":   true,
+			"messengerOpenPlan": true,
 		},
 		"skills":  skills,
 		"cookies": cookies,
@@ -1211,12 +1316,14 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 	capabilities := payload["capabilities"]
 	fmt.Fprintf(
 		w,
-		"native docsRead=%t docsPublish=%t okrRead=%t okrWrite=%t cookiesExport=%t\n",
+		"native docsRead=%t docsPublish=%t okrRead=%t okrWrite=%t cookiesExport=%t messengerDoctor=%t messengerOpenPlan=%t\n",
 		boolFromMap(capabilities, "docsRead"),
 		boolFromMap(capabilities, "docsPublish"),
 		boolFromMap(capabilities, "okrRead"),
 		boolFromMap(capabilities, "okrWrite"),
 		boolFromMap(capabilities, "cookiesExport"),
+		boolFromMap(capabilities, "messengerDoctor"),
+		boolFromMap(capabilities, "messengerOpenPlan"),
 	)
 
 	if skills, ok := payload["skills"].(map[string]any); ok {
@@ -1235,6 +1342,42 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 		}
 	}
 
+	if cookies, ok := payload["cookies"].(map[string]any); ok {
+		fmt.Fprintf(
+			w,
+			"cookies %s count=%d csrf=%t lgw_csrf=%t\n",
+			okWord(boolFromMap(cookies, "ok")),
+			intFromMap(cookies, "cookieCount"),
+			boolFromMap(cookies, "hasCsrf"),
+			boolFromMap(cookies, "hasLgwCsrf"),
+		)
+	}
+}
+
+func formatMessengerDiagnostics(w io.Writer, payload map[string]any) {
+	fmt.Fprintln(w, "ixf messenger")
+	if ok, _ := payload["ok"].(bool); ok {
+		fmt.Fprintln(w, "overall ok")
+	} else {
+		fmt.Fprintln(w, "overall fail")
+	}
+	if messengerPayload, ok := payload["messenger"].(map[string]any); ok {
+		fmt.Fprintf(w, "platform supported=%t goos=%s\n", boolFromMap(messengerPayload, "supportedPlatform"), messengerPayload["goos"])
+	}
+	if profile, ok := payload["profile"].(messenger.ProfileDiscovery); ok {
+		fmt.Fprintf(w, "profile %s", okWord(profile.OK))
+		if profile.Path != "" {
+			fmt.Fprintf(w, " path=%s", profile.Path)
+		}
+		fmt.Fprintln(w)
+	}
+	if browser, ok := payload["browser"].(messenger.BrowserDiscovery); ok {
+		fmt.Fprintf(w, "browser %s", okWord(browser.OK))
+		if browser.Path != "" {
+			fmt.Fprintf(w, " path=%s", browser.Path)
+		}
+		fmt.Fprintln(w)
+	}
 	if cookies, ok := payload["cookies"].(map[string]any); ok {
 		fmt.Fprintf(
 			w,

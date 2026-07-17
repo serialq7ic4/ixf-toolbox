@@ -85,4 +85,4 @@
 
 - [x] **Step 1: Bump version metadata to `3.6.0`.**
 - [x] **Step 2: Run `go test ./...`, `go vet ./...`, `git diff --check`, and release binary smoke.**
-- [ ] **Step 3: Commit, tag, push, and verify the GitHub Release workflow.**
+- [x] **Step 3: Commit, tag, push, and verify the GitHub Release workflow.**

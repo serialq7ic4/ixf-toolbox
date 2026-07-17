@@ -112,6 +112,13 @@ func TestDoctorIsSecretSafeAndReportsReadiness(t *testing.T) {
 	if payload["runtime"] != "go" {
 		t.Fatalf("runtime = %v, want go", payload["runtime"])
 	}
+	messengerPayload, ok := payload["messenger"].(map[string]any)
+	if !ok {
+		t.Fatalf("messenger diagnostics missing: %+v", payload)
+	}
+	if messengerPayload["realSendAvailable"] != true {
+		t.Fatalf("realSendAvailable = %v, want true after send automation release", messengerPayload["realSendAvailable"])
+	}
 }
 
 func TestPlanOpenIsDryRunOnlyAndValidatesTargetMode(t *testing.T) {

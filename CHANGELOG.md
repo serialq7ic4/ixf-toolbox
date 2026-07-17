@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 3.6.1 - 2026-07-17
+
+- Fixed Messenger diagnostics so `ixf messenger doctor --json` reports approved send automation as available after the `v3.6.0` send release.
+
 ## 3.6.0 - 2026-07-17
 
 - Added Go-native Messenger `send --apply` browser automation with pre-send target verification, local echo matching, and mandatory fresh-session verification through a second cloned profile.

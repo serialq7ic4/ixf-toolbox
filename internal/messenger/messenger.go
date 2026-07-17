@@ -238,7 +238,7 @@ func Doctor(config Config) map[string]any {
 			"defaultHeadless":          true,
 			"visibleFallbackByDefault": false,
 			"profileCloneRequired":     true,
-			"realSendAvailable":        false,
+			"realSendAvailable":        true,
 		},
 		"profile": profile,
 		"browser": browser,

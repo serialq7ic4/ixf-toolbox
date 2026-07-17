@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/chromedp/cdproto/cdp"
+	cdpinput "github.com/chromedp/cdproto/input"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	"github.com/chromedp/chromedp/kb"
@@ -269,14 +270,20 @@ func (automator ChromedpAutomator) sendOnce(parent context.Context, request Brow
 	}
 	sendVerification := targetVerification{}
 	localEchoMatched := false
-	sendActions = append(sendActions,
-		openTargetAction(request.Target, request.Mode),
-		waitForTargetVerificationAction(request.Target, timeout, &sendVerification),
-		sendMessageAction(request.Message),
-		waitForSelfMessageAction(request.Message, timeout, &localEchoMatched),
-	)
 	if err := chromedp.Run(sendCtx, sendActions); err != nil {
-		return BrowserSendResult{}, err
+		return BrowserSendResult{}, fmt.Errorf("send startup: %w", err)
+	}
+	if err := chromedp.Run(sendCtx, openTargetAction(request.Target, request.Mode)); err != nil {
+		return BrowserSendResult{}, fmt.Errorf("send open target: %w", err)
+	}
+	if err := chromedp.Run(sendCtx, waitForTargetVerificationAction(request.Target, timeout, &sendVerification)); err != nil {
+		return BrowserSendResult{}, fmt.Errorf("send verify target: %w", err)
+	}
+	if err := chromedp.Run(sendCtx, sendMessageAction(request.Message)); err != nil {
+		return BrowserSendResult{}, fmt.Errorf("send message: %w", err)
+	}
+	if err := chromedp.Run(sendCtx, waitForSelfMessageAction(request.Message, timeout, &localEchoMatched)); err != nil {
+		return BrowserSendResult{}, fmt.Errorf("send local echo: %w", err)
 	}
 
 	verifyCtx, cancelVerify, err := newMessengerBrowserContext(parent, request.BrowserPath, request.VerifyUserDataDir, timeout, headless)
@@ -290,13 +297,17 @@ func (automator ChromedpAutomator) sendOnce(parent context.Context, request Brow
 		return BrowserSendResult{}, err
 	}
 	verifyMatched := false
-	verifyActions = append(verifyActions,
-		openTargetAction(request.Target, request.Mode),
-		waitForTargetVerificationAction(request.Target, timeout, &targetVerification{}),
-		waitForSelfMessageAction(request.Message, timeout, &verifyMatched),
-	)
 	if err := chromedp.Run(verifyCtx, verifyActions); err != nil {
-		return BrowserSendResult{}, err
+		return BrowserSendResult{}, fmt.Errorf("verify startup: %w", err)
+	}
+	if err := chromedp.Run(verifyCtx, openVerificationTargetAction(request.Target, request.Mode)); err != nil {
+		return BrowserSendResult{}, fmt.Errorf("verify open target: %w", err)
+	}
+	if err := chromedp.Run(verifyCtx, waitForTargetVerificationAction(request.Target, timeout, &targetVerification{})); err != nil {
+		return BrowserSendResult{}, fmt.Errorf("verify target: %w", err)
+	}
+	if err := chromedp.Run(verifyCtx, waitForSelfMessageAction(request.Message, timeout, &verifyMatched)); err != nil {
+		return BrowserSendResult{}, fmt.Errorf("verify message presence: %w", err)
 	}
 
 	opened := sendVerification.Title
@@ -482,32 +493,344 @@ func waitForMessengerAction(timeout time.Duration) chromedp.Action {
 
 func openTargetAction(target string, mode string) chromedp.Action {
 	return chromedp.ActionFunc(func(ctx context.Context) error {
-		clicked := false
-		if mode == "conversation" {
-			if err := chromedp.Run(ctx, clickVisibleRecentCardAction(target, &clicked)); err != nil {
-				return err
-			}
-			if clicked {
-				return nil
-			}
+		if mode == "person" {
+			return openPersonBySearch(ctx, target)
 		}
-		return chromedp.Run(ctx,
-			chromedp.Click(searchTriggerSelector, chromedp.ByQuery),
-			chromedp.Sleep(500*time.Millisecond),
-			chromedp.KeyEvent(target),
-			chromedp.Sleep(1500*time.Millisecond),
-			chromedp.KeyEvent(kb.Enter),
-			chromedp.Sleep(1500*time.Millisecond),
-		)
+		return openConversationByTitle(ctx, target)
 	})
 }
 
-func clickVisibleRecentCardAction(target string, clicked *bool) chromedp.Action {
-	return chromedp.Evaluate(`(function(target, cardSelector, titleSelector, scrollSelector) {
+func openVerificationTargetAction(target string, mode string) chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		if mode == "person" {
+			if err := chromedp.Run(ctx, scrollRecentToTopAction()); err == nil {
+				clicked := false
+				if err := chromedp.Run(ctx, clickVisibleRecentCardLooseAction(target, &clicked)); err != nil {
+					return err
+				}
+				if clicked {
+					return nil
+				}
+			}
+		}
+		return chromedp.Run(ctx, openTargetAction(target, mode))
+	})
+}
+
+func openConversationByTitle(ctx context.Context, target string) error {
+	if err := chromedp.Run(ctx, scrollRecentToTopAction()); err != nil {
+		return err
+	}
+	for index := 0; index < 18; index++ {
+		clicked := false
+		if err := chromedp.Run(ctx, clickVisibleRecentCardAction(target, &clicked)); err != nil {
+			return err
+		}
+		if clicked {
+			return nil
+		}
+		scrolled := false
+		if err := chromedp.Run(ctx, scrollRecentCardsAction(&scrolled)); err != nil {
+			return err
+		}
+		if !scrolled {
+			break
+		}
+		if err := chromedp.Run(ctx, chromedp.Sleep(500*time.Millisecond)); err != nil {
+			return err
+		}
+	}
+	return openChatBySearch(ctx, target)
+}
+
+func openPersonBySearch(ctx context.Context, target string) error {
+	queries := personSearchQueries(target)
+	if len(queries) == 0 {
+		return fmt.Errorf("empty personal recipient")
+	}
+	var lastError error
+	for _, query := range queries {
+		if err := openGlobalSearch(ctx, query); err != nil {
+			lastError = err
+			continue
+		}
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			clicked := false
+			if err := chromedp.Run(ctx, clickMatchingUserCardAction(target, &clicked)); err != nil {
+				lastError = err
+				break
+			}
+			if clicked {
+				if err := chromedp.Run(ctx, chromedp.Sleep(4*time.Second)); err != nil {
+					return err
+				}
+				verification := targetVerification{}
+				if err := chromedp.Run(ctx, waitForTargetVerificationAction(target, 8*time.Second, &verification)); err == nil && verification.Verified {
+					return nil
+				} else if err != nil {
+					lastError = err
+				}
+				break
+			}
+			if err := chromedp.Run(ctx, chromedp.Sleep(500*time.Millisecond)); err != nil {
+				return err
+			}
+		}
+		_ = chromedp.Run(ctx, chromedp.KeyEvent(kb.Escape), chromedp.Sleep(500*time.Millisecond))
+	}
+	if looksLikeAccountID(target) {
+		if err := chromedp.Run(ctx, scrollRecentToTopAction()); err == nil {
+			clicked := false
+			if err := chromedp.Run(ctx, clickVisibleRecentCardLooseAction(target, &clicked)); err != nil {
+				return err
+			}
+			if clicked {
+				verification := targetVerification{}
+				if err := chromedp.Run(ctx, waitForTargetVerificationAction(target, 8*time.Second, &verification)); err == nil && verification.Verified {
+					return nil
+				} else if err != nil {
+					lastError = err
+				}
+			}
+		}
+	}
+	if lastError != nil {
+		return lastError
+	}
+	return fmt.Errorf("unable to open personal recipient")
+}
+
+func openChatBySearch(ctx context.Context, target string) error {
+	attempts := [][]string{{}, {kb.ArrowDown}}
+	var lastError error
+	for _, keys := range attempts {
+		if err := openGlobalSearch(ctx, target); err != nil {
+			lastError = err
+			continue
+		}
+		for _, key := range keys {
+			if err := chromedp.Run(ctx, chromedp.KeyEvent(key), chromedp.Sleep(250*time.Millisecond)); err != nil {
+				return err
+			}
+		}
+		if err := chromedp.Run(ctx, chromedp.KeyEvent(kb.Enter), chromedp.Sleep(1500*time.Millisecond)); err != nil {
+			return err
+		}
+		verification := targetVerification{}
+		if err := chromedp.Run(ctx, waitForTargetVerificationAction(target, 8*time.Second, &verification)); err == nil && verification.Verified {
+			return nil
+		} else if err != nil {
+			lastError = err
+		}
+		_ = chromedp.Run(ctx, chromedp.KeyEvent(kb.Escape), chromedp.Sleep(500*time.Millisecond))
+	}
+	if lastError != nil {
+		return lastError
+	}
+	return fmt.Errorf("unable to open chat by search")
+}
+
+func openGlobalSearch(ctx context.Context, query string) error {
+	if err := chromedp.Run(ctx,
+		chromedp.KeyEvent(kb.Escape),
+		chromedp.Sleep(300*time.Millisecond),
+		clickSearchTriggerOrHotkeyAction(),
+		chromedp.Sleep(1500*time.Millisecond),
+	); err != nil {
+		return err
+	}
+	state := searchState{}
+	for attempt := 0; attempt < 4; attempt++ {
+		if err := chromedp.Run(ctx,
+			clickSearchEditorAction(),
+			chromedp.Sleep(200*time.Millisecond),
+			chromedp.KeyEvent(kb.Meta+"a"),
+			chromedp.Sleep(100*time.Millisecond),
+			chromedp.KeyEvent(kb.Backspace),
+			chromedp.Sleep(100*time.Millisecond),
+			insertTextAction(query),
+			chromedp.Sleep(1500*time.Millisecond),
+			searchStateAction(query, &state),
+		); err != nil {
+			return err
+		}
+		if state.QueryPresent {
+			return chromedp.Run(ctx, chromedp.Sleep(3*time.Second))
+		}
+		if err := chromedp.Run(ctx, chromedp.KeyEvent(kb.Meta+"k"), chromedp.Sleep(1*time.Second)); err != nil {
+			return err
+		}
+	}
+	return searchStateError(query, state)
+}
+
+type searchState struct {
+	SearchTriggerCount int    `json:"searchTriggerCount"`
+	SearchEditorCount  int    `json:"searchEditorCount"`
+	UserResultCount    int    `json:"userResultCount"`
+	ActiveElement      string `json:"activeElement"`
+	TextLength         int    `json:"textLength"`
+	QueryPresent       bool   `json:"queryPresent"`
+}
+
+func searchStateError(_ string, state searchState) error {
+	return fmt.Errorf(
+		"search modal did not accept query (trigger=%d editor=%d userCards=%d active=%s textLen=%d queryPresent=%t)",
+		state.SearchTriggerCount,
+		state.SearchEditorCount,
+		state.UserResultCount,
+		state.ActiveElement,
+		state.TextLength,
+		state.QueryPresent,
+	)
+}
+
+func personSearchQueries(query string) []string {
+	parts := strings.Fields(CollapseLines(query))
+	candidates := []string{strings.TrimSpace(query)}
+	if len(parts) > 1 {
+		candidates = append(candidates, parts...)
+	}
+	seen := map[string]bool{}
+	result := []string{}
+	for _, candidate := range candidates {
+		key := matchKey(candidate)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, strings.TrimSpace(candidate))
+	}
+	return result
+}
+
+func cardMatchesPerson(cardText string, query string) bool {
+	cardKey := matchKey(cardText)
+	parts := strings.Fields(CollapseLines(query))
+	if cardKey == "" || len(parts) == 0 {
+		return false
+	}
+	if len(parts) == 1 {
+		return strings.Contains(cardKey, matchKey(parts[0]))
+	}
+	for _, part := range parts {
+		key := matchKey(part)
+		if key == "" || !strings.Contains(cardKey, key) {
+			return false
+		}
+	}
+	return true
+}
+
+func looksLikeAccountID(target string) bool {
+	target = strings.TrimSpace(target)
+	if strings.ContainsAny(target, " \t\r\n") || target == "" {
+		return false
+	}
+	hasLetter := false
+	hasDigit := false
+	for _, r := range target {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+			hasLetter = true
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		default:
+			return false
+		}
+	}
+	return hasLetter && hasDigit
+}
+
+func clickSearchTriggerOrHotkeyAction() chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		if err := chromedp.Run(ctx, chromedp.Click(searchTriggerSelector, chromedp.ByQuery)); err == nil {
+			return nil
+		}
+		return chromedp.Run(ctx, chromedp.KeyEvent(kb.Meta+"k"))
+	})
+}
+
+func clickSearchEditorAction() chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		clicked := false
+		if err := chromedp.Run(ctx, chromedp.Evaluate(`(function(selector) {
+			const el = document.querySelector(selector);
+			if (!el) return false;
+			el.click();
+			return true;
+		})(`+jsArgs(searchEditorSelector)+`)`, &clicked)); err != nil {
+			return err
+		}
+		if clicked {
+			return nil
+		}
+		return chromedp.Run(ctx, chromedp.MouseClickXY(520, 92))
+	})
+}
+
+func searchStateAction(query string, result *searchState) chromedp.Action {
+	return chromedp.Evaluate(`(function(query, searchTriggerSelector, searchEditorSelector, userResultSelector) {
+		const pieces = [];
+		for (const selector of ['.serp-nav-header', '.serp-search-bar', '.search-base-editor', '.zone-container.editor-kit-container', '.ace-line']) {
+			for (const el of Array.from(document.querySelectorAll(selector))) {
+				const text = (el.innerText || el.textContent || '').trim();
+				if (text) pieces.push(text);
+			}
+		}
+		const active = document.activeElement;
+		const activeText = active ? (active.innerText || active.textContent || '').trim() : '';
+		if (activeText) pieces.push(activeText);
+		const activeClass = active ? String(active.className || '').slice(0, 120) : '';
+		const activeName = active ? String(active.tagName || '') : '';
+		const text = pieces.join('\n');
+		return {
+			searchTriggerCount: document.querySelectorAll(searchTriggerSelector).length,
+			searchEditorCount: document.querySelectorAll(searchEditorSelector).length,
+			userResultCount: document.querySelectorAll(userResultSelector).length,
+			activeElement: activeName + (activeClass ? '.' + activeClass : ''),
+			textLength: text.length,
+			queryPresent: text.includes(query),
+		};
+	})(`+jsArgs(query, searchTriggerSelector, searchEditorSelector, userResultSelector)+`)`, result)
+}
+
+func clickMatchingUserCardAction(target string, clicked *bool) chromedp.Action {
+	return chromedp.Evaluate(`(function(cardSelector, target) {
 		const normalize = (value) => String(value || '').toLowerCase().replace(/[^0-9a-zA-Z\u4e00-\u9fff]+/g, '');
-		const expected = normalize(target);
+		const parts = String(target || '').split(/\s+/).filter(Boolean);
+		const matches = (text) => {
+			const cardKey = normalize(text);
+			if (!cardKey || parts.length === 0) return false;
+			if (parts.length === 1) return cardKey.includes(normalize(parts[0]));
+			return parts.every((part) => {
+				const key = normalize(part);
+				return key && cardKey.includes(key);
+			});
+		};
+		for (const card of Array.from(document.querySelectorAll(cardSelector))) {
+			const text = (card.innerText || card.textContent || '').trim();
+			if (matches(text)) {
+				card.click();
+				return true;
+			}
+		}
+		return false;
+	})(`+jsArgs(userResultSelector, target)+`)`, clicked)
+}
+
+func scrollRecentToTopAction() chromedp.Action {
+	return chromedp.Evaluate(`(function(scrollSelector) {
 		const scroll = document.querySelector(scrollSelector);
 		if (scroll) scroll.scrollTop = 0;
+	})(`+jsArgs(recentScrollSelector)+`)`, nil)
+}
+
+func clickVisibleRecentCardAction(target string, clicked *bool) chromedp.Action {
+	return chromedp.Evaluate(`(function(target, cardSelector, titleSelector) {
+		const normalize = (value) => String(value || '').toLowerCase().replace(/[^0-9a-zA-Z\u4e00-\u9fff]+/g, '');
+		const expected = normalize(target);
 		for (const card of Array.from(document.querySelectorAll(cardSelector))) {
 			const title = (card.querySelector(titleSelector)?.innerText || '').trim();
 			if (normalize(title) === expected) {
@@ -516,7 +839,23 @@ func clickVisibleRecentCardAction(target string, clicked *bool) chromedp.Action 
 			}
 		}
 		return false;
-	})(`+jsArgs(target, feedCardSelector, feedTitleSelector, recentScrollSelector)+`)`, clicked)
+	})(`+jsArgs(target, feedCardSelector, feedTitleSelector)+`)`, clicked)
+}
+
+func clickVisibleRecentCardLooseAction(target string, clicked *bool) chromedp.Action {
+	return chromedp.Evaluate(`(function(target, cardSelector, titleSelector) {
+		const normalize = (value) => String(value || '').toLowerCase().replace(/[^0-9a-zA-Z\u4e00-\u9fff]+/g, '');
+		const expected = normalize(target);
+		for (const card of Array.from(document.querySelectorAll(cardSelector))) {
+			const title = (card.querySelector(titleSelector)?.innerText || '').trim();
+			const actual = normalize(title);
+			if (actual && expected && (actual === expected || actual.includes(expected) || expected.includes(actual))) {
+				card.click();
+				return true;
+			}
+		}
+		return false;
+	})(`+jsArgs(target, feedCardSelector, feedTitleSelector)+`)`, clicked)
 }
 
 func waitForTargetVerificationAction(target string, timeout time.Duration, result *targetVerification) chromedp.Action {
@@ -548,7 +887,50 @@ func collectRecentCardsAction(maxScrolls int, result *[]conversationCard) chrome
 	if maxScrolls <= 0 {
 		maxScrolls = 18
 	}
-	return chromedp.Evaluate(`(async function(cardSelector, titleSelector, previewSelector, timeSelector, scrollSelector, maxScrolls) {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		seen := map[string]bool{}
+		cards := []conversationCard{}
+		stagnant := 0
+		for index := 0; index < maxScrolls; index++ {
+			before := len(cards)
+			var visible []conversationCard
+			if err := chromedp.Run(ctx, chromedp.Evaluate(collectRecentCardsExpression(maxScrolls), &visible)); err != nil {
+				return err
+			}
+			for _, card := range visible {
+				key := matchKey(card.Title)
+				if key == "" || seen[key] {
+					continue
+				}
+				seen[key] = true
+				cards = append(cards, card)
+			}
+			if len(cards) == before {
+				stagnant++
+			} else {
+				stagnant = 0
+			}
+			if stagnant >= 3 {
+				break
+			}
+			var scrolled bool
+			if err := chromedp.Run(ctx, scrollRecentCardsAction(&scrolled)); err != nil {
+				return err
+			}
+			if !scrolled {
+				break
+			}
+			if err := chromedp.Run(ctx, chromedp.Sleep(400*time.Millisecond)); err != nil {
+				return err
+			}
+		}
+		*result = cards
+		return nil
+	})
+}
+
+func collectRecentCardsExpression(maxScrolls int) string {
+	return `(function(cardSelector, titleSelector, previewSelector, timeSelector) {
 		const normalize = (value) => String(value || '').toLowerCase().replace(/[^0-9a-zA-Z\u4e00-\u9fff]+/g, '');
 		const parseUnread = (card) => {
 			const badge = card.querySelector('sup');
@@ -559,33 +941,30 @@ func collectRecentCardsAction(maxScrolls int, result *[]conversationCard) chrome
 		};
 		const seen = new Set();
 		const cards = [];
-		const collect = () => {
-			for (const card of Array.from(document.querySelectorAll(cardSelector))) {
-				const title = (card.querySelector(titleSelector)?.innerText || '').trim();
-				const key = normalize(title);
-				if (!key || seen.has(key)) continue;
-				seen.add(key);
-				cards.push({
-					title,
-					preview: (card.querySelector(previewSelector)?.innerText || '').trim(),
-					time: (card.querySelector(timeSelector)?.innerText || '').trim(),
-					unread: parseUnread(card),
-				});
-			}
-		};
-		let stagnant = 0;
-		for (let index = 0; index < maxScrolls; index += 1) {
-			const before = cards.length;
-			collect();
-			stagnant = cards.length === before ? stagnant + 1 : 0;
-			if (stagnant >= 3) break;
-			const scroll = document.querySelector(scrollSelector);
-			if (!scroll) break;
-			scroll.scrollBy(0, Math.max(scroll.clientHeight * 0.9, 480));
-			await new Promise((resolve) => setTimeout(resolve, 400));
+		for (const card of Array.from(document.querySelectorAll(cardSelector))) {
+			const title = (card.querySelector(titleSelector)?.innerText || '').trim();
+			const key = normalize(title);
+			if (!key || seen.has(key)) continue;
+			seen.add(key);
+			cards.push({
+				title,
+				preview: (card.querySelector(previewSelector)?.innerText || '').trim(),
+				time: (card.querySelector(timeSelector)?.innerText || '').trim(),
+				unread: parseUnread(card),
+			});
 		}
 		return cards;
-	})(`+jsArgs(feedCardSelector, feedTitleSelector, feedPreviewSelector, feedTimeSelector, recentScrollSelector)+`, `+fmt.Sprint(maxScrolls)+`)`, result)
+	})(` + jsArgs(feedCardSelector, feedTitleSelector, feedPreviewSelector, feedTimeSelector) + `)`
+}
+
+func scrollRecentCardsAction(scrolled *bool) chromedp.Action {
+	return chromedp.Evaluate(`(function(scrollSelector) {
+		const scroll = document.querySelector(scrollSelector);
+		if (!scroll) return false;
+		const before = scroll.scrollTop;
+		scroll.scrollBy(0, Math.max(scroll.clientHeight * 0.9, 480));
+		return scroll.scrollTop !== before;
+	})(`+jsArgs(recentScrollSelector)+`)`, scrolled)
 }
 
 func readMessageItemsAction(limit int, includeSelf bool, result *[]MessageRead) chromedp.Action {
@@ -653,7 +1032,7 @@ func sendMessageAction(message string) chromedp.Action {
 			chromedp.Sleep(100*time.Millisecond),
 			chromedp.KeyEvent(kb.Backspace),
 			chromedp.Sleep(200*time.Millisecond),
-			chromedp.KeyEvent(message),
+			insertTextAction(message),
 			chromedp.Sleep(500*time.Millisecond),
 			clickSendButtonAction(&clicked),
 		); err != nil {
@@ -663,6 +1042,12 @@ func sendMessageAction(message string) chromedp.Action {
 			return nil
 		}
 		return chromedp.Run(ctx, chromedp.KeyEvent(kb.Enter))
+	})
+}
+
+func insertTextAction(text string) chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		return cdpinput.InsertText(text).Do(ctx)
 	})
 }
 

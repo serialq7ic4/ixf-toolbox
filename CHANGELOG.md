@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.6.2 - 2026-07-17
+
+- Fixed Messenger target search by using native browser click events, CDP text insertion, and safe selector diagnostics when the global search modal does not accept input.
+- Fixed approved Messenger sends for account-id recipients by allowing fresh-session verification to reopen the latest recent chat when the verified title contains the account id.
+- Changed Messenger automatic browser discovery to Chrome/Chromium only; Edge is no longer selected as an automatic fallback.
+
 ## 3.6.1 - 2026-07-17
 
 - Fixed Messenger diagnostics so `ixf messenger doctor --json` reports approved send automation as available after the `v3.6.0` send release.

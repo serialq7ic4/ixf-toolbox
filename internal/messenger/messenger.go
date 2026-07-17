@@ -701,12 +701,12 @@ func DiscoverBrowser(config Config) BrowserDiscovery {
 			return BrowserDiscovery{OK: true, Path: candidate, Source: "auto"}
 		}
 	}
-	for _, name := range []string{"google-chrome", "chrome", "chromium", "chromium-browser", "msedge"} {
+	for _, name := range messengerPathBrowserNames() {
 		if path, err := exec.LookPath(name); err == nil {
 			return BrowserDiscovery{OK: true, Path: path, Source: "path"}
 		}
 	}
-	return BrowserDiscovery{OK: false, Error: "Chrome, Chromium, or Edge executable not found"}
+	return BrowserDiscovery{OK: false, Error: "Chrome or Chromium executable not found"}
 }
 
 func CookieDiagnostics(cookiePath string) map[string]any {
@@ -882,7 +882,6 @@ func browserCandidates(goos string, config Config) []string {
 	case "darwin":
 		return []string{
 			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
 			"/Applications/Chromium.app/Contents/MacOS/Chromium",
 		}
 	case "windows":
@@ -893,13 +892,14 @@ func browserCandidates(goos string, config Config) []string {
 			filepath.Join(local, "Google", "Chrome", "Application", "chrome.exe"),
 			filepath.Join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
 			filepath.Join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
-			filepath.Join(local, "Microsoft", "Edge", "Application", "msedge.exe"),
-			filepath.Join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
-			filepath.Join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"),
 		}
 	default:
 		return nil
 	}
+}
+
+func messengerPathBrowserNames() []string {
+	return []string{"google-chrome", "chrome", "chromium", "chromium-browser"}
 }
 
 func existingDirs(paths []string) []string {

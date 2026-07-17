@@ -13,6 +13,8 @@ Linux desktop-session export and Messenger automation are not supported because 
 
 Messenger automation is browser-profile-first, not cookie-only. The live LarkShell profile must never be opened directly; Toolbox clones the profile into a temporary directory, removes Chromium singleton locks and cache-heavy directories, and only then allows later browser automation stages to run against the clone.
 
+Messenger browser automation auto-discovers Chrome/Chromium only. Install Google Chrome on macOS or Windows, or pass an explicit `--browser-path` when using another Chromium-compatible browser for local debugging.
+
 `v3.6.0` exposes diagnostics, dry-run open planning, explicit --apply target verification, read-only conversation extraction, and approved sends with fresh-session verification:
 
 ```bash
@@ -33,7 +35,7 @@ Install the Go binary with:
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.6.1/ixf_3.6.1_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.6.2/ixf_3.6.2_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf cookies export --provider windows-larkshell --output $env:TEMP\ixf_cookies.json
 ixf doctor --json --cookies $env:TEMP\ixf_cookies.json

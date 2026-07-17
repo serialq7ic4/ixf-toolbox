@@ -47,27 +47,27 @@ The recommended path is to let the agent you are already using install Toolbox. 
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.6.1_darwin_arm64`, macOS Intel: `ixf_3.6.1_darwin_amd64`, Windows: `ixf_3.6.1_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.6.2_darwin_arm64`, macOS Intel: `ixf_3.6.2_darwin_amd64`, Windows: `ixf_3.6.2_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.6.1/ixf_3.6.1_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.6.2/ixf_3.6.2_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_3.6.1_darwin_amd64` instead.
+For macOS Intel, use `ixf_3.6.2_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.6.1/ixf_3.6.1_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.6.2/ixf_3.6.2_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -206,8 +206,8 @@ Some cloud document blocks do not map perfectly to Markdown. The converter prior
 
 | Platform | Status | Notes |
 |---|---|---|
-| macOS | Tier 1 | Reads the LarkShell Chromium profile, decrypts cookies with Keychain, and discovers `profile_explorer` for Messenger. |
-| Windows | CI-tested / experimental | Reads the LarkShell Chromium profile and decrypts cookies with DPAPI; Messenger profile discovery needs more live desktop validation. |
+| macOS | Tier 1 | Reads the LarkShell Chromium profile, decrypts cookies with Keychain, discovers `profile_explorer` for Messenger, and auto-discovers only Chrome/Chromium for Messenger browser automation. |
+| Windows | CI-tested / experimental | Reads the LarkShell Chromium profile and decrypts cookies with DPAPI; Messenger profile discovery needs more live desktop validation; Messenger browser automation auto-discovers only Chrome/Chromium. |
 
 Linux desktop-session export is not supported because i讯飞 does not ship a Linux desktop client. Pure parsing and dry-run components may still work when dependencies are available.
 

@@ -47,27 +47,27 @@
 
 如果你正在使用 Codex，可以直接对 Codex 说：
 
-> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.6.1_darwin_arm64`，macOS Intel 用 `ixf_3.6.1_darwin_amd64`，Windows 用 `ixf_3.6.1_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
+> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.6.2_darwin_arm64`，macOS Intel 用 `ixf_3.6.2_darwin_amd64`，Windows 用 `ixf_3.6.2_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.6.1/ixf_3.6.1_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.6.2/ixf_3.6.2_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-macOS Intel 将文件名换成 `ixf_3.6.1_darwin_amd64`。
+macOS Intel 将文件名换成 `ixf_3.6.2_darwin_amd64`。
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.6.1/ixf_3.6.1_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.6.2/ixf_3.6.2_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -285,8 +285,8 @@ ixf okr write \
 
 | 平台 | 状态 | 说明 |
 |---|---|---|
-| macOS | Tier 1 | 读取 LarkShell Chromium profile，并通过 Keychain 解密 cookie；Messenger 诊断会发现并克隆 `profile_explorer`。 |
-| Windows | CI-tested / experimental | 读取 LarkShell Chromium profile，并通过 DPAPI 解密 cookie；Messenger profile 发现仍需要更多真实桌面端验证。 |
+| macOS | Tier 1 | 读取 LarkShell Chromium profile，并通过 Keychain 解密 cookie；Messenger 诊断会发现并克隆 `profile_explorer`；Messenger 浏览器自动发现只使用 Chrome/Chromium。 |
+| Windows | CI-tested / experimental | 读取 LarkShell Chromium profile，并通过 DPAPI 解密 cookie；Messenger profile 发现仍需要更多真实桌面端验证；Messenger 浏览器自动发现只使用 Chrome/Chromium。 |
 
 Linux 不支持桌面会话导出，因为 i讯飞没有 Linux 桌面客户端。纯解析和 dry-run 组件仍可在具备依赖的环境中使用。
 

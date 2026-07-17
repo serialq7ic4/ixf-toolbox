@@ -7,6 +7,8 @@ const (
 	feedTimeSelector      = "span._49737e67"
 	recentScrollSelector  = "div.simplebar-content-wrapper"
 	searchTriggerSelector = ".appNavbar-search-input-wrapper"
+	searchEditorSelector  = ".search-base-editor"
+	userResultSelector    = ".user-result-card"
 	chatTitleSelector     = "#root-messenger-chat span.chatWindow_chatName"
 	rightPanelSelector    = "#root-messenger-chat"
 	messageItemSelector   = "#root-messenger-chat .js-message-item"

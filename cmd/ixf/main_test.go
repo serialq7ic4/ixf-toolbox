@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -550,7 +551,7 @@ func TestCollectDiagnosticsReportsLegacyCommandShimsAsIgnored(t *testing.T) {
 		t.Fatalf("mkdir bin: %v", err)
 	}
 	for _, name := range []string{"ixfdoc", "ixfwrite"} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		if err := writeLegacyCommandShim(bin, name); err != nil {
 			t.Fatalf("write legacy shim %s: %v", name, err)
 		}
 	}
@@ -558,6 +559,9 @@ func TestCollectDiagnosticsReportsLegacyCommandShimsAsIgnored(t *testing.T) {
 		t.Fatalf("write cookies: %v", err)
 	}
 	t.Setenv("PATH", bin)
+	if runtime.GOOS == "windows" {
+		t.Setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+	}
 	t.Setenv("HOME", home)
 	t.Setenv("IXF_TOOLBOX_CODEX_SKILLS_DIR", filepath.Join(home, "codex-skills"))
 	t.Setenv("IXF_TOOLBOX_CLAUDE_CODE_SKILLS_DIR", filepath.Join(home, "claude-skills"))
@@ -587,6 +591,16 @@ func TestCollectDiagnosticsReportsLegacyCommandShimsAsIgnored(t *testing.T) {
 			t.Fatalf("doctor text missing %q:\n%s", expected, stdout.String())
 		}
 	}
+}
+
+func writeLegacyCommandShim(bin string, name string) error {
+	filename := name
+	content := []byte("#!/bin/sh\nexit 0\n")
+	if runtime.GOOS == "windows" {
+		filename += ".exe"
+		content = []byte("legacy shim placeholder")
+	}
+	return os.WriteFile(filepath.Join(bin, filename), content, 0o755)
 }
 
 func TestCollectDiagnosticsMarksMissingAndInvalidCookieFilesUnhealthy(t *testing.T) {

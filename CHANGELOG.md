@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.7.2 - 2026-07-17
+
+- Fixed Windows CI coverage for Go-only legacy command diagnostics by creating platform-appropriate `ixfdoc` and `ixfwrite` shim fixtures.
+- Kept legacy command reporting as ignored diagnostics only; the runtime remains Go `ixf` only.
+
 ## 3.7.1 - 2026-07-17
 
 - Added Go-only agent guidance to prevent Python fallback or legacy `ixfdoc`/`ixfwrite` routing when agents inspect historical project notes.

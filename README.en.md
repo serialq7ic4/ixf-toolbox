@@ -47,27 +47,27 @@ The recommended path is to let the agent you are already using install Toolbox. 
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.6.2_darwin_arm64`, macOS Intel: `ixf_3.6.2_darwin_amd64`, Windows: `ixf_3.6.2_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.7.0_darwin_arm64`, macOS Intel: `ixf_3.7.0_darwin_amd64`, Windows: `ixf_3.7.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.6.2/ixf_3.6.2_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.7.0/ixf_3.7.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_3.6.2_darwin_amd64` instead.
+For macOS Intel, use `ixf_3.7.0_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.6.2/ixf_3.6.2_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.7.0/ixf_3.7.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -130,7 +130,9 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Runtime Status
 
-Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations. Starting with v3.6, it can send approved messages and requires fresh-session verification before reporting success.
+Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations. Starting with v3.6, it can send approved messages and requires fresh-session verification before reporting success. Starting with v3.7, Messenger has a GA runbook and actionable diagnostic remediation.
+
+See [`docs/messenger.md`](docs/messenger.md) for Messenger operations, including Chrome/Chromium-only discovery, cloned profile isolation, read side effects, and send success criteria.
 
 ## Manual Read Flow
 
@@ -197,7 +199,7 @@ Toolbox currently supports:
 - Simple tables, task lists, code languages, rich-text links, image block download, direct sheets reads, embedded sheet expansion, and safe artifact cleanup.
 - Local Markdown chunking, reading, publishing, and test workflows.
 - Authorized OKR reading, selected Objective update/create, multi-Objective writes by Objective text, KR create/update/order, explicit prune, and publish-after-edit.
-- Messenger readiness diagnostics, profile discovery, safe profile cloning, dry-run open planning, explicit --apply target verification, read-only recent/unread extraction, and approved sends with fresh-session verification.
+- Messenger readiness diagnostics, profile discovery, safe cloned profile usage, dry-run open planning, explicit --apply target verification, read-only recent/unread extraction, and approved sends with fresh-session verification.
 - macOS and experimental Windows desktop-session cookie export, diagnostics, and skill installation.
 
 Some cloud document blocks do not map perfectly to Markdown. The converter prioritizes agent analysis usefulness over visual fidelity.
@@ -209,7 +211,7 @@ Some cloud document blocks do not map perfectly to Markdown. The converter prior
 | macOS | Tier 1 | Reads the LarkShell Chromium profile, decrypts cookies with Keychain, discovers `profile_explorer` for Messenger, and auto-discovers only Chrome/Chromium for Messenger browser automation. |
 | Windows | CI-tested / experimental | Reads the LarkShell Chromium profile and decrypts cookies with DPAPI; Messenger profile discovery needs more live desktop validation; Messenger browser automation auto-discovers only Chrome/Chromium. |
 
-Linux desktop-session export is not supported because i讯飞 does not ship a Linux desktop client. Pure parsing and dry-run components may still work when dependencies are available.
+Linux desktop-session export is not supported because i讯飞 does not ship a Linux desktop client. Pure parsing and dry-run components may still work when dependencies are available. More Messenger details are in [`docs/messenger.md`](docs/messenger.md).
 
 ## Migration
 
@@ -223,7 +225,7 @@ See [`docs/migration-from-legacy.md`](docs/migration-from-legacy.md) for command
 - `doctor` does not print cookie values.
 - Remote read errors do not echo raw API payloads.
 - Remote writes default to dry-run and require explicit `--apply`.
-- Messenger currently supports diagnostics, dry-run open planning, explicit --apply target verification, read-only conversation extraction, and approved sends with fresh-session verification.
+- Messenger currently supports diagnostics, dry-run open planning, explicit --apply target verification, read-only conversation extraction, and approved sends with fresh-session verification. Messenger auto-discovers only Chrome/Chromium and always uses a cloned profile.
 - Destructive OKR pruning requires explicit `--prune`.
 - Generated Markdown, TSV, images, manifests, and OKR JSON may contain private content.
 - Do not commit cookies, generated artifacts, full private URLs, internal responses, or sensitive diagnostics.

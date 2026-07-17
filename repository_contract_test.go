@@ -99,16 +99,43 @@ func TestMessengerSkillsAreRoutedAndDocumentDryRunSafety(t *testing.T) {
 		}
 
 		reader := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, "ixf-messenger-reader", "SKILL.md")))
-		for _, expected := range []string{"name: ixf-messenger-reader", "ixf messenger doctor --json", "ixf messenger read", "read-only", "--apply", "never sends"} {
+		for _, expected := range []string{"name: ixf-messenger-reader", "ixf messenger doctor --json", "ixf messenger read", "read-only", "--apply", "never sends", "Chrome/Chromium-only", "may mark opened chats as read"} {
 			if !strings.Contains(reader, expected) {
 				t.Fatalf("%s messenger reader missing %q:\n%s", runtimeDir, expected, reader)
 			}
 		}
 
 		writer := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, "ixf-messenger-writer", "SKILL.md")))
-		for _, expected := range []string{"name: ixf-messenger-writer", "ixf messenger send", "dry-run", "--apply", "fresh-session verification"} {
+		for _, expected := range []string{"name: ixf-messenger-writer", "ixf messenger send", "dry-run", "--apply", "fresh-session verification", "targetVerified:true", "localEchoMatched:true", "verifiedPresent:true"} {
 			if !strings.Contains(writer, expected) {
 				t.Fatalf("%s messenger writer missing %q:\n%s", runtimeDir, expected, writer)
+			}
+		}
+	}
+}
+
+func TestMessengerGADocumentationCoversOperationalBoundaries(t *testing.T) {
+	messengerDoc := readRepoFile(t, "docs/messenger.md")
+	for _, expected := range []string{
+		"Chrome/Chromium-only",
+		"profile_explorer",
+		"cloned profile",
+		"read/open may mark chats as read",
+		"targetVerified:true",
+		"localEchoMatched:true",
+		"verifiedPresent:true",
+		"ixf messenger doctor --json",
+	} {
+		if !strings.Contains(messengerDoc, expected) {
+			t.Fatalf("docs/messenger.md missing %q:\n%s", expected, messengerDoc)
+		}
+	}
+
+	for _, relative := range []string{"README.md", "README.en.md", "docs/supported-platforms.md"} {
+		text := readRepoFile(t, relative)
+		for _, expected := range []string{"docs/messenger.md", "Chrome/Chromium", "cloned profile"} {
+			if !strings.Contains(text, expected) {
+				t.Fatalf("%s missing %q:\n%s", relative, expected, text)
 			}
 		}
 	}

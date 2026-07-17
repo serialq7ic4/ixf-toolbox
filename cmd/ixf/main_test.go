@@ -107,6 +107,39 @@ func TestMessengerDoctorJSONIsSecretSafe(t *testing.T) {
 	}
 }
 
+func TestMessengerDoctorTextPrintsRemediation(t *testing.T) {
+	home := t.TempDir()
+	profile := filepath.Join(home, "profile_explorer")
+	missingBrowser := filepath.Join(home, "missing-chrome")
+	missingCookies := filepath.Join(home, "missing-cookies.json")
+	if err := os.MkdirAll(profile, 0o755); err != nil {
+		t.Fatalf("mkdir profile: %v", err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := run([]string{
+		"messenger", "doctor",
+		"--profile-dir", profile,
+		"--browser-path", missingBrowser,
+		"--cookies", missingCookies,
+		"--goos", "darwin",
+	}, &stdout, &stderr)
+
+	if code != 1 {
+		t.Fatalf("messenger doctor text exit code = %d, want 1; stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	for _, expected := range []string{
+		"overall fail",
+		"remediation Install Google Chrome or Chromium",
+		"remediation Run ixf cookies export",
+	} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("messenger doctor text missing %q:\n%s", expected, stdout.String())
+		}
+	}
+}
+
 func TestMessengerOpenDryRunValidatesArgumentsAndPrintsPlan(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

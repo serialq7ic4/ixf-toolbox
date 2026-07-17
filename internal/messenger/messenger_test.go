@@ -121,6 +121,49 @@ func TestDoctorIsSecretSafeAndReportsReadiness(t *testing.T) {
 	}
 }
 
+func TestDoctorReportsSecretSafeRemediation(t *testing.T) {
+	home := t.TempDir()
+	profile := filepath.Join(home, "profile_explorer")
+	browser := filepath.Join(home, "chrome")
+	cookies := filepath.Join(home, "cookies.json")
+	mustMkdir(t, profile)
+	mustWrite(t, browser, []byte("browser"))
+	mustWrite(t, cookies, []byte(`[{"name":"_csrf_token","value":"secret-csrf"},{"name":"session","value":"secret-session"}]`))
+
+	missingBrowserPayload := Doctor(Config{
+		GOOS:        "darwin",
+		ProfileDir:  profile,
+		BrowserPath: filepath.Join(home, "missing-chrome"),
+		CookiesPath: cookies,
+	})
+	remediation, ok := missingBrowserPayload["remediation"].([]string)
+	if !ok || len(remediation) == 0 {
+		t.Fatalf("doctor missing remediation for browser failure: %+v", missingBrowserPayload)
+	}
+	text := strings.Join(remediation, "\n")
+	for _, expected := range []string{"Chrome or Chromium", "--browser-path", "IXF_MESSENGER_BROWSER_PATH"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("browser remediation missing %q: %s", expected, text)
+		}
+	}
+	for _, secret := range []string{"secret-csrf", "secret-session"} {
+		if strings.Contains(fmtSprint(missingBrowserPayload), secret) {
+			t.Fatalf("doctor remediation leaked secret %q: %+v", secret, missingBrowserPayload)
+		}
+	}
+
+	missingCookiesPayload := Doctor(Config{
+		GOOS:        "darwin",
+		ProfileDir:  profile,
+		BrowserPath: browser,
+		CookiesPath: filepath.Join(home, "missing-cookies.json"),
+	})
+	remediation, ok = missingCookiesPayload["remediation"].([]string)
+	if !ok || !strings.Contains(strings.Join(remediation, "\n"), "ixf cookies export") {
+		t.Fatalf("doctor missing cookie export remediation: %+v", missingCookiesPayload)
+	}
+}
+
 func TestPlanOpenIsDryRunOnlyAndValidatesTargetMode(t *testing.T) {
 	home := t.TempDir()
 	profile := filepath.Join(home, "profile_explorer")

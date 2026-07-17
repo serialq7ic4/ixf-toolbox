@@ -227,10 +227,12 @@ func Doctor(config Config) map[string]any {
 	profileOK := profile.OK
 	browserOK := browser.OK
 	cookiesOK, _ := cookies["ok"].(bool)
+	remediation := doctorRemediation(goos, supported, profile, browser, cookies)
 	return map[string]any{
-		"ok":      supported && profileOK && browserOK && cookiesOK,
-		"runtime": "go",
-		"domain":  "messenger",
+		"ok":          supported && profileOK && browserOK && cookiesOK,
+		"runtime":     "go",
+		"domain":      "messenger",
+		"remediation": remediation,
 		"messenger": map[string]any{
 			"supportedPlatform":        supported,
 			"goos":                     goos,
@@ -244,6 +246,24 @@ func Doctor(config Config) map[string]any {
 		"browser": browser,
 		"cookies": cookies,
 	}
+}
+
+func doctorRemediation(goos string, supported bool, profile ProfileDiscovery, browser BrowserDiscovery, cookies map[string]any) []string {
+	var result []string
+	if !supported {
+		result = append(result, "Use macOS or Windows desktop LarkShell; Messenger automation is unsupported on "+goos+".")
+	}
+	if !profile.OK {
+		result = append(result, "Open i讯飞/LarkShell desktop and sign in, then rerun; pass --profile-dir to a profile_explorer directory if auto discovery is wrong.")
+	}
+	if !browser.OK {
+		result = append(result, "Install Google Chrome or Chromium, or pass --browser-path / set IXF_MESSENGER_BROWSER_PATH.")
+	}
+	cookiesOK, _ := cookies["ok"].(bool)
+	if !cookiesOK {
+		result = append(result, "Run ixf cookies export --provider auto --output "+DefaultCookieJSON+", then rerun doctor with --cookies.")
+	}
+	return result
 }
 
 func PlanOpen(config OpenConfig) (map[string]any, error) {

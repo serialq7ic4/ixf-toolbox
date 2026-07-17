@@ -5,7 +5,7 @@ description: Use when inspecting authorized i讯飞 Messenger readiness, unread 
 
 # ixf Messenger Reader
 
-Use `ixf messenger` through the local Toolbox CLI. This skill is read-only and never sends messages.
+Use `ixf messenger` through the local Toolbox CLI. This skill is read-only and never sends messages. Messenger automation is Chrome/Chromium-only and always runs against a cloned profile, never the live LarkShell profile.
 
 ## Workflow
 

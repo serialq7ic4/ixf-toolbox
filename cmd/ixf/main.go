@@ -26,7 +26,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "3.6.2"
+var version = "3.7.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -1470,6 +1470,11 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 			boolFromMap(cookies, "hasLgwCsrf"),
 		)
 	}
+	if remediation, ok := payload["remediation"].([]string); ok {
+		for _, item := range remediation {
+			fmt.Fprintf(w, "remediation %s\n", item)
+		}
+	}
 }
 
 func formatMessengerDiagnostics(w io.Writer, payload map[string]any) {
@@ -1505,6 +1510,11 @@ func formatMessengerDiagnostics(w io.Writer, payload map[string]any) {
 			boolFromMap(cookies, "hasCsrf"),
 			boolFromMap(cookies, "hasLgwCsrf"),
 		)
+	}
+	if remediation, ok := payload["remediation"].([]string); ok {
+		for _, item := range remediation {
+			fmt.Fprintf(w, "remediation %s\n", item)
+		}
 	}
 }
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.7.0 - 2026-07-17
+
+- Added secret-safe Messenger doctor remediation guidance for missing platform, profile, Chrome/Chromium browser, and cookie prerequisites.
+- Added a Messenger GA runbook covering Chrome/Chromium-only automation, cloned profile isolation, read-side effects, send verification criteria, and troubleshooting.
+- Updated Messenger reader/writer skills and platform docs to align agent behavior with the GA safety boundaries.
+
 ## 3.6.2 - 2026-07-17
 
 - Fixed Messenger target search by using native browser click events, CDP text insertion, and safe selector diagnostics when the global search modal does not accept input.

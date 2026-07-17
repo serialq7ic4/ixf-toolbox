@@ -5,7 +5,7 @@ description: Use when sending an approved i讯飞 Messenger message to a confirm
 
 # ixf Messenger Writer
 
-Use `ixf messenger send` through the local Toolbox CLI. This skill can send real messages only after dry-run planning and explicit user confirmation.
+Use `ixf messenger send` through the local Toolbox CLI. This skill can send real messages only after dry-run planning and explicit user confirmation. Messenger automation is Chrome/Chromium-only and always runs against cloned profiles.
 
 ## Workflow
 
@@ -17,7 +17,7 @@ Use `ixf messenger send` through the local Toolbox CLI. This skill can send real
 4. Show the dry-run plan and ask for explicit approval before applying.
 5. If approved, send with:
    `ixf messenger send --to "<target>" --mode person|conversation --message "<text>" --apply --json`
-6. Treat `sent:true`, `targetVerified:true`, and `verifiedPresent:true` as the success condition. The command performs fresh-session verification before reporting success.
+6. Treat `targetVerified:true`, `sent:true`, `localEchoMatched:true`, and `verifiedPresent:true` as the success condition. The command performs fresh-session verification before reporting success.
 
 ## Safety
 

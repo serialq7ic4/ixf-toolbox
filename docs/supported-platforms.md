@@ -13,15 +13,17 @@ Linux desktop-session export and Messenger automation are not supported because 
 
 Messenger automation is browser-profile-first, not cookie-only. The live LarkShell profile must never be opened directly; Toolbox clones the profile into a temporary directory, removes Chromium singleton locks and cache-heavy directories, and only then allows later browser automation stages to run against the clone.
 
-`v3.4.0` exposes diagnostics, dry-run open planning, and explicit --apply target verification:
+`v3.5.0` exposes diagnostics, dry-run open planning, explicit --apply target verification, and read-only conversation extraction:
 
 ```bash
 ixf messenger doctor --json
 ixf messenger open --to "示例群聊" --mode conversation --dry-run --json
 ixf messenger open --to "示例群聊" --mode conversation --apply --json
+ixf messenger read --scope unread --dry-run --json
+ixf messenger read --scope unread --apply --json
 ```
 
-Real unread extraction and message sending are intentionally deferred; open --apply only verifies the target and never sends.
+Opening or reading chats may mark them as read. Real message sending remains intentionally unavailable.
 
 ## Windows
 
@@ -29,7 +31,7 @@ Install the Go binary with:
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.4.0/ixf_3.4.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.5.0/ixf_3.5.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf cookies export --provider windows-larkshell --output $env:TEMP\ixf_cookies.json
 ixf doctor --json --cookies $env:TEMP\ixf_cookies.json

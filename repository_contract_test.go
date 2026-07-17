@@ -99,7 +99,7 @@ func TestMessengerSkillsAreRoutedAndDocumentDryRunSafety(t *testing.T) {
 		}
 
 		reader := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, "ixf-messenger-reader", "SKILL.md")))
-		for _, expected := range []string{"name: ixf-messenger-reader", "ixf messenger doctor --json", "read-only", "--apply", "never sends"} {
+		for _, expected := range []string{"name: ixf-messenger-reader", "ixf messenger doctor --json", "ixf messenger read", "read-only", "--apply", "never sends"} {
 			if !strings.Contains(reader, expected) {
 				t.Fatalf("%s messenger reader missing %q:\n%s", runtimeDir, expected, reader)
 			}

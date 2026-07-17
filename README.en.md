@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.md)
 
-Let Codex, Claude Code, and other local coding agents read and publish authorized i讯飞/LarkShell cloud documents, read or write confirmed OKR content, and gradually use local Messenger workflows.
+Let Codex, Claude Code, and other local coding agents read and publish authorized i讯飞/LarkShell cloud documents, read or write confirmed OKR content, and use local read-only Messenger workflows.
 
 > Built for local agent workflows. `ixf` is the unified local command. It reuses your desktop login session, runs no hosted service, sends no telemetry, and requires no Open Platform app.
 
@@ -19,7 +19,7 @@ Let Codex, Claude Code, and other local coding agents read and publish authorize
 - `ixf-docs-writer`: dry-run-first Markdown to docx publishing.
 - `ixf-okr-reader`: read-only Objective / Key Result extraction from authorized OKR pages.
 - `ixf-okr-writer`: dry-run-first creation or update of confirmed Objective / Key Result content.
-- `ixf-messenger-reader`: read-only Messenger readiness checks and message workflow planning.
+- `ixf-messenger-reader`: read-only Messenger readiness checks plus recent or unread conversation extraction.
 - `ixf-messenger-writer`: write-side planning and target verification only; real sends remain unavailable until target and post-send verification are implemented.
 
 This project is intentionally local and narrow. It is not a browser extension, daemon, sync service, bulk migration tool, or substitute for organizational data-access rules.
@@ -47,27 +47,27 @@ The recommended path is to let the agent you are already using install Toolbox. 
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.4.0_darwin_arm64`, macOS Intel: `ixf_3.4.0_darwin_amd64`, Windows: `ixf_3.4.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.5.0_darwin_arm64`, macOS Intel: `ixf_3.5.0_darwin_amd64`, Windows: `ixf_3.5.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.4.0/ixf_3.4.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.5.0/ixf_3.5.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_3.4.0_darwin_amd64` instead.
+For macOS Intel, use `ixf_3.5.0_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.4.0/ixf_3.4.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.5.0/ixf_3.5.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -117,6 +117,8 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf messenger doctor --json` | Inspect Messenger desktop profile, browser, and cookie readiness |
 | `ixf messenger open --to <target> --mode person\|conversation --dry-run --json` | Plan opening a person or conversation without sending |
 | `ixf messenger open --to <target> --mode person\|conversation --apply --json` | Launch a cloned-profile browser and verify the target chat without sending |
+| `ixf messenger read --scope unread\|recent --dry-run --json` | Plan unread or recent conversation reads without launching a browser |
+| `ixf messenger read --scope unread\|recent --apply --json` | Launch a cloned-profile browser and read conversation snippets without sending |
 | `ixf cookies export` | Export cookies from the local desktop session |
 | `ixf doctor --json` | Inspect runtime, skills, and cookie metadata without printing cookie values |
 | `ixf setup skills --runtimes auto --json` | Install Codex / Claude Code skills |
@@ -126,7 +128,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Runtime Status
 
-Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply, while still never sending messages.
+Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations while still never sending messages.
 
 ## Manual Read Flow
 
@@ -193,7 +195,7 @@ Toolbox currently supports:
 - Simple tables, task lists, code languages, rich-text links, image block download, direct sheets reads, embedded sheet expansion, and safe artifact cleanup.
 - Local Markdown chunking, reading, publishing, and test workflows.
 - Authorized OKR reading, selected Objective update/create, multi-Objective writes by Objective text, KR create/update/order, explicit prune, and publish-after-edit.
-- Messenger readiness diagnostics, profile discovery, safe profile cloning, dry-run open planning, and explicit --apply target verification; real reads and sends will ship in later stages.
+- Messenger readiness diagnostics, profile discovery, safe profile cloning, dry-run open planning, explicit --apply target verification, and read-only recent/unread extraction; real sends will ship in later stages.
 - macOS and experimental Windows desktop-session cookie export, diagnostics, and skill installation.
 
 Some cloud document blocks do not map perfectly to Markdown. The converter prioritizes agent analysis usefulness over visual fidelity.
@@ -219,7 +221,7 @@ See [`docs/migration-from-legacy.md`](docs/migration-from-legacy.md) for command
 - `doctor` does not print cookie values.
 - Remote read errors do not echo raw API payloads.
 - Remote writes default to dry-run and require explicit `--apply`.
-- Messenger currently supports diagnostics, dry-run open planning, and explicit --apply target verification; real sends are not exposed.
+- Messenger currently supports diagnostics, dry-run open planning, explicit --apply target verification, and read-only conversation extraction; real sends are not exposed.
 - Destructive OKR pruning requires explicit `--prune`.
 - Generated Markdown, TSV, images, manifests, and OKR JSON may contain private content.
 - Do not commit cookies, generated artifacts, full private URLs, internal responses, or sensitive diagnostics.

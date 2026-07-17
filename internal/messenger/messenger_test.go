@@ -263,13 +263,139 @@ func TestOpenTargetApplyCanKeepProfileCloneForDebugging(t *testing.T) {
 	}
 }
 
+func TestPlanReadValidatesScopeAndRequiresDryRunOrApply(t *testing.T) {
+	if _, err := PlanRead(ReadConfig{Scope: "unknown", DryRun: true}); err == nil {
+		t.Fatal("PlanRead accepted unsupported scope")
+	}
+	if _, err := PlanRead(ReadConfig{Scope: "unread"}); err == nil {
+		t.Fatal("PlanRead accepted missing --dry-run/--apply")
+	}
+	if _, err := PlanRead(ReadConfig{Scope: "unread", DryRun: true, Apply: true}); err == nil {
+		t.Fatal("PlanRead accepted mutually exclusive dry-run/apply")
+	}
+
+	payload, err := PlanRead(ReadConfig{Scope: "unread", DryRun: true, Limit: 2, MessagesPerChat: 3})
+	if err != nil {
+		t.Fatalf("PlanRead returned error: %v", err)
+	}
+	if payload["action"] != "read" || payload["scope"] != "unread" || payload["dryRun"] != true {
+		t.Fatalf("PlanRead payload = %+v", payload)
+	}
+	if payload["willSend"] != false || payload["browserLaunch"] != false {
+		t.Fatalf("PlanRead should not send or launch in dry-run: %+v", payload)
+	}
+}
+
+func TestReadMessagesDryRunDoesNotInvokeAutomator(t *testing.T) {
+	automator := &recordingAutomator{}
+
+	payload, err := ReadMessages(context.Background(), ReadConfig{
+		Scope:  "recent",
+		Limit:  2,
+		DryRun: true,
+	}, automator)
+
+	if err != nil {
+		t.Fatalf("ReadMessages dry-run returned error: %v", err)
+	}
+	if automator.readCalled {
+		t.Fatal("ReadMessages dry-run invoked the browser automator")
+	}
+	if payload["browserLaunch"] != false || payload["willSend"] != false {
+		t.Fatalf("dry-run payload should not launch or send: %+v", payload)
+	}
+}
+
+func TestReadMessagesApplyClonesProfileInvokesAutomatorAndCleansClone(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "profile_explorer")
+	browser := filepath.Join(t.TempDir(), "chrome")
+	cookies := filepath.Join(t.TempDir(), "cookies.json")
+	mustMkdir(t, filepath.Join(source, "Default"))
+	mustWrite(t, filepath.Join(source, "Default", "Preferences"), []byte("prefs"))
+	mustWrite(t, filepath.Join(source, "SingletonLock"), []byte("lock"))
+	mustWrite(t, browser, []byte("browser"))
+	mustWrite(t, cookies, []byte(`[{"name":"_csrf_token","value":"secret-csrf"}]`))
+	automator := &recordingAutomator{readResult: BrowserReadResult{
+		Scope: "unread",
+		Conversations: []ConversationRead{
+			{
+				Title:       "示例群聊",
+				Unread:      2,
+				Time:        "09:30",
+				Preview:     "最新预览",
+				OpenedTitle: "示例群聊",
+				Messages: []MessageRead{
+					{Side: "other", Text: "需要处理的问题"},
+				},
+			},
+		},
+		RecentSeen:   4,
+		UnreadSeen:   1,
+		Extracted:    1,
+		Headless:     true,
+		FallbackUsed: false,
+	}}
+
+	payload, err := ReadMessages(context.Background(), ReadConfig{
+		Config: Config{
+			GOOS:        "darwin",
+			ProfileDir:  source,
+			BrowserPath: browser,
+			CookiesPath: cookies,
+		},
+		Scope:           "unread",
+		Limit:           5,
+		MessagesPerChat: 3,
+		Apply:           true,
+		TimeoutMS:       1500,
+	}, automator)
+
+	if err != nil {
+		t.Fatalf("ReadMessages apply returned error: %v", err)
+	}
+	if !automator.readCalled {
+		t.Fatal("ReadMessages apply did not invoke the browser automator")
+	}
+	if automator.readRequest.UserDataDir == source || automator.readRequest.UserDataDir == "" {
+		t.Fatalf("automator used live or empty profile path: %+v", automator.readRequest)
+	}
+	if !automator.sawProfileData || !automator.sawNoSingleton {
+		t.Fatalf("automator did not see the expected safe clone state: data=%t noSingleton=%t", automator.sawProfileData, automator.sawNoSingleton)
+	}
+	if automator.readRequest.Scope != "unread" || automator.readRequest.Limit != 5 || automator.readRequest.MessagesPerChat != 3 {
+		t.Fatalf("automator read request options = %+v", automator.readRequest)
+	}
+	if automator.readRequest.TimeoutMS != 1500 || !automator.readRequest.Headless {
+		t.Fatalf("automator read request timeout/headless = %+v", automator.readRequest)
+	}
+	if payload["browserLaunch"] != true || payload["willSend"] != false || payload["ok"] != true {
+		t.Fatalf("read apply payload = %+v", payload)
+	}
+	if payload["totalExtractedConversations"] != 1 || payload["totalUnreadConversations"] != 1 {
+		t.Fatalf("read totals = %+v", payload)
+	}
+	if !strings.Contains(fmtSprint(payload), "需要处理的问题") {
+		t.Fatalf("read payload missing message text: %+v", payload)
+	}
+	if strings.Contains(fmtSprint(payload), "secret-csrf") {
+		t.Fatalf("read payload leaked cookie value: %+v", payload)
+	}
+	if _, err := os.Stat(automator.readRequest.UserDataDir); !os.IsNotExist(err) {
+		t.Fatalf("temporary cloned profile still exists after read: %s", automator.readRequest.UserDataDir)
+	}
+}
+
 type recordingAutomator struct {
 	called         bool
+	readCalled     bool
 	sawProfileData bool
 	sawNoSingleton bool
 	request        BrowserOpenRequest
+	readRequest    BrowserReadRequest
 	result         BrowserOpenResult
+	readResult     BrowserReadResult
 	err            error
+	readErr        error
 }
 
 func (automator *recordingAutomator) Open(_ context.Context, request BrowserOpenRequest) (BrowserOpenResult, error) {
@@ -282,6 +408,18 @@ func (automator *recordingAutomator) Open(_ context.Context, request BrowserOpen
 		automator.sawNoSingleton = true
 	}
 	return automator.result, automator.err
+}
+
+func (automator *recordingAutomator) Read(_ context.Context, request BrowserReadRequest) (BrowserReadResult, error) {
+	automator.readCalled = true
+	automator.readRequest = request
+	if content, err := os.ReadFile(filepath.Join(request.UserDataDir, "Default", "Preferences")); err == nil && string(content) == "prefs" {
+		automator.sawProfileData = true
+	}
+	if _, err := os.Stat(filepath.Join(request.UserDataDir, "SingletonLock")); os.IsNotExist(err) {
+		automator.sawNoSingleton = true
+	}
+	return automator.readResult, automator.readErr
 }
 
 func fmtSprint(value any) string {

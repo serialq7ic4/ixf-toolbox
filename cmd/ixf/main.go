@@ -26,7 +26,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "3.4.0"
+var version = "3.5.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -593,6 +593,7 @@ func runMessenger(args []string, stdout io.Writer, stderr io.Writer) int {
 	rows := [][2]string{
 		{"doctor", "Inspect local Messenger automation readiness."},
 		{"open", "Plan opening a person or conversation without sending."},
+		{"read", "Read recent or unread conversations without sending."},
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "ERROR messenger requires a subcommand.")
@@ -608,6 +609,8 @@ func runMessenger(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runMessengerDoctor(args[1:], stdout, stderr)
 	case "open":
 		return runMessengerOpen(args[1:], stdout, stderr)
+	case "read":
+		return runMessengerRead(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "ERROR unsupported messenger subcommand: %s\n", args[0])
 		printCommandHelp(stderr, "ixf messenger", rows)
@@ -672,6 +675,54 @@ func runMessengerOpen(args []string, stdout io.Writer, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "apply %t\n", payload["apply"])
 	fmt.Fprintf(stdout, "will_send %t\n", payload["willSend"])
 	fmt.Fprintf(stdout, "target_verified %t\n", payload["targetVerified"])
+	return 0
+}
+
+func runMessengerRead(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("ixf messenger read", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	config, asJSON := messengerFlags(flags)
+	scope := flags.String("scope", "unread", "")
+	limit := flags.Int("limit", 20, "")
+	messagesPerChat := flags.Int("messages-per-chat", 5, "")
+	maxScrolls := flags.Int("max-scrolls", 18, "")
+	includeSelfMessages := flags.Bool("include-self-messages", false, "")
+	dryRun := flags.Bool("dry-run", false, "")
+	apply := flags.Bool("apply", false, "")
+	allowVisibleFallback := flags.Bool("allow-visible-fallback", false, "")
+	keepProfileClone := flags.Bool("keep-profile-clone", false, "")
+	timeoutMS := flags.Int("timeout-ms", 60000, "")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	payload, err := messenger.ReadMessages(context.Background(), messenger.ReadConfig{
+		Config:               config(),
+		Scope:                *scope,
+		Limit:                *limit,
+		MessagesPerChat:      *messagesPerChat,
+		MaxScrolls:           *maxScrolls,
+		IncludeSelfMessages:  *includeSelfMessages,
+		DryRun:               *dryRun,
+		Apply:                *apply,
+		AllowVisibleFallback: *allowVisibleFallback,
+		KeepProfileClone:     *keepProfileClone,
+		TimeoutMS:            *timeoutMS,
+	}, messenger.ChromedpAutomator{})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	if *asJSON {
+		writeJSON(stdout, payload)
+		return 0
+	}
+	fmt.Fprintf(stdout, "scope %s\n", payload["scope"])
+	fmt.Fprintf(stdout, "dry_run %t\n", payload["dryRun"])
+	fmt.Fprintf(stdout, "apply %t\n", payload["apply"])
+	fmt.Fprintf(stdout, "will_send %t\n", payload["willSend"])
+	fmt.Fprintf(stdout, "recent_seen %v\n", payload["totalRecentConversationsSeen"])
+	fmt.Fprintf(stdout, "unread_conversations %v\n", payload["totalUnreadConversations"])
+	fmt.Fprintf(stdout, "extracted_conversations %v\n", payload["totalExtractedConversations"])
 	return 0
 }
 
@@ -1236,6 +1287,8 @@ func collectDiagnostics(cookiesPath string) map[string]any {
 			"messengerDoctor":    true,
 			"messengerOpenPlan":  true,
 			"messengerOpenApply": true,
+			"messengerReadPlan":  true,
+			"messengerReadApply": true,
 		},
 		"skills":  skills,
 		"cookies": cookies,
@@ -1327,7 +1380,7 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 	capabilities := payload["capabilities"]
 	fmt.Fprintf(
 		w,
-		"native docsRead=%t docsPublish=%t okrRead=%t okrWrite=%t cookiesExport=%t messengerDoctor=%t messengerOpenPlan=%t messengerOpenApply=%t\n",
+		"native docsRead=%t docsPublish=%t okrRead=%t okrWrite=%t cookiesExport=%t messengerDoctor=%t messengerOpenPlan=%t messengerOpenApply=%t messengerReadPlan=%t messengerReadApply=%t\n",
 		boolFromMap(capabilities, "docsRead"),
 		boolFromMap(capabilities, "docsPublish"),
 		boolFromMap(capabilities, "okrRead"),
@@ -1336,6 +1389,8 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 		boolFromMap(capabilities, "messengerDoctor"),
 		boolFromMap(capabilities, "messengerOpenPlan"),
 		boolFromMap(capabilities, "messengerOpenApply"),
+		boolFromMap(capabilities, "messengerReadPlan"),
+		boolFromMap(capabilities, "messengerReadApply"),
 	)
 
 	if skills, ok := payload["skills"].(map[string]any); ok {

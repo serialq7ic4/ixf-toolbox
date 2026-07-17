@@ -1,6 +1,6 @@
 ---
 name: ixf-messenger-reader
-description: Use when inspecting authorized i讯飞 Messenger readiness, unread-message workflows, chat routing, or local browser-profile prerequisites without sending messages.
+description: Use when inspecting authorized i讯飞 Messenger readiness, unread or recent messages, chat routing, or local browser-profile prerequisites without sending messages.
 ---
 
 # ixf Messenger Reader
@@ -9,15 +9,19 @@ Use `ixf messenger` through the local Toolbox CLI. This skill is read-only and n
 
 ## Workflow
 
-1. Confirm the user is asking for Messenger inspection or read-only planning.
+1. Confirm the user is asking for Messenger inspection or read-only message analysis.
 2. Check local readiness:
    `ixf messenger doctor --json`
-3. If the user wants to open a target, plan it without sending:
+3. If the user wants unread or recent message content, start with a read plan:
+   `ixf messenger read --scope unread|recent --dry-run --json`
+4. If the user explicitly accepts that reading may mark opened chats as read, read through the cloned profile:
+   `ixf messenger read --scope unread|recent --apply --json`
+5. If the user wants to open a target, plan it without sending:
    `ixf messenger open --to "<target>" --mode person|conversation --dry-run --json`
-4. If the user explicitly accepts that opening a chat may mark it as read, verify the target with:
+6. If the user explicitly accepts that opening a chat may mark it as read, verify the target with:
    `ixf messenger open --to "<target>" --mode person|conversation --apply --json`
-5. Treat `targetVerified:true` as the success condition for open verification.
+7. Treat `targetVerified:true` as the success condition for open verification.
 
 ## Safety
 
-Do not print cookie values, CSRF tokens, private conversation IDs, message bodies, screenshots, profile contents, or raw browser state unless the user explicitly needs that content for the requested analysis. `open --apply` never sends messages and must not type into the editor.
+Do not print cookie values, CSRF tokens, private conversation IDs, screenshots, profile contents, or raw browser state. Message bodies may appear only when the user requested message reading or analysis. `read --apply` and `open --apply` never send messages and must not type into the editor.

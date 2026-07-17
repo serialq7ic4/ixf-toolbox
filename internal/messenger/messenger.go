@@ -82,8 +82,24 @@ type OpenConfig struct {
 	TimeoutMS            int
 }
 
+type ReadConfig struct {
+	Config
+	Scope                string
+	DryRun               bool
+	Apply                bool
+	Headless             bool
+	AllowVisibleFallback bool
+	KeepProfileClone     bool
+	TimeoutMS            int
+	Limit                int
+	MessagesPerChat      int
+	MaxScrolls           int
+	IncludeSelfMessages  bool
+}
+
 type Automator interface {
 	Open(context.Context, BrowserOpenRequest) (BrowserOpenResult, error)
+	Read(context.Context, BrowserReadRequest) (BrowserReadResult, error)
 }
 
 type BrowserOpenRequest struct {
@@ -103,6 +119,55 @@ type BrowserOpenResult struct {
 	TargetVerified bool   `json:"targetVerified"`
 	Headless       bool   `json:"headless"`
 	FallbackUsed   bool   `json:"fallbackUsed,omitempty"`
+}
+
+type BrowserReadRequest struct {
+	BrowserPath          string
+	UserDataDir          string
+	CookiePath           string
+	URL                  string
+	Scope                string
+	Limit                int
+	MessagesPerChat      int
+	MaxScrolls           int
+	IncludeSelfMessages  bool
+	Headless             bool
+	AllowVisibleFallback bool
+	TimeoutMS            int
+}
+
+type BrowserReadResult struct {
+	Scope                string             `json:"scope"`
+	Conversations        []ConversationRead `json:"conversations"`
+	SkippedConversations []ConversationSkip `json:"skippedConversations,omitempty"`
+	RecentSeen           int                `json:"totalRecentConversationsSeen"`
+	UnreadSeen           int                `json:"totalUnreadConversations"`
+	Extracted            int                `json:"totalExtractedConversations"`
+	Skipped              int                `json:"totalSkippedConversations"`
+	Headless             bool               `json:"headless"`
+	FallbackUsed         bool               `json:"fallbackUsed,omitempty"`
+}
+
+type ConversationRead struct {
+	Title       string        `json:"title"`
+	Unread      int           `json:"unread"`
+	Time        string        `json:"time,omitempty"`
+	Preview     string        `json:"preview,omitempty"`
+	OpenedTitle string        `json:"openedChatTitle,omitempty"`
+	Messages    []MessageRead `json:"messages"`
+}
+
+type ConversationSkip struct {
+	Title   string `json:"title"`
+	Unread  int    `json:"unread"`
+	Time    string `json:"time,omitempty"`
+	Preview string `json:"preview,omitempty"`
+	Error   string `json:"error"`
+}
+
+type MessageRead struct {
+	Side string `json:"side"`
+	Text string `json:"text"`
 }
 
 func SupportedOS(goos string) bool {
@@ -192,6 +257,59 @@ func PlanOpen(config OpenConfig) (map[string]any, error) {
 	return payload, nil
 }
 
+func PlanRead(config ReadConfig) (map[string]any, error) {
+	scope, err := normalizedReadScope(config.Scope)
+	if err != nil {
+		return nil, err
+	}
+	if config.DryRun && config.Apply {
+		return nil, fmt.Errorf("--dry-run and --apply are mutually exclusive")
+	}
+	if !config.DryRun && !config.Apply {
+		return nil, fmt.Errorf("messenger read requires --dry-run or --apply")
+	}
+	limit := normalizedPositive(config.Limit, 20)
+	messagesPerChat := normalizedPositive(config.MessagesPerChat, 5)
+	maxScrolls := normalizedPositive(config.MaxScrolls, 18)
+	goos := normalizedGOOS(config.GOOS)
+	profile := DiscoverProfile(ProfileConfig{
+		GOOS:       goos,
+		Home:       config.Home,
+		AppSupport: config.AppSupport,
+		AppData:    config.AppData,
+		ProfileDir: config.ProfileDir,
+	})
+	browser := DiscoverBrowser(config.Config)
+	payload := map[string]any{
+		"ok":                           SupportedOS(goos) && profile.OK && browser.OK,
+		"action":                       "read",
+		"scope":                        scope,
+		"dryRun":                       config.DryRun,
+		"apply":                        config.Apply,
+		"limit":                        limit,
+		"messagesPerChat":              messagesPerChat,
+		"maxScrolls":                   maxScrolls,
+		"includeSelfMessages":          config.IncludeSelfMessages,
+		"willSend":                     false,
+		"browserLaunch":                false,
+		"totalRecentConversationsSeen": 0,
+		"totalUnreadConversations":     0,
+		"totalExtractedConversations":  0,
+		"totalSkippedConversations":    0,
+		"conversations":                []ConversationRead{},
+		"skippedConversations":         []ConversationSkip{},
+		"note":                         "messenger read never sends messages; --apply may mark opened chats as read.",
+		"messenger": map[string]any{
+			"supportedPlatform": SupportedOS(goos),
+			"goos":              goos,
+			"entryURL":          DefaultMessengerURL,
+		},
+		"profile": profile,
+		"browser": browser,
+	}
+	return payload, nil
+}
+
 func OpenTarget(ctx context.Context, config OpenConfig, automator Automator) (map[string]any, error) {
 	payload, err := PlanOpen(config)
 	if err != nil {
@@ -259,6 +377,90 @@ func OpenTarget(ctx context.Context, config OpenConfig, automator Automator) (ma
 	return payload, nil
 }
 
+func ReadMessages(ctx context.Context, config ReadConfig, automator Automator) (map[string]any, error) {
+	payload, err := PlanRead(config)
+	if err != nil {
+		return nil, err
+	}
+	if !config.Apply {
+		return payload, nil
+	}
+	if automator == nil {
+		return nil, fmt.Errorf("browser automator is required for --apply")
+	}
+	if ok, _ := payload["ok"].(bool); !ok {
+		return payload, fmt.Errorf("messenger read prerequisites are not ready")
+	}
+	profile, ok := payload["profile"].(ProfileDiscovery)
+	if !ok || !profile.OK {
+		return payload, fmt.Errorf("messenger profile is not ready")
+	}
+	browser, ok := payload["browser"].(BrowserDiscovery)
+	if !ok || !browser.OK {
+		return payload, fmt.Errorf("messenger browser is not ready")
+	}
+	clone, err := CloneProfile(profile.Path, "")
+	if err != nil {
+		return nil, err
+	}
+	cloneRoot := filepath.Dir(clone.Path)
+	defer func() {
+		if !config.KeepProfileClone {
+			_ = os.RemoveAll(cloneRoot)
+		}
+	}()
+	headless := true
+	if !config.Headless && config.AllowVisibleFallback {
+		headless = false
+	}
+	timeoutMS := config.TimeoutMS
+	if timeoutMS <= 0 {
+		timeoutMS = 60_000
+	}
+	scope, _ := payload["scope"].(string)
+	result, err := automator.Read(ctx, BrowserReadRequest{
+		BrowserPath:          browser.Path,
+		UserDataDir:          clone.Path,
+		CookiePath:           expandUser(config.CookiesPath),
+		URL:                  DefaultMessengerURL,
+		Scope:                scope,
+		Limit:                intFromPayload(payload, "limit"),
+		MessagesPerChat:      intFromPayload(payload, "messagesPerChat"),
+		MaxScrolls:           intFromPayload(payload, "maxScrolls"),
+		IncludeSelfMessages:  config.IncludeSelfMessages,
+		Headless:             headless,
+		AllowVisibleFallback: config.AllowVisibleFallback,
+		TimeoutMS:            timeoutMS,
+	})
+	if err != nil {
+		return nil, err
+	}
+	extracted := result.Extracted
+	if extracted == 0 {
+		extracted = len(result.Conversations)
+	}
+	skipped := result.Skipped
+	if skipped == 0 {
+		skipped = len(result.SkippedConversations)
+	}
+	payload["browserLaunch"] = true
+	payload["ok"] = true
+	payload["scope"] = valueOrDefault(result.Scope, scope)
+	payload["conversations"] = result.Conversations
+	payload["skippedConversations"] = result.SkippedConversations
+	payload["totalRecentConversationsSeen"] = result.RecentSeen
+	payload["totalUnreadConversations"] = result.UnreadSeen
+	payload["totalExtractedConversations"] = extracted
+	payload["totalSkippedConversations"] = skipped
+	payload["headless"] = result.Headless
+	payload["fallbackUsed"] = result.FallbackUsed
+	payload["clone"] = map[string]any{
+		"kept": config.KeepProfileClone,
+		"path": clone.Path,
+	}
+	return payload, nil
+}
+
 func DiscoverProfile(config ProfileConfig) ProfileDiscovery {
 	if strings.TrimSpace(config.ProfileDir) != "" {
 		path := expandUserWithHome(config.ProfileDir, config.Home)
@@ -276,6 +478,29 @@ func DiscoverProfile(config ProfileConfig) ProfileDiscovery {
 	default:
 		return ProfileDiscovery{OK: false, Error: "messenger supports macOS and Windows desktop profiles only"}
 	}
+}
+
+func normalizedReadScope(scope string) (string, error) {
+	normalized := strings.TrimSpace(scope)
+	if normalized == "" {
+		normalized = "unread"
+	}
+	if normalized != "unread" && normalized != "recent" {
+		return "", fmt.Errorf("--scope must be unread or recent")
+	}
+	return normalized, nil
+}
+
+func normalizedPositive(value int, fallback int) int {
+	if value > 0 {
+		return value
+	}
+	return fallback
+}
+
+func intFromPayload(payload map[string]any, key string) int {
+	value, _ := payload[key].(int)
+	return value
 }
 
 func DiscoverBrowser(config Config) BrowserDiscovery {

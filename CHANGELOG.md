@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.5.0 - 2026-07-16
+
+- Added Go-native Messenger `read --apply` browser automation for recent or unread conversation extraction through a cloned LarkShell profile.
+- Added `ixf messenger read --scope unread|recent --dry-run|--apply --json`, with conversation limits, per-chat message limits, headless default behavior, and explicit visible fallback opt-in.
+- Updated Messenger reader skills and docs to expose read-only extraction while keeping real sends unavailable.
+
 ## 3.4.0 - 2026-07-16
 
 - Added Go-native Messenger `open --apply` browser automation through a cloned LarkShell profile, with target verification and no message sending.

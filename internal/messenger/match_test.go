@@ -59,3 +59,27 @@ func TestLoadBrowserCookiesParsesPlaywrightCookieJSONWithoutLeakingValues(t *tes
 		t.Fatalf("LoadBrowserCookies leaked cookie value in error: %v", err)
 	}
 }
+
+func TestCollapseLinesNormalizesWhitespaceAndRemovesEmptyLines(t *testing.T) {
+	got := CollapseLines(" 第一行\u200b\n\n第二\t行 \u00a0 ")
+	if got != "第一行\n第二 行" {
+		t.Fatalf("CollapseLines = %q", got)
+	}
+}
+
+func TestParseUnreadBadgeTreatsDotBadgeAsOne(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want int
+	}{
+		{raw: "", want: 0},
+		{raw: "3", want: 3},
+		{raw: "99+", want: 99},
+		{raw: "•", want: 1},
+	}
+	for _, test := range tests {
+		if got := ParseUnreadBadge(test.raw); got != test.want {
+			t.Fatalf("ParseUnreadBadge(%q) = %d, want %d", test.raw, got, test.want)
+		}
+	}
+}

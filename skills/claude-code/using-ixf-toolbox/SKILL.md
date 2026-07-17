@@ -14,7 +14,7 @@ Use this as a lightweight routing skill for ixf Toolbox workflows. It does not r
 - Use `ixf-okr-reader` for authorized OKR reading, summary, ownership, mention, or alignment analysis.
 - Use `ixf-okr-writer` for approved Objective and Key Result creation or modification.
 - Use `ixf-messenger-reader` for authorized i讯飞 Messenger readiness checks and read-only message inspection workflows.
-- Use `ixf-messenger-writer` for approved Messenger send planning. Real sends are not available in this release.
+- Use `ixf-messenger-writer` for approved Messenger sends after dry-run planning and explicit apply confirmation.
 
 ## Decision Rules
 

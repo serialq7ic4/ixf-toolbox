@@ -26,7 +26,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "3.5.0"
+var version = "3.6.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -594,6 +594,7 @@ func runMessenger(args []string, stdout io.Writer, stderr io.Writer) int {
 		{"doctor", "Inspect local Messenger automation readiness."},
 		{"open", "Plan opening a person or conversation without sending."},
 		{"read", "Read recent or unread conversations without sending."},
+		{"send", "Plan or apply a verified message send."},
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "ERROR messenger requires a subcommand.")
@@ -611,6 +612,8 @@ func runMessenger(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runMessengerOpen(args[1:], stdout, stderr)
 	case "read":
 		return runMessengerRead(args[1:], stdout, stderr)
+	case "send":
+		return runMessengerSend(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "ERROR unsupported messenger subcommand: %s\n", args[0])
 		printCommandHelp(stderr, "ixf messenger", rows)
@@ -723,6 +726,50 @@ func runMessengerRead(args []string, stdout io.Writer, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "recent_seen %v\n", payload["totalRecentConversationsSeen"])
 	fmt.Fprintf(stdout, "unread_conversations %v\n", payload["totalUnreadConversations"])
 	fmt.Fprintf(stdout, "extracted_conversations %v\n", payload["totalExtractedConversations"])
+	return 0
+}
+
+func runMessengerSend(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("ixf messenger send", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	config, asJSON := messengerFlags(flags)
+	target := flags.String("to", "", "")
+	mode := flags.String("mode", "", "")
+	message := flags.String("message", "", "")
+	dryRun := flags.Bool("dry-run", false, "")
+	apply := flags.Bool("apply", false, "")
+	allowVisibleFallback := flags.Bool("allow-visible-fallback", false, "")
+	keepProfileClone := flags.Bool("keep-profile-clone", false, "")
+	timeoutMS := flags.Int("timeout-ms", 90000, "")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	payload, err := messenger.SendMessage(context.Background(), messenger.SendConfig{
+		Config:               config(),
+		Target:               *target,
+		Mode:                 *mode,
+		Message:              *message,
+		DryRun:               *dryRun,
+		Apply:                *apply,
+		AllowVisibleFallback: *allowVisibleFallback,
+		KeepProfileClone:     *keepProfileClone,
+		TimeoutMS:            *timeoutMS,
+	}, messenger.ChromedpAutomator{})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	if *asJSON {
+		writeJSON(stdout, payload)
+		return 0
+	}
+	fmt.Fprintf(stdout, "target %s\n", payload["target"])
+	fmt.Fprintf(stdout, "mode %s\n", payload["mode"])
+	fmt.Fprintf(stdout, "dry_run %t\n", payload["dryRun"])
+	fmt.Fprintf(stdout, "apply %t\n", payload["apply"])
+	fmt.Fprintf(stdout, "will_send %t\n", payload["willSend"])
+	fmt.Fprintf(stdout, "sent %t\n", payload["sent"])
+	fmt.Fprintf(stdout, "verified_present %t\n", payload["verifiedPresent"])
 	return 0
 }
 
@@ -1289,6 +1336,8 @@ func collectDiagnostics(cookiesPath string) map[string]any {
 			"messengerOpenApply": true,
 			"messengerReadPlan":  true,
 			"messengerReadApply": true,
+			"messengerSendPlan":  true,
+			"messengerSendApply": true,
 		},
 		"skills":  skills,
 		"cookies": cookies,
@@ -1380,7 +1429,7 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 	capabilities := payload["capabilities"]
 	fmt.Fprintf(
 		w,
-		"native docsRead=%t docsPublish=%t okrRead=%t okrWrite=%t cookiesExport=%t messengerDoctor=%t messengerOpenPlan=%t messengerOpenApply=%t messengerReadPlan=%t messengerReadApply=%t\n",
+		"native docsRead=%t docsPublish=%t okrRead=%t okrWrite=%t cookiesExport=%t messengerDoctor=%t messengerOpenPlan=%t messengerOpenApply=%t messengerReadPlan=%t messengerReadApply=%t messengerSendPlan=%t messengerSendApply=%t\n",
 		boolFromMap(capabilities, "docsRead"),
 		boolFromMap(capabilities, "docsPublish"),
 		boolFromMap(capabilities, "okrRead"),
@@ -1391,6 +1440,8 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 		boolFromMap(capabilities, "messengerOpenApply"),
 		boolFromMap(capabilities, "messengerReadPlan"),
 		boolFromMap(capabilities, "messengerReadApply"),
+		boolFromMap(capabilities, "messengerSendPlan"),
+		boolFromMap(capabilities, "messengerSendApply"),
 	)
 
 	if skills, ok := payload["skills"].(map[string]any); ok {

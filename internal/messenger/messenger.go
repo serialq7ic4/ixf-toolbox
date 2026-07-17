@@ -97,9 +97,23 @@ type ReadConfig struct {
 	IncludeSelfMessages  bool
 }
 
+type SendConfig struct {
+	Config
+	Target               string
+	Mode                 string
+	Message              string
+	DryRun               bool
+	Apply                bool
+	Headless             bool
+	AllowVisibleFallback bool
+	KeepProfileClone     bool
+	TimeoutMS            int
+}
+
 type Automator interface {
 	Open(context.Context, BrowserOpenRequest) (BrowserOpenResult, error)
 	Read(context.Context, BrowserReadRequest) (BrowserReadResult, error)
+	Send(context.Context, BrowserSendRequest) (BrowserSendResult, error)
 }
 
 type BrowserOpenRequest struct {
@@ -168,6 +182,30 @@ type ConversationSkip struct {
 type MessageRead struct {
 	Side string `json:"side"`
 	Text string `json:"text"`
+}
+
+type BrowserSendRequest struct {
+	BrowserPath          string
+	UserDataDir          string
+	VerifyUserDataDir    string
+	CookiePath           string
+	URL                  string
+	Target               string
+	Mode                 string
+	Message              string
+	Headless             bool
+	AllowVisibleFallback bool
+	TimeoutMS            int
+}
+
+type BrowserSendResult struct {
+	OpenedTitle      string `json:"openedTitle,omitempty"`
+	TargetVerified   bool   `json:"targetVerified"`
+	Sent             bool   `json:"sent"`
+	LocalEchoMatched bool   `json:"localEchoMatched"`
+	VerifiedPresent  bool   `json:"verifiedPresent"`
+	Headless         bool   `json:"headless"`
+	FallbackUsed     bool   `json:"fallbackUsed,omitempty"`
 }
 
 func SupportedOS(goos string) bool {
@@ -310,6 +348,63 @@ func PlanRead(config ReadConfig) (map[string]any, error) {
 	return payload, nil
 }
 
+func PlanSend(config SendConfig) (map[string]any, error) {
+	target := strings.TrimSpace(config.Target)
+	if target == "" {
+		return nil, fmt.Errorf("--to is required")
+	}
+	mode := strings.TrimSpace(config.Mode)
+	if mode == "" {
+		return nil, fmt.Errorf("--mode is required")
+	}
+	if mode != "person" && mode != "conversation" {
+		return nil, fmt.Errorf("--mode must be person or conversation")
+	}
+	message := strings.TrimSpace(config.Message)
+	if message == "" {
+		return nil, fmt.Errorf("--message is required")
+	}
+	if config.DryRun && config.Apply {
+		return nil, fmt.Errorf("--dry-run and --apply are mutually exclusive")
+	}
+	if !config.DryRun && !config.Apply {
+		return nil, fmt.Errorf("messenger send requires --dry-run or --apply")
+	}
+	goos := normalizedGOOS(config.GOOS)
+	profile := DiscoverProfile(ProfileConfig{
+		GOOS:       goos,
+		Home:       config.Home,
+		AppSupport: config.AppSupport,
+		AppData:    config.AppData,
+		ProfileDir: config.ProfileDir,
+	})
+	browser := DiscoverBrowser(config.Config)
+	payload := map[string]any{
+		"ok":               SupportedOS(goos) && profile.OK && browser.OK,
+		"action":           "send",
+		"dryRun":           config.DryRun,
+		"apply":            config.Apply,
+		"target":           target,
+		"mode":             mode,
+		"messageLength":    len(config.Message),
+		"willSend":         true,
+		"browserLaunch":    false,
+		"targetVerified":   false,
+		"sent":             false,
+		"localEchoMatched": false,
+		"verifiedPresent":  false,
+		"note":             "messenger send requires --apply, verifies the target before sending, and verifies presence in a fresh cloned session after sending.",
+		"messenger": map[string]any{
+			"supportedPlatform": SupportedOS(goos),
+			"goos":              goos,
+			"entryURL":          DefaultMessengerURL,
+		},
+		"profile": profile,
+		"browser": browser,
+	}
+	return payload, nil
+}
+
 func OpenTarget(ctx context.Context, config OpenConfig, automator Automator) (map[string]any, error) {
 	payload, err := PlanOpen(config)
 	if err != nil {
@@ -373,6 +468,89 @@ func OpenTarget(ctx context.Context, config OpenConfig, automator Automator) (ma
 	payload["clone"] = map[string]any{
 		"kept": config.KeepProfileClone,
 		"path": clone.Path,
+	}
+	return payload, nil
+}
+
+func SendMessage(ctx context.Context, config SendConfig, automator Automator) (map[string]any, error) {
+	payload, err := PlanSend(config)
+	if err != nil {
+		return nil, err
+	}
+	if !config.Apply {
+		return payload, nil
+	}
+	if automator == nil {
+		return nil, fmt.Errorf("browser automator is required for --apply")
+	}
+	if ok, _ := payload["ok"].(bool); !ok {
+		return payload, fmt.Errorf("messenger send prerequisites are not ready")
+	}
+	profile, ok := payload["profile"].(ProfileDiscovery)
+	if !ok || !profile.OK {
+		return payload, fmt.Errorf("messenger profile is not ready")
+	}
+	browser, ok := payload["browser"].(BrowserDiscovery)
+	if !ok || !browser.OK {
+		return payload, fmt.Errorf("messenger browser is not ready")
+	}
+	sendClone, err := CloneProfile(profile.Path, "")
+	if err != nil {
+		return nil, err
+	}
+	verifyClone, err := CloneProfile(profile.Path, "")
+	if err != nil {
+		if !config.KeepProfileClone {
+			_ = os.RemoveAll(filepath.Dir(sendClone.Path))
+		}
+		return nil, err
+	}
+	defer func() {
+		if !config.KeepProfileClone {
+			_ = os.RemoveAll(filepath.Dir(sendClone.Path))
+			_ = os.RemoveAll(filepath.Dir(verifyClone.Path))
+		}
+	}()
+	headless := true
+	if !config.Headless && config.AllowVisibleFallback {
+		headless = false
+	}
+	timeoutMS := config.TimeoutMS
+	if timeoutMS <= 0 {
+		timeoutMS = 90_000
+	}
+	result, err := automator.Send(ctx, BrowserSendRequest{
+		BrowserPath:          browser.Path,
+		UserDataDir:          sendClone.Path,
+		VerifyUserDataDir:    verifyClone.Path,
+		CookiePath:           expandUser(config.CookiesPath),
+		URL:                  DefaultMessengerURL,
+		Target:               strings.TrimSpace(config.Target),
+		Mode:                 strings.TrimSpace(config.Mode),
+		Message:              config.Message,
+		Headless:             headless,
+		AllowVisibleFallback: config.AllowVisibleFallback,
+		TimeoutMS:            timeoutMS,
+	})
+	if err != nil {
+		return nil, err
+	}
+	payload["browserLaunch"] = true
+	payload["openedTitle"] = result.OpenedTitle
+	payload["targetVerified"] = result.TargetVerified
+	payload["sent"] = result.Sent
+	payload["localEchoMatched"] = result.LocalEchoMatched
+	payload["verifiedPresent"] = result.VerifiedPresent
+	payload["headless"] = result.Headless
+	payload["fallbackUsed"] = result.FallbackUsed
+	payload["ok"] = result.TargetVerified && result.Sent && result.LocalEchoMatched && result.VerifiedPresent
+	payload["clone"] = map[string]any{
+		"kept":       config.KeepProfileClone,
+		"sendPath":   sendClone.Path,
+		"verifyPath": verifyClone.Path,
+	}
+	if ok, _ := payload["ok"].(bool); !ok {
+		return payload, fmt.Errorf("messenger send verification failed")
 	}
 	return payload, nil
 }

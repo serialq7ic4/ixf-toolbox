@@ -385,17 +385,143 @@ func TestReadMessagesApplyClonesProfileInvokesAutomatorAndCleansClone(t *testing
 	}
 }
 
+func TestPlanSendValidatesTargetModeMessageAndDoesNotEchoMessage(t *testing.T) {
+	if _, err := PlanSend(SendConfig{Target: "", Mode: "person", Message: "hello", DryRun: true}); err == nil {
+		t.Fatal("PlanSend accepted empty target")
+	}
+	if _, err := PlanSend(SendConfig{Target: "示例群聊", Mode: "team", Message: "hello", DryRun: true}); err == nil {
+		t.Fatal("PlanSend accepted invalid mode")
+	}
+	if _, err := PlanSend(SendConfig{Target: "示例群聊", Mode: "conversation", Message: "", DryRun: true}); err == nil {
+		t.Fatal("PlanSend accepted empty message")
+	}
+	if _, err := PlanSend(SendConfig{Target: "示例群聊", Mode: "conversation", Message: "hello"}); err == nil {
+		t.Fatal("PlanSend accepted missing dry-run/apply")
+	}
+	if _, err := PlanSend(SendConfig{Target: "示例群聊", Mode: "conversation", Message: "hello", DryRun: true, Apply: true}); err == nil {
+		t.Fatal("PlanSend accepted mutually exclusive dry-run/apply")
+	}
+
+	payload, err := PlanSend(SendConfig{Target: "示例群聊", Mode: "conversation", Message: "secret message", DryRun: true})
+	if err != nil {
+		t.Fatalf("PlanSend returned error: %v", err)
+	}
+	if payload["action"] != "send" || payload["willSend"] != true || payload["sent"] != false {
+		t.Fatalf("PlanSend payload = %+v", payload)
+	}
+	if payload["messageLength"] != len("secret message") {
+		t.Fatalf("PlanSend message length = %+v", payload["messageLength"])
+	}
+	if strings.Contains(fmtSprint(payload), "secret message") {
+		t.Fatalf("PlanSend echoed message body: %+v", payload)
+	}
+}
+
+func TestSendMessageDryRunDoesNotInvokeAutomator(t *testing.T) {
+	automator := &recordingAutomator{}
+
+	payload, err := SendMessage(context.Background(), SendConfig{
+		Target:  "示例群聊",
+		Mode:    "conversation",
+		Message: "secret message",
+		DryRun:  true,
+	}, automator)
+
+	if err != nil {
+		t.Fatalf("SendMessage dry-run returned error: %v", err)
+	}
+	if automator.sendCalled {
+		t.Fatal("SendMessage dry-run invoked the browser automator")
+	}
+	if payload["browserLaunch"] != false || payload["sent"] != false || payload["verifiedPresent"] != false {
+		t.Fatalf("dry-run payload should not launch, send, or verify: %+v", payload)
+	}
+	if strings.Contains(fmtSprint(payload), "secret message") {
+		t.Fatalf("dry-run payload echoed message body: %+v", payload)
+	}
+}
+
+func TestSendMessageApplyUsesTwoClonesAndRequiresVerification(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "profile_explorer")
+	browser := filepath.Join(t.TempDir(), "chrome")
+	cookies := filepath.Join(t.TempDir(), "cookies.json")
+	mustMkdir(t, filepath.Join(source, "Default"))
+	mustWrite(t, filepath.Join(source, "Default", "Preferences"), []byte("prefs"))
+	mustWrite(t, filepath.Join(source, "SingletonLock"), []byte("lock"))
+	mustWrite(t, browser, []byte("browser"))
+	mustWrite(t, cookies, []byte(`[{"name":"_csrf_token","value":"secret-csrf"}]`))
+	automator := &recordingAutomator{sendResult: BrowserSendResult{
+		OpenedTitle:      "示例群聊",
+		TargetVerified:   true,
+		Sent:             true,
+		LocalEchoMatched: true,
+		VerifiedPresent:  true,
+		Headless:         true,
+	}}
+
+	payload, err := SendMessage(context.Background(), SendConfig{
+		Config: Config{
+			GOOS:        "darwin",
+			ProfileDir:  source,
+			BrowserPath: browser,
+			CookiesPath: cookies,
+		},
+		Target:    "示例群聊",
+		Mode:      "conversation",
+		Message:   "secret message",
+		Apply:     true,
+		TimeoutMS: 1500,
+	}, automator)
+
+	if err != nil {
+		t.Fatalf("SendMessage apply returned error: %v", err)
+	}
+	if !automator.sendCalled {
+		t.Fatal("SendMessage apply did not invoke the browser automator")
+	}
+	if automator.sendRequest.UserDataDir == source || automator.sendRequest.VerifyUserDataDir == source {
+		t.Fatalf("automator used live profile path: %+v", automator.sendRequest)
+	}
+	if automator.sendRequest.UserDataDir == "" || automator.sendRequest.VerifyUserDataDir == "" || automator.sendRequest.UserDataDir == automator.sendRequest.VerifyUserDataDir {
+		t.Fatalf("automator did not receive two distinct clones: %+v", automator.sendRequest)
+	}
+	if !automator.sawProfileData || !automator.sawNoSingleton || !automator.sawVerifyProfileData || !automator.sawVerifyNoSingleton {
+		t.Fatalf("automator did not see expected clone state: %+v", automator)
+	}
+	if automator.sendRequest.Target != "示例群聊" || automator.sendRequest.Mode != "conversation" || automator.sendRequest.Message != "secret message" {
+		t.Fatalf("automator send request = %+v", automator.sendRequest)
+	}
+	if payload["sent"] != true || payload["targetVerified"] != true || payload["verifiedPresent"] != true || payload["localEchoMatched"] != true {
+		t.Fatalf("send apply payload = %+v", payload)
+	}
+	if strings.Contains(fmtSprint(payload), "secret message") || strings.Contains(fmtSprint(payload), "secret-csrf") {
+		t.Fatalf("send apply payload leaked secret data: %+v", payload)
+	}
+	if _, err := os.Stat(automator.sendRequest.UserDataDir); !os.IsNotExist(err) {
+		t.Fatalf("temporary send clone still exists: %s", automator.sendRequest.UserDataDir)
+	}
+	if _, err := os.Stat(automator.sendRequest.VerifyUserDataDir); !os.IsNotExist(err) {
+		t.Fatalf("temporary verify clone still exists: %s", automator.sendRequest.VerifyUserDataDir)
+	}
+}
+
 type recordingAutomator struct {
-	called         bool
-	readCalled     bool
-	sawProfileData bool
-	sawNoSingleton bool
-	request        BrowserOpenRequest
-	readRequest    BrowserReadRequest
-	result         BrowserOpenResult
-	readResult     BrowserReadResult
-	err            error
-	readErr        error
+	called               bool
+	readCalled           bool
+	sendCalled           bool
+	sawProfileData       bool
+	sawNoSingleton       bool
+	sawVerifyProfileData bool
+	sawVerifyNoSingleton bool
+	request              BrowserOpenRequest
+	readRequest          BrowserReadRequest
+	sendRequest          BrowserSendRequest
+	result               BrowserOpenResult
+	readResult           BrowserReadResult
+	sendResult           BrowserSendResult
+	err                  error
+	readErr              error
+	sendErr              error
 }
 
 func (automator *recordingAutomator) Open(_ context.Context, request BrowserOpenRequest) (BrowserOpenResult, error) {
@@ -420,6 +546,24 @@ func (automator *recordingAutomator) Read(_ context.Context, request BrowserRead
 		automator.sawNoSingleton = true
 	}
 	return automator.readResult, automator.readErr
+}
+
+func (automator *recordingAutomator) Send(_ context.Context, request BrowserSendRequest) (BrowserSendResult, error) {
+	automator.sendCalled = true
+	automator.sendRequest = request
+	if content, err := os.ReadFile(filepath.Join(request.UserDataDir, "Default", "Preferences")); err == nil && string(content) == "prefs" {
+		automator.sawProfileData = true
+	}
+	if _, err := os.Stat(filepath.Join(request.UserDataDir, "SingletonLock")); os.IsNotExist(err) {
+		automator.sawNoSingleton = true
+	}
+	if content, err := os.ReadFile(filepath.Join(request.VerifyUserDataDir, "Default", "Preferences")); err == nil && string(content) == "prefs" {
+		automator.sawVerifyProfileData = true
+	}
+	if _, err := os.Stat(filepath.Join(request.VerifyUserDataDir, "SingletonLock")); os.IsNotExist(err) {
+		automator.sawVerifyNoSingleton = true
+	}
+	return automator.sendResult, automator.sendErr
 }
 
 func fmtSprint(value any) string {

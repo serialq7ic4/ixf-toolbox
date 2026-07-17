@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.6.0 - 2026-07-17
+
+- Added Go-native Messenger `send --apply` browser automation with pre-send target verification, local echo matching, and mandatory fresh-session verification through a second cloned profile.
+- Added `ixf messenger send --to <target> --mode person|conversation --message <text> --dry-run|--apply --json`, with dry-run planning that does not launch a browser and result payloads that do not echo full message bodies.
+- Updated Messenger writer skills and docs to allow approved sends while preserving dry-run-first and verification-first safety boundaries.
+
 ## 3.5.0 - 2026-07-16
 
 - Added Go-native Messenger `read --apply` browser automation for recent or unread conversation extraction through a cloned LarkShell profile.

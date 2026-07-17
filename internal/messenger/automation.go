@@ -58,6 +58,21 @@ func (automator ChromedpAutomator) Read(ctx context.Context, request BrowserRead
 	return BrowserReadResult{}, err
 }
 
+func (automator ChromedpAutomator) Send(ctx context.Context, request BrowserSendRequest) (BrowserSendResult, error) {
+	result, err := automator.sendOnce(ctx, request, request.Headless)
+	if err == nil {
+		return result, nil
+	}
+	if request.Headless && request.AllowVisibleFallback {
+		fallback, fallbackErr := automator.sendOnce(ctx, request, false)
+		if fallbackErr == nil {
+			fallback.FallbackUsed = true
+			return fallback, nil
+		}
+	}
+	return BrowserSendResult{}, err
+}
+
 func (automator ChromedpAutomator) openOnce(parent context.Context, request BrowserOpenRequest, headless bool) (BrowserOpenResult, error) {
 	if strings.TrimSpace(request.BrowserPath) == "" {
 		return BrowserOpenResult{}, fmt.Errorf("browser path is required")
@@ -228,6 +243,120 @@ func (automator ChromedpAutomator) readOnce(parent context.Context, request Brow
 	result.Extracted = len(result.Conversations)
 	result.Skipped = len(result.SkippedConversations)
 	return result, nil
+}
+
+func (automator ChromedpAutomator) sendOnce(parent context.Context, request BrowserSendRequest, headless bool) (BrowserSendResult, error) {
+	if strings.TrimSpace(request.BrowserPath) == "" {
+		return BrowserSendResult{}, fmt.Errorf("browser path is required")
+	}
+	if strings.TrimSpace(request.UserDataDir) == "" || strings.TrimSpace(request.VerifyUserDataDir) == "" {
+		return BrowserSendResult{}, fmt.Errorf("send and verify cloned profile paths are required")
+	}
+	timeout := time.Duration(request.TimeoutMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 90 * time.Second
+	}
+
+	sendCtx, cancelSend, err := newMessengerBrowserContext(parent, request.BrowserPath, request.UserDataDir, timeout, headless)
+	if err != nil {
+		return BrowserSendResult{}, err
+	}
+	defer cancelSend()
+
+	sendActions, err := messengerStartupActions(request.CookiePath, request.URL, timeout)
+	if err != nil {
+		return BrowserSendResult{}, err
+	}
+	sendVerification := targetVerification{}
+	localEchoMatched := false
+	sendActions = append(sendActions,
+		openTargetAction(request.Target, request.Mode),
+		waitForTargetVerificationAction(request.Target, timeout, &sendVerification),
+		sendMessageAction(request.Message),
+		waitForSelfMessageAction(request.Message, timeout, &localEchoMatched),
+	)
+	if err := chromedp.Run(sendCtx, sendActions); err != nil {
+		return BrowserSendResult{}, err
+	}
+
+	verifyCtx, cancelVerify, err := newMessengerBrowserContext(parent, request.BrowserPath, request.VerifyUserDataDir, timeout, headless)
+	if err != nil {
+		return BrowserSendResult{}, err
+	}
+	defer cancelVerify()
+
+	verifyActions, err := messengerStartupActions(request.CookiePath, request.URL, timeout)
+	if err != nil {
+		return BrowserSendResult{}, err
+	}
+	verifyMatched := false
+	verifyActions = append(verifyActions,
+		openTargetAction(request.Target, request.Mode),
+		waitForTargetVerificationAction(request.Target, timeout, &targetVerification{}),
+		waitForSelfMessageAction(request.Message, timeout, &verifyMatched),
+	)
+	if err := chromedp.Run(verifyCtx, verifyActions); err != nil {
+		return BrowserSendResult{}, err
+	}
+
+	opened := sendVerification.Title
+	if opened == "" {
+		opened = request.Target
+	}
+	return BrowserSendResult{
+		OpenedTitle:      opened,
+		TargetVerified:   sendVerification.Verified,
+		Sent:             true,
+		LocalEchoMatched: localEchoMatched,
+		VerifiedPresent:  verifyMatched,
+		Headless:         headless,
+	}, nil
+}
+
+func newMessengerBrowserContext(parent context.Context, browserPath string, userDataDir string, timeout time.Duration, headless bool) (context.Context, func(), error) {
+	runCtx, cancelTimeout := context.WithTimeout(parent, timeout)
+	opts := []chromedp.ExecAllocatorOption{
+		chromedp.ExecPath(browserPath),
+		chromedp.UserDataDir(userDataDir),
+		chromedp.NoFirstRun,
+		chromedp.NoDefaultBrowserCheck,
+		chromedp.WindowSize(1440, 960),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("disable-extensions", true),
+	}
+	if headless {
+		opts = append(opts, chromedp.Headless)
+	}
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(runCtx, opts...)
+	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
+	cleanup := func() {
+		cancelBrowser()
+		cancelAlloc()
+		cancelTimeout()
+	}
+	return browserCtx, cleanup, nil
+}
+
+func messengerStartupActions(cookiePath string, targetURL string, timeout time.Duration) (chromedp.Tasks, error) {
+	cookies, err := LoadBrowserCookies(cookiePath)
+	if err != nil {
+		return nil, err
+	}
+	actions := chromedp.Tasks{network.Enable()}
+	if len(cookies) > 0 {
+		params := networkCookieParams(cookies)
+		if len(params) > 0 {
+			actions = append(actions, chromedp.ActionFunc(func(ctx context.Context) error {
+				return network.SetCookies(params).Do(ctx)
+			}))
+		}
+	}
+	actions = append(actions,
+		chromedp.Navigate(valueOrDefault(targetURL, DefaultMessengerURL)),
+		waitForMessengerAction(timeout),
+	)
+	return actions, nil
 }
 
 func LoadBrowserCookies(path string) ([]BrowserCookie, error) {
@@ -512,6 +641,64 @@ func readPanelTextAction(maxChars int, result *string) chromedp.Action {
 			.join('\n')
 			.slice(0, maxChars);
 	})(`+jsArgs(rightPanelSelector)+`, `+fmt.Sprint(maxChars)+`)`, result)
+}
+
+func sendMessageAction(message string) chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		clicked := false
+		if err := chromedp.Run(ctx,
+			chromedp.Click(chatEditorSelector, chromedp.ByQuery),
+			chromedp.Sleep(200*time.Millisecond),
+			chromedp.KeyEvent(kb.Meta+"a"),
+			chromedp.Sleep(100*time.Millisecond),
+			chromedp.KeyEvent(kb.Backspace),
+			chromedp.Sleep(200*time.Millisecond),
+			chromedp.KeyEvent(message),
+			chromedp.Sleep(500*time.Millisecond),
+			clickSendButtonAction(&clicked),
+		); err != nil {
+			return err
+		}
+		if clicked {
+			return nil
+		}
+		return chromedp.Run(ctx, chromedp.KeyEvent(kb.Enter))
+	})
+}
+
+func clickSendButtonAction(clicked *bool) chromedp.Action {
+	return chromedp.Evaluate(`(function(wrapperSelector, buttonSelector) {
+		const wrapper = document.querySelector(wrapperSelector);
+		if (!wrapper) return false;
+		const className = wrapper.getAttribute('class') || '';
+		if (className.includes('toolbar-item--disabled')) return false;
+		const button = document.querySelector(buttonSelector) || wrapper;
+		button.click();
+		return true;
+	})(`+jsArgs(sendWrapperSelector, sendButtonSelector)+`)`, clicked)
+}
+
+func waitForSelfMessageAction(message string, timeout time.Duration, matched *bool) chromedp.Action {
+	return chromedp.PollFunction(`(messageSelector, expected) => {
+		const collapseLines = (value) => String(value || '')
+			.replace(/\u200b/g, '\n')
+			.replace(/\u00a0/g, ' ')
+			.split(/\n+/)
+			.map((line) => line.replace(/[ \t\r\f\v]+/g, ' ').trim())
+			.filter(Boolean)
+			.join('\n');
+		const items = Array.from(document.querySelectorAll(messageSelector));
+		for (const item of items.slice(Math.max(0, items.length - 30)).reverse()) {
+			const className = item.getAttribute('class') || '';
+			if (!className.includes('message-self')) continue;
+			const text = collapseLines(item.innerText || item.textContent || '');
+			if (expected && text.includes(expected)) return true;
+		}
+		return false;
+	}`, matched,
+		chromedp.WithPollingArgs(messageItemSelector, message),
+		chromedp.WithPollingTimeout(timeout),
+	)
 }
 
 func filterConversationCards(cards []conversationCard, scope string, limit int) []conversationCard {

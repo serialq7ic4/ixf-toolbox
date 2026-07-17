@@ -10,4 +10,7 @@ const (
 	chatTitleSelector     = "#root-messenger-chat span.chatWindow_chatName"
 	rightPanelSelector    = "#root-messenger-chat"
 	messageItemSelector   = "#root-messenger-chat .js-message-item"
+	chatEditorSelector    = "#root-messenger-chat div[contenteditable='true'][data-slate-editor='true']"
+	sendWrapperSelector   = "#root-messenger-chat .toolbar-item-submit-button"
+	sendButtonSelector    = "#root-messenger-chat .toolbar-item-submit-button button"
 )

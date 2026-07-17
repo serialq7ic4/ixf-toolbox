@@ -1,22 +1,24 @@
 ---
 name: ixf-messenger-writer
-description: Use when planning an approved i讯飞 Messenger send target or message, while real sending is not yet available in the current Toolbox release.
+description: Use when sending an approved i讯飞 Messenger message to a confirmed person or conversation through local Toolbox automation.
 ---
 
 # ixf Messenger Writer
 
-Use `ixf messenger open` through the local Toolbox CLI for send-target planning only.
+Use `ixf messenger send` through the local Toolbox CLI. This skill can send real messages only after dry-run planning and explicit user confirmation.
 
 ## Workflow
 
 1. Confirm the exact recipient or conversation, target mode, and message text.
 2. Run readiness checks:
    `ixf messenger doctor --json`
-3. Run dry-run target planning:
-   `ixf messenger open --to "<target>" --mode person|conversation --dry-run --json`
-4. Report that Real sends are not available in this release.
-5. Do not use --apply for sending; `open --apply` only verifies the target and may mark a chat as read.
+3. Run dry-run send planning:
+   `ixf messenger send --to "<target>" --mode person|conversation --message "<text>" --dry-run --json`
+4. Show the dry-run plan and ask for explicit approval before applying.
+5. If approved, send with:
+   `ixf messenger send --to "<target>" --mode person|conversation --message "<text>" --apply --json`
+6. Treat `sent:true`, `targetVerified:true`, and `verifiedPresent:true` as the success condition. The command performs fresh-session verification before reporting success.
 
 ## Safety
 
-Real sends are not available. Do not simulate success, type into a chat manually, or fall back to another messenger script. Do not use --apply for sending. Future send support must verify the opened target before typing and re-open a fresh session after send.
+Never send on ambiguous intent. Do not type into Messenger manually or fall back to another script. Do not use `open --apply` as a substitute for sending. Command output should not echo full message bodies; rely on message length and verification booleans.

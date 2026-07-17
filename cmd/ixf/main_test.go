@@ -498,6 +498,11 @@ func TestCollectDiagnosticsReportsGoRuntimeSkillsCookiesAndNoSecrets(t *testing.
 		t.Fatalf("write cookies: %v", err)
 	}
 	t.Setenv("HOME", home)
+	emptyBin := filepath.Join(home, "empty-bin")
+	if err := os.MkdirAll(emptyBin, 0o755); err != nil {
+		t.Fatalf("mkdir empty bin: %v", err)
+	}
+	t.Setenv("PATH", emptyBin)
 	t.Setenv("IXF_TOOLBOX_CODEX_SKILLS_DIR", filepath.Join(home, "codex-skills"))
 	t.Setenv("IXF_TOOLBOX_CLAUDE_CODE_SKILLS_DIR", filepath.Join(home, "claude-skills"))
 	if _, err := installSkills([]string{"codex"}, false); err != nil {
@@ -522,6 +527,9 @@ func TestCollectDiagnosticsReportsGoRuntimeSkillsCookiesAndNoSecrets(t *testing.
 	if _, exists := payload["engines"]; exists {
 		t.Fatalf("diagnostics should not report legacy engines: %+v", payload["engines"])
 	}
+	if legacy, ok := payload["legacyCommands"].([]map[string]string); !ok || len(legacy) != 0 {
+		t.Fatalf("legacy commands should be absent by default: %+v", payload["legacyCommands"])
+	}
 	capabilities := payload["capabilities"].(map[string]bool)
 	for _, name := range []string{"docsRead", "docsPublish", "okrRead", "okrWrite", "cookiesExport", "messengerDoctor", "messengerOpenPlan", "messengerOpenApply", "messengerReadPlan", "messengerReadApply", "messengerSendPlan", "messengerSendApply"} {
 		if !capabilities[name] {
@@ -531,6 +539,53 @@ func TestCollectDiagnosticsReportsGoRuntimeSkillsCookiesAndNoSecrets(t *testing.
 	cookies := payload["cookies"].(map[string]any)
 	if cookies["cookieCount"] != 2 || cookies["hasCsrf"] != true {
 		t.Fatalf("cookies diagnostics = %+v, want count=2 csrf=true", cookies)
+	}
+}
+
+func TestCollectDiagnosticsReportsLegacyCommandShimsAsIgnored(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	cookiesPath := filepath.Join(home, "cookies.json")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	for _, name := range []string{"ixfdoc", "ixfwrite"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatalf("write legacy shim %s: %v", name, err)
+		}
+	}
+	if err := os.WriteFile(cookiesPath, []byte(`[{"name":"_csrf_token","value":"dummy-csrf"}]`), 0o644); err != nil {
+		t.Fatalf("write cookies: %v", err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("HOME", home)
+	t.Setenv("IXF_TOOLBOX_CODEX_SKILLS_DIR", filepath.Join(home, "codex-skills"))
+	t.Setenv("IXF_TOOLBOX_CLAUDE_CODE_SKILLS_DIR", filepath.Join(home, "claude-skills"))
+	if _, err := installSkills([]string{"codex"}, false); err != nil {
+		t.Fatalf("installSkills returned error: %v", err)
+	}
+
+	payload := collectDiagnostics(cookiesPath)
+	legacy, ok := payload["legacyCommands"].([]map[string]string)
+	if !ok || len(legacy) != 2 {
+		t.Fatalf("legacyCommands = %#v, want two ignored commands", payload["legacyCommands"])
+	}
+	for _, item := range legacy {
+		if item["status"] != "ignored" || item["runtime"] != "go-only" {
+			t.Fatalf("legacy command should be marked ignored/go-only: %+v", item)
+		}
+	}
+
+	var stdout bytes.Buffer
+	formatDiagnostics(&stdout, payload)
+	for _, expected := range []string{
+		"legacy ixfdoc ignored",
+		"legacy ixfwrite ignored",
+		"skills use ixf only",
+	} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("doctor text missing %q:\n%s", expected, stdout.String())
+		}
 	}
 }
 

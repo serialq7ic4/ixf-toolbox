@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -26,7 +27,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "3.7.0"
+var version = "3.7.1"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -1312,6 +1313,7 @@ func normalizeRuntimes(raw []string) ([]string, error) {
 func collectDiagnostics(cookiesPath string) map[string]any {
 	skills := skillsStatus()
 	cookies := cookieDiagnostics(cookiesPath)
+	legacyCommands := legacyCommandsStatus()
 	skillsOK := false
 	for _, raw := range skills {
 		if status, ok := raw.(map[string]any); ok {
@@ -1339,9 +1341,28 @@ func collectDiagnostics(cookiesPath string) map[string]any {
 			"messengerSendPlan":  true,
 			"messengerSendApply": true,
 		},
-		"skills":  skills,
-		"cookies": cookies,
+		"skills":         skills,
+		"cookies":        cookies,
+		"legacyCommands": legacyCommands,
 	}
+}
+
+func legacyCommandsStatus() []map[string]string {
+	var result []map[string]string
+	for _, name := range []string{"ixfdoc", "ixfwrite"} {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			continue
+		}
+		result = append(result, map[string]string{
+			"name":    name,
+			"path":    path,
+			"runtime": "go-only",
+			"status":  "ignored",
+			"note":    "legacy command present; Toolbox skills use ixf only",
+		})
+	}
+	return result
 }
 
 func skillsStatus() map[string]any {
@@ -1469,6 +1490,11 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 			boolFromMap(cookies, "hasCsrf"),
 			boolFromMap(cookies, "hasLgwCsrf"),
 		)
+	}
+	if legacyCommands, ok := payload["legacyCommands"].([]map[string]string); ok {
+		for _, item := range legacyCommands {
+			fmt.Fprintf(w, "legacy %s %s path=%s note=%s\n", item["name"], item["status"], item["path"], item["note"])
+		}
 	}
 	if remediation, ok := payload["remediation"].([]string); ok {
 		for _, item := range remediation {

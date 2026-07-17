@@ -89,6 +89,55 @@ func TestReadmeDescribesNaturalAgentPromptsAndBackgroundRouting(t *testing.T) {
 	}
 }
 
+func TestCurrentAgentGuidanceForbidsPythonAndLegacyFallbacks(t *testing.T) {
+	agentGuidance := readRepoFile(t, "AGENTS.md")
+	for _, expected := range []string{
+		"Go-only runtime",
+		"Do not use Python fallback",
+		"Do not call `ixfdoc` or `ixfwrite`",
+		"docs/superpowers/",
+		"historical",
+	} {
+		if !strings.Contains(agentGuidance, expected) {
+			t.Fatalf("AGENTS.md missing %q:\n%s", expected, agentGuidance)
+		}
+	}
+
+	for _, relative := range []string{
+		"README.md",
+		"README.en.md",
+		"docs/go-python-parity.md",
+		"skills_embed.go",
+	} {
+		text := readRepoFile(t, relative)
+		for _, forbidden := range []string{
+			"same agent skills installed by the Python runtime",
+			"Python reference runtime still handles",
+			"Python-compatible reader",
+			"Python fallback for wiki",
+			"ixfdoc fallback",
+			"ixfwrite fallback",
+		} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s contains misleading current-runtime guidance %q:\n%s", relative, forbidden, text)
+			}
+		}
+	}
+}
+
+func TestIxfSkillsRejectPythonAndLegacyFallbacks(t *testing.T) {
+	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
+		for _, skillName := range skillNamesForContract() {
+			text := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, skillName, "SKILL.md")))
+			for _, expected := range []string{"Go `ixf` only", "Do not call `ixfdoc` or `ixfwrite`", "Do not use Python fallback"} {
+				if !strings.Contains(text, expected) {
+					t.Fatalf("%s/%s missing no-legacy rule %q:\n%s", runtimeDir, skillName, expected, text)
+				}
+			}
+		}
+	}
+}
+
 func TestMessengerSkillsAreRoutedAndDocumentDryRunSafety(t *testing.T) {
 	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
 		routing := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, "using-ixf-toolbox", "SKILL.md")))
@@ -111,6 +160,18 @@ func TestMessengerSkillsAreRoutedAndDocumentDryRunSafety(t *testing.T) {
 				t.Fatalf("%s messenger writer missing %q:\n%s", runtimeDir, expected, writer)
 			}
 		}
+	}
+}
+
+func skillNamesForContract() []string {
+	return []string{
+		"using-ixf-toolbox",
+		"ixf-docs-reader",
+		"ixf-docs-writer",
+		"ixf-okr-reader",
+		"ixf-okr-writer",
+		"ixf-messenger-reader",
+		"ixf-messenger-writer",
 	}
 }
 

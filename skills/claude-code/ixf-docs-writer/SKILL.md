@@ -7,6 +7,10 @@ description: Use when publishing local Markdown into an authorized i讯飞 cloud
 
 Use `ixf docs publish` through the local Toolbox CLI. The command is an API-only native writer. This skill can create or modify content, so confirm target, source, and write intent before applying.
 
+## Runtime Boundary
+
+Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, Python-compatible readers, or Python-compatible writers.
+
 ## Workflow
 
 1. Confirm the Markdown file and destination URL or parent location.

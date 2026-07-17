@@ -7,6 +7,10 @@ description: Use when inspecting authorized i讯飞 Messenger readiness, unread 
 
 Use `ixf messenger` through the local Toolbox CLI. This skill is read-only and never sends messages. Messenger automation is Chrome/Chromium-only and always runs against a cloned profile, never the live LarkShell profile.
 
+## Runtime Boundary
+
+Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, Python-compatible readers, or Python-compatible writers.
+
 ## Workflow
 
 1. Confirm the user is asking for Messenger inspection or read-only message analysis.

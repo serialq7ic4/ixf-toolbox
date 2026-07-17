@@ -7,6 +7,10 @@ description: Use when reading authorized i讯飞 OKR pages to summarize objectiv
 
 Use `ixf okr read` through the local Toolbox CLI. This skill is read-only.
 
+## Runtime Boundary
+
+Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, Python-compatible readers, or Python-compatible writers.
+
 ## Workflow
 
 1. Accept only OKR links the user is authorized to access.

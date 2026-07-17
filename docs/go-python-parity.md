@@ -36,6 +36,14 @@ The repository test harness is Go-only:
 There is no Python package API, wheel, sdist, or Python runtime implementation.
 Direct Python package API callers must migrate to the Go CLI.
 
+## No Legacy Fallback
+
+All current docs, wiki, docx, sheets, OKR, cookie, setup, update, and Messenger
+workflows use Go `ixf` only. Do not use Python fallback, Python-compatible
+readers, Python-compatible writers, `ixfdoc`, or `ixfwrite`. Old changelog
+entries and `docs/superpowers/` implementation plans are historical records, not
+current routing guidance.
+
 ## Deletion Gates
 
 Python runtime deletion is complete:

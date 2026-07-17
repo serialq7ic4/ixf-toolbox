@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.7.1 - 2026-07-17
+
+- Added Go-only agent guidance to prevent Python fallback or legacy `ixfdoc`/`ixfwrite` routing when agents inspect historical project notes.
+- Updated all installed ixf skill wrappers with an explicit runtime boundary requiring Go `ixf` only.
+- Added `ixf doctor` legacy command detection that reports old shims as ignored without changing the Go-only runtime.
+
 ## 3.7.0 - 2026-07-17
 
 - Added secret-safe Messenger doctor remediation guidance for missing platform, profile, Chrome/Chromium browser, and cookie prerequisites.

@@ -7,6 +7,10 @@ description: Use when an i讯飞/LarkShell document, wiki, docx, sheets, cloud d
 
 Use this as a lightweight routing skill for ixf Toolbox workflows. It does not replace the domain skills and does not perform direct writes.
 
+## Runtime Boundary
+
+Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, Python-compatible readers, or Python-compatible writers.
+
 ## Routing
 
 - Use `ixf-docs-reader` for authorized document, wiki, docx, cloud-doc, direct sheets link, embedded sheet, mindnote, image artifact, or local Markdown reading.

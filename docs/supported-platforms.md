@@ -15,7 +15,7 @@ Messenger automation is browser-profile-first, not cookie-only. The live LarkShe
 
 Messenger browser automation auto-discovers Chrome/Chromium only. Install Google Chrome on macOS or Windows, or pass an explicit `--browser-path` when using another Chromium-compatible browser for local debugging.
 
-`v3.7.0` exposes diagnostics with remediation, dry-run open planning, explicit --apply target verification, read-only conversation extraction, and approved sends with fresh-session verification:
+`v3.7.1` exposes diagnostics with remediation, dry-run open planning, explicit --apply target verification, read-only conversation extraction, and approved sends with fresh-session verification:
 
 ```bash
 ixf messenger doctor --json
@@ -37,7 +37,7 @@ Install the Go binary with:
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.7.0/ixf_3.7.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.7.1/ixf_3.7.1_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf cookies export --provider windows-larkshell --output $env:TEMP\ixf_cookies.json
 ixf doctor --json --cookies $env:TEMP\ixf_cookies.json

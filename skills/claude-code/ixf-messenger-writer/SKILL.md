@@ -7,6 +7,10 @@ description: Use when sending an approved i讯飞 Messenger message to a confirm
 
 Use `ixf messenger send` through the local Toolbox CLI. This skill can send real messages only after dry-run planning and explicit user confirmation. Messenger automation is Chrome/Chromium-only and always runs against cloned profiles.
 
+## Runtime Boundary
+
+Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, Python-compatible readers, or Python-compatible writers.
+
 ## Workflow
 
 1. Confirm the exact recipient or conversation, target mode, and message text.

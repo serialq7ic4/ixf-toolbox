@@ -47,27 +47,27 @@ The recommended path is to let the agent you are already using install Toolbox. 
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.10.0_darwin_arm64`, macOS Intel: `ixf_3.10.0_darwin_amd64`, Windows: `ixf_3.10.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.11.0_darwin_arm64`, macOS Intel: `ixf_3.11.0_darwin_amd64`, Windows: `ixf_3.11.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.10.0/ixf_3.10.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.11.0/ixf_3.11.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_3.10.0_darwin_amd64` instead.
+For macOS Intel, use `ixf_3.11.0_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.10.0/ixf_3.10.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.11.0/ixf_3.11.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -115,7 +115,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf docs cleanup <out-dir>` | Remove generated read artifacts |
 | `ixf docs publish <file.md>` | Publish Markdown as a new authorized docx document; does not overwrite existing docx files |
 | `ixf docs update <file.md> --url <docx-url> --dry-run` | Plan replacing an existing docx body without writing |
-| `ixf docs update <file.md> --url <docx-url> --apply` | Replace an existing docx body and reject complex blocks by default |
+| `ixf docs update <file.md> --url <docx-url> --apply` | Replace an existing docx body, rejecting complex blocks by default; use `--allow-complex-replace` after confirmation |
 | `ixf okr read <url>` | Read an authorized OKR page as Markdown |
 | `ixf okr write --url <url> --input <file.json>` | Create or update confirmed Objective / KR content |
 | `ixf messenger doctor --json` | Inspect Messenger desktop profile, browser, and cookie readiness |
@@ -134,7 +134,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Runtime Status
 
-Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations. Starting with v3.6, it can send approved messages and requires fresh-session verification before reporting success. Starting with v3.7, Messenger has a GA runbook and actionable diagnostic remediation. Starting with v3.8, agent routing diagnostics and Messenger stability metadata are exposed through doctor commands. Starting with v3.9, existing-docx body replacement dry-run/preflight is available. Starting with v3.10, approved existing-docx body replacement writes are available.
+Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations. Starting with v3.6, it can send approved messages and requires fresh-session verification before reporting success. Starting with v3.7, Messenger has a GA runbook and actionable diagnostic remediation. Starting with v3.8, agent routing diagnostics and Messenger stability metadata are exposed through doctor commands. Starting with v3.9, existing-docx body replacement dry-run/preflight is available. Starting with v3.10, approved existing-docx body replacement writes are available. Starting with v3.11, complex-block explicit override and the update runbook are available.
 
 See [`docs/agent-routing.md`](docs/agent-routing.md) for the agent routing contract. See [`docs/messenger.md`](docs/messenger.md) for Messenger operations, including Chrome/Chromium-only discovery, cloned profile isolation, read side effects, and send success criteria.
 
@@ -183,7 +183,7 @@ ixf docs publish notes/review.md \
 
 Update an existing docx:
 
-`ixf docs update` uses `replace_body` mode: it keeps the original URL, permissions, and location while replacing body blocks. It rejects original documents containing complex blocks such as images or embedded sheets by default.
+`ixf docs update` uses `replace_body` mode: it keeps the original URL, permissions, and location while replacing body blocks. It rejects original documents containing complex blocks such as images or embedded sheets by default. See [`docs/docs-update.md`](docs/docs-update.md).
 
 ```bash
 ixf docs update notes/review.md \
@@ -199,6 +199,16 @@ ixf docs update notes/review.md \
   --url https://tenant.example.test/docx/example \
   --cookies /tmp/ixf_cookies.json \
   --require "critical content" \
+  --apply
+```
+
+If dry-run reports complex blocks, use the override only after explicitly accepting that those blocks will be lost:
+
+```bash
+ixf docs update notes/review.md \
+  --url https://tenant.example.test/docx/example \
+  --cookies /tmp/ixf_cookies.json \
+  --allow-complex-replace \
   --apply
 ```
 

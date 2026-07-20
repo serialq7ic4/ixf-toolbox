@@ -36,6 +36,7 @@ type UpdateConfig struct {
 	CookiesPath  string
 	SpaceAPI     string
 	RequiredText []string
+	AllowComplex bool
 	Apply        bool
 }
 
@@ -121,6 +122,7 @@ func UpdateMarkdown(config UpdateConfig) (map[string]any, error) {
 		"supportedExistingContent": len(complexTypes) == 0,
 		"complexBlockCount":        summary.ComplexBlockCount,
 		"complexBlockTypes":        complexTypes,
+		"allowComplexReplace":      config.AllowComplex,
 		"requiredTextChecks":       len(config.RequiredText),
 	}, nil
 }
@@ -135,7 +137,7 @@ func applyUpdateMarkdown(
 	complexTypes []string,
 	session *publishSession,
 ) (map[string]any, error) {
-	if len(complexTypes) > 0 {
+	if len(complexTypes) > 0 && !config.AllowComplex {
 		return nil, fmt.Errorf("complex existing content requires a later explicit override: %s", strings.Join(complexTypes, ","))
 	}
 	blockMap := asMap(state["block_map"])
@@ -167,9 +169,10 @@ func applyUpdateMarkdown(
 		"counts":                   summarizeSpecs(specs),
 		"currentTopLevelBlocks":    summary.TopLevelCount,
 		"plannedTopLevelBlocks":    len(specs),
-		"supportedExistingContent": true,
-		"complexBlockCount":        0,
-		"complexBlockTypes":        []string{},
+		"supportedExistingContent": len(complexTypes) == 0,
+		"complexBlockCount":        summary.ComplexBlockCount,
+		"complexBlockTypes":        complexTypes,
+		"allowComplexReplace":      config.AllowComplex,
 		"requiredTextChecks":       len(config.RequiredText),
 		"verify":                   verify,
 		"url":                      target.Referer,

@@ -495,6 +495,185 @@ func TestCLIDocsUpdateRejectsUnsupportedURLsAndComplexApply(t *testing.T) {
 	}
 }
 
+func TestCLIDocsUpdateAllowComplexReplaceAppliesAfterExplicitOptIn(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "replacement.md")
+	if err := os.WriteFile(source, []byte("# Replacement\n\nBody with required text.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+
+	var events []string
+	wroteBlocks := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/docx/pages/client_vars":
+			events = append(events, "client_vars")
+			blockMap := map[string]any{
+				"doxrzExistingPage": map[string]any{
+					"version": 12,
+					"data": map[string]any{
+						"type":     "page",
+						"author":   "author_fixture",
+						"children": []any{"old_image", "old_sheet"},
+					},
+				},
+				"old_image": map[string]any{
+					"version": 2,
+					"data": map[string]any{
+						"type":      "image",
+						"parent_id": "doxrzExistingPage",
+					},
+				},
+				"old_sheet": map[string]any{
+					"version": 3,
+					"data": map[string]any{
+						"type":      "sheet",
+						"parent_id": "doxrzExistingPage",
+					},
+				},
+			}
+			if wroteBlocks {
+				blockMap = map[string]any{
+					"doxrzExistingPage": map[string]any{
+						"version": 13,
+						"data": map[string]any{
+							"type":     "page",
+							"author":   "author_fixture",
+							"children": []any{"text_1"},
+						},
+					},
+					"text_1": map[string]any{
+						"version": 1,
+						"data": map[string]any{
+							"type": "text",
+							"text": attributedCLIText("Body with required text."),
+						},
+					},
+				}
+			}
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"block_map": blockMap}})
+		case "/space/api/docx/blocks/user_change":
+			events = append(events, "write")
+			payload := decodeRequestBody(t, r)
+			raw, err := json.Marshal(payload["change_map"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(raw)
+			for _, expected := range []string{`"od"`, `"old_image"`, `"old_sheet"`, "Body with required text."} {
+				if !strings.Contains(text, expected) {
+					t.Fatalf("complex opt-in change_map missing %q: %s", expected, text)
+				}
+			}
+			wroteBlocks = true
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "update", source,
+		"--url", server.URL+"/docx/doxrzExistingPage",
+		"--space-api", server.URL,
+		"--cookies", cookiesPath,
+		"--require", "required text",
+		"--allow-complex-replace",
+		"--apply",
+	)
+	if code != 0 {
+		t.Fatalf("complex opt-in apply exit code = %d, stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["ok"] != true || payload["allowComplexReplace"] != true || payload["complexBlockCount"] != float64(2) {
+		t.Fatalf("complex opt-in payload = %+v", payload)
+	}
+	if !reflect.DeepEqual(events, []string{"client_vars", "write", "client_vars"}) {
+		t.Fatalf("events = %#v", events)
+	}
+	if stderr != "" {
+		t.Fatalf("complex opt-in stderr = %q, want empty", stderr)
+	}
+}
+
+func TestCLIDocsUpdateDryRunReportsComplexBlockRisk(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "replacement.md")
+	if err := os.WriteFile(source, []byte("# Replacement\n\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/docx/pages/client_vars":
+			writeTestJSON(t, w, map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"block_map": map[string]any{
+						"doxrzExistingPage": map[string]any{
+							"version": 12,
+							"data": map[string]any{
+								"type":     "page",
+								"author":   "author_fixture",
+								"children": []any{"old_sheet", "old_image"},
+							},
+						},
+						"old_sheet": map[string]any{
+							"version": 1,
+							"data": map[string]any{
+								"type":      "sheet",
+								"parent_id": "doxrzExistingPage",
+							},
+						},
+						"old_image": map[string]any{
+							"version": 1,
+							"data": map[string]any{
+								"type":      "image",
+								"parent_id": "doxrzExistingPage",
+							},
+						},
+					},
+				},
+			})
+		case "/space/api/docx/blocks/user_change":
+			t.Fatal("dry-run complex risk must not write")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "update", source,
+		"--url", server.URL+"/docx/doxrzExistingPage",
+		"--space-api", server.URL,
+		"--cookies", cookiesPath,
+		"--dry-run",
+	)
+	if code != 0 {
+		t.Fatalf("complex dry-run exit code = %d, stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["supportedExistingContent"] != false || payload["complexBlockCount"] != float64(2) {
+		t.Fatalf("complex dry-run payload = %+v", payload)
+	}
+	gotTypes := asStringSlice(payload["complexBlockTypes"])
+	if !reflect.DeepEqual(gotTypes, []string{"image", "sheet"}) {
+		t.Fatalf("complex types = %#v", gotTypes)
+	}
+	if payload["allowComplexReplace"] != false {
+		t.Fatalf("allowComplexReplace = %#v, want false", payload["allowComplexReplace"])
+	}
+	if stderr != "" {
+		t.Fatalf("complex dry-run stderr = %q, want empty", stderr)
+	}
+}
+
 func TestCLIDocsReadManifestCleanupAndOKRGuard(t *testing.T) {
 	tmpDir := t.TempDir()
 	sourceA := filepath.Join(tmpDir, "Project Plan.md")

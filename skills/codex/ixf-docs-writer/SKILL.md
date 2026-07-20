@@ -7,7 +7,7 @@ description: Use when publishing local Markdown as a new i讯飞 docx document o
 
 Use `ixf docs publish` through the local Toolbox CLI for new documents. The command is API-only and create-only for a new docx document. It does not modify existing docx content.
 
-Use `ixf docs update` for existing docx updates. The supported mode is `replace_body`: it keeps the original URL, permissions, and location, but replaces the body blocks. It rejects complex existing content by default.
+Use `ixf docs update` for existing docx updates. The supported mode is `replace_body`: it keeps the original URL, permissions, and location, but replaces the body blocks. It rejects complex existing content by default; use `--allow-complex-replace` only after explicit destructive approval.
 
 ## Runtime Boundary
 
@@ -25,7 +25,9 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
    `ixf docs update <file.md> --url https://tenant.example.test/docx/example --dry-run`
 6. Apply existing docx updates only after explicit approval:
    `ixf docs update <file.md> --url https://tenant.example.test/docx/example --apply`
-7. Re-read or inspect the result when a verification URL is available.
+7. If dry-run reports complex blocks, do not apply unless the user explicitly approves losing those blocks:
+   `ixf docs update <file.md> --url https://tenant.example.test/docx/example --allow-complex-replace --apply`
+8. Re-read or inspect the result when a verification URL is available.
 
 ## Safety
 

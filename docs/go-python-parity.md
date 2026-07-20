@@ -12,7 +12,8 @@ installs and for the agent skills installed by `ixf setup skills`.
 | Command family | Go ownership | Notes |
 |---|---|---|
 | `docs read` | Owned | Reads authorized remote documents and local Markdown into local artifacts. |
-| `docs publish` | Owned | Publishes Markdown with dry-run-first and explicit `--apply` semantics. |
+| `docs publish` | Owned | Creates a new docx from Markdown with dry-run-first and explicit `--apply` semantics. |
+| `docs update` | Owned | Updates an existing docx body from Markdown with dry-run-first, `replace_body`, complex-block safeguards, and explicit `--apply` semantics. |
 | `okr read` | Owned | Reads authorized OKR pages through the OKR detail APIs. |
 | `okr write` | Owned | Writes confirmed Objective / KR JSON, including index-targeted, full-spec, and explicit prune flows. |
 | `cookies export` | Owned | Exports local desktop-session cookies on macOS and CI-covered Windows providers. |

@@ -27,7 +27,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "3.10.0"
+var version = "3.11.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -490,6 +490,7 @@ func runDocsUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 		CookiesPath:  parsed.cookiesPath,
 		SpaceAPI:     parsed.spaceAPI,
 		RequiredText: parsed.requiredText,
+		AllowComplex: parsed.allowComplex,
 		Apply:        parsed.apply,
 	})
 	if err != nil {
@@ -856,6 +857,7 @@ type docsUpdateArgs struct {
 	cookiesPath  string
 	spaceAPI     string
 	requiredText []string
+	allowComplex bool
 	apply        bool
 	dryRun       bool
 }
@@ -1030,6 +1032,8 @@ func parseDocsUpdateArgs(args []string) (docsUpdateArgs, error) {
 				return parsed, fmt.Errorf("%s requires a value", arg)
 			}
 			parsed.requiredText = append(parsed.requiredText, args[i])
+		case "--allow-complex-replace":
+			parsed.allowComplex = true
 		case "--apply":
 			parsed.apply = true
 		case "--dry-run":

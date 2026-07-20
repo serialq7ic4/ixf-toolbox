@@ -47,6 +47,7 @@ After release, confirm:
 - The release body matches the changelog section.
 - The Go binaries and checksum file are attached for macOS, Linux, and Windows.
 - A clean current-platform Go binary download can run `ixf --version`, `ixf --help`, `ixf setup skills --runtimes codex --json`, and a local `ixf docs read`.
+- For docs update changes, review `docs/docs-update.md` and run the relevant mocked CLI tests before tagging; live document updates must use a non-sensitive test document and an explicit dry-run/apply confirmation.
 
 Do not publish Python package artifacts; supported release assets are Go
 binaries and checksums only.

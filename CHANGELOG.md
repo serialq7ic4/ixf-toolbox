@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.11.0 - 2026-07-20
+
+- Added explicit `--allow-complex-replace` support for confirmed `ixf docs update --apply` operations that intentionally replace complex existing body blocks.
+- Added complex-block risk metadata to docs update dry-run and apply JSON payloads.
+- Added a docs update runbook and clarified Go runtime parity/release documentation for create-only publish versus existing-docx update.
+
 ## 3.10.0 - 2026-07-20
 
 - Added `ixf docs update <file.md> --url <docx-url> --apply` for API-only existing-docx `replace_body` writes.

@@ -234,6 +234,24 @@ func TestDocsWriterSkillDoesNotOverclaimExistingDocumentUpdate(t *testing.T) {
 	}
 }
 
+func TestDocsUpdateRunbookDocumentsStableSafetyBoundary(t *testing.T) {
+	runbook := readRepoFile(t, "docs/docs-update.md")
+	for _, expected := range []string{
+		"ixf docs update",
+		"replace_body",
+		"--dry-run",
+		"--apply",
+		"--allow-complex-replace",
+		"complex blocks",
+		"does not change document permissions",
+		"does not move the document",
+	} {
+		if !strings.Contains(runbook, expected) {
+			t.Fatalf("docs/docs-update.md missing %q:\n%s", expected, runbook)
+		}
+	}
+}
+
 func skillNamesForContract() []string {
 	return []string{
 		"using-ixf-toolbox",

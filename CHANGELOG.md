@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.11.3 - 2026-07-20
+
+- Fixed leaf command help so `--help`, `-h`, and `help` return exit `0` on stdout for docs, OKR, Messenger, and update subcommands.
+- Preserved Markdown table content in docs publish/update by parsing table rows as `table` specs and emitting readable callout fallback blocks instead of empty callouts.
+- Added regression coverage for agent-discovered CLI help and Markdown table dry-run/apply payload preservation.
+
 ## 3.11.2 - 2026-07-20
 
 - Fixed `ixf docs update --apply` for existing docx body replacement by updating root children without hard-deleting old block objects, matching the accepted `user_change` contract.

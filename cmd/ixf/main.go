@@ -27,7 +27,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "3.11.2"
+var version = "3.11.3"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -118,6 +118,36 @@ func printCommandHelp(w io.Writer, prog string, rows [][2]string) {
 	fmt.Fprintln(w, "commands:")
 	for _, row := range rows {
 		fmt.Fprintf(w, "  %-*s  %s\n", width, row[0], row[1])
+	}
+}
+
+func isHelpArg(arg string) bool {
+	return arg == "-h" || arg == "--help" || arg == "-help" || arg == "help"
+}
+
+func hasHelpArg(args []string) bool {
+	for _, arg := range args {
+		if isHelpArg(arg) {
+			return true
+		}
+	}
+	return false
+}
+
+func printUsageHelp(w io.Writer, usage string, options [][2]string) {
+	fmt.Fprintf(w, "usage: %s\n\n", usage)
+	if len(options) == 0 {
+		return
+	}
+	width := 0
+	for _, option := range options {
+		if len(option[0]) > width {
+			width = len(option[0])
+		}
+	}
+	fmt.Fprintln(w, "options:")
+	for _, option := range options {
+		fmt.Fprintf(w, "  %-*s  %s\n", width, option[0], option[1])
 	}
 }
 
@@ -252,7 +282,7 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		printCommandHelp(stderr, "ixf docs", rows)
 		return 2
 	}
-	if args[0] == "-h" || args[0] == "--help" {
+	if isHelpArg(args[0]) {
 		printCommandHelp(stdout, "ixf docs", rows)
 		return 0
 	}
@@ -279,6 +309,10 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func runDocsRead(args []string, stdout io.Writer, stderr io.Writer) int {
+	if hasHelpArg(args) {
+		printDocsReadHelp(stdout)
+		return 0
+	}
 	parsed, err := parseDocsReadArgs(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
@@ -453,6 +487,10 @@ func runDocsCleanup(args []string, stderr io.Writer) int {
 }
 
 func runDocsPublish(args []string, stdout io.Writer, stderr io.Writer) int {
+	if hasHelpArg(args) {
+		printDocsPublishHelp(stdout)
+		return 0
+	}
 	parsed, err := parseDocsPublishArgs(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
@@ -479,6 +517,10 @@ func runDocsPublish(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func runDocsUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
+	if hasHelpArg(args) {
+		printDocsUpdateHelp(stdout)
+		return 0
+	}
 	parsed, err := parseDocsUpdateArgs(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
@@ -501,6 +543,45 @@ func runDocsUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
+func printDocsReadHelp(w io.Writer) {
+	printUsageHelp(w, "ixf docs read <source>... [--out-dir DIR] [--print-manifest] [--expand-sheets]", [][2]string{
+		{"--out-dir DIR", "Write read artifacts under DIR instead of printing content."},
+		{"--print-manifest", "Print the generated artifact manifest; requires --out-dir."},
+		{"--cleanup", "Remove generated artifacts after reading; requires --out-dir."},
+		{"--expand-sheets", "Expand embedded sheet blocks into local TSV/Markdown artifacts when available."},
+		{"--download-images", "Download referenced images into the output directory."},
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+	})
+}
+
+func printDocsPublishHelp(w io.Writer) {
+	printUsageHelp(w, "ixf docs publish <markdown.md> --base-url URL [--dry-run|--apply]", [][2]string{
+		{"--base-url URL", "Target tenant base URL, for example https://tenant.example.test."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--member-id ID", "Override the authenticated document member ID."},
+		{"--parent-token TOKEN", "Create the document under a specific parent token."},
+		{"--title TITLE", "Override the Markdown H1 title."},
+		{"--title-suffix TEXT", "Append text to the Markdown H1 title."},
+		{"--require TEXT", "Require TEXT to appear during post-write verification."},
+		{"--dry-run", "Plan the publish without writing remote content."},
+		{"--apply", "Create the remote document."},
+	})
+}
+
+func printDocsUpdateHelp(w io.Writer) {
+	printUsageHelp(w, "ixf docs update <markdown.md> --url DOCX_URL [--dry-run|--apply]", [][2]string{
+		{"--url DOCX_URL", "Direct existing docx URL to update."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--require TEXT", "Require TEXT to appear during post-write verification."},
+		{"--allow-complex-replace", "Permit replacing body content when unsupported existing blocks are present."},
+		{"--dry-run", "Plan the update without writing remote content."},
+		{"--apply", "Replace the remote docx body."},
+	})
+}
+
 func runOKR(args []string, stdout io.Writer, stderr io.Writer) int {
 	rows := [][2]string{
 		{"read", "Read an authorized OKR page as Markdown."},
@@ -511,7 +592,7 @@ func runOKR(args []string, stdout io.Writer, stderr io.Writer) int {
 		printCommandHelp(stderr, "ixf okr", rows)
 		return 2
 	}
-	if args[0] == "-h" || args[0] == "--help" {
+	if isHelpArg(args[0]) {
 		printCommandHelp(stdout, "ixf okr", rows)
 		return 0
 	}
@@ -528,6 +609,10 @@ func runOKR(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func runOKRRead(args []string, stdout io.Writer, stderr io.Writer) int {
+	if hasHelpArg(args) {
+		printOKRReadHelp(stdout)
+		return 0
+	}
 	source := ""
 	cookiesPath := defaultCookies
 	csrfURL := ixfokr.DefaultCSRFURL
@@ -577,6 +662,13 @@ func runOKRRead(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
+func printOKRReadHelp(w io.Writer) {
+	printUsageHelp(w, "ixf okr read <okr-url> [--cookies PATH] [--csrf-url URL]", [][2]string{
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--csrf-url URL", "Override the URL used to establish CSRF/session readiness."},
+	})
+}
+
 func runOKRWrite(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("ixf okr write", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -588,6 +680,11 @@ func runOKRWrite(args []string, stdout io.Writer, stderr io.Writer) int {
 	prune := flags.Bool("prune", false, "")
 	apply := flags.Bool("apply", false, "")
 	dryRun := flags.Bool("dry-run", false, "")
+	if hasHelpArg(args) {
+		flags.SetOutput(stdout)
+		flags.Usage()
+		return 0
+	}
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -628,7 +725,7 @@ func runMessenger(args []string, stdout io.Writer, stderr io.Writer) int {
 		printCommandHelp(stderr, "ixf messenger", rows)
 		return 2
 	}
-	if args[0] == "-h" || args[0] == "--help" {
+	if isHelpArg(args[0]) {
 		printCommandHelp(stdout, "ixf messenger", rows)
 		return 0
 	}
@@ -652,6 +749,11 @@ func runMessengerDoctor(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("ixf messenger doctor", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	config, asJSON := messengerFlags(flags)
+	if hasHelpArg(args) {
+		flags.SetOutput(stdout)
+		flags.Usage()
+		return 0
+	}
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -678,6 +780,11 @@ func runMessengerOpen(args []string, stdout io.Writer, stderr io.Writer) int {
 	allowVisibleFallback := flags.Bool("allow-visible-fallback", false, "")
 	keepProfileClone := flags.Bool("keep-profile-clone", false, "")
 	timeoutMS := flags.Int("timeout-ms", 45000, "")
+	if hasHelpArg(args) {
+		flags.SetOutput(stdout)
+		flags.Usage()
+		return 0
+	}
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -722,6 +829,11 @@ func runMessengerRead(args []string, stdout io.Writer, stderr io.Writer) int {
 	allowVisibleFallback := flags.Bool("allow-visible-fallback", false, "")
 	keepProfileClone := flags.Bool("keep-profile-clone", false, "")
 	timeoutMS := flags.Int("timeout-ms", 60000, "")
+	if hasHelpArg(args) {
+		flags.SetOutput(stdout)
+		flags.Usage()
+		return 0
+	}
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -768,6 +880,11 @@ func runMessengerSend(args []string, stdout io.Writer, stderr io.Writer) int {
 	allowVisibleFallback := flags.Bool("allow-visible-fallback", false, "")
 	keepProfileClone := flags.Bool("keep-profile-clone", false, "")
 	timeoutMS := flags.Int("timeout-ms", 90000, "")
+	if hasHelpArg(args) {
+		flags.SetOutput(stdout)
+		flags.Usage()
+		return 0
+	}
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -1144,9 +1261,19 @@ func parseChunkArgs(args []string) (chunkArgs, error) {
 }
 
 func runUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
+	rows := [][2]string{
+		{"check", "Check the latest ixf Toolbox release."},
+		{"self", "Download and optionally apply a CLI self-update."},
+		{"skills", "Refresh installed agent skill wrappers."},
+	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "ERROR update requires a subcommand")
+		printCommandHelp(stderr, "ixf update", rows)
 		return 2
+	}
+	if isHelpArg(args[0]) {
+		printCommandHelp(stdout, "ixf update", rows)
+		return 0
 	}
 	switch args[0] {
 	case "check":
@@ -1182,6 +1309,10 @@ func runUpdateCheck(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func runUpdateSelf(args []string, stdout io.Writer, stderr io.Writer) int {
+	if hasHelpArg(args) {
+		printUpdateSelfHelp(stdout)
+		return 0
+	}
 	repo, releaseFile, asJSON, apply, targetPath, err := parseUpdateSelfArgs(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
@@ -1207,11 +1338,26 @@ func runUpdateSelf(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
+func printUpdateSelfHelp(w io.Writer) {
+	printUsageHelp(w, "ixf update self [--target-path PATH] [--apply] [--json]", [][2]string{
+		{"--repo OWNER/REPO", "GitHub repository to inspect for releases."},
+		{"--release-file PATH", "Use a local release JSON fixture."},
+		{"--target-path PATH", "Install the downloaded binary at PATH."},
+		{"--apply", "Replace the target binary; omitted means dry-run/check only."},
+		{"--json", "Print machine-readable JSON output."},
+	})
+}
+
 func runUpdateSkills(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("ixf update skills", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	runtimesRaw := flags.String("runtimes", "auto", "")
 	asJSON := flags.Bool("json", false, "")
+	if hasHelpArg(args) {
+		flags.SetOutput(stdout)
+		flags.Usage()
+		return 0
+	}
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}

@@ -275,11 +275,12 @@ func ParseMarkdown(markdown string) (string, []Spec, error) {
 			continue
 		}
 		if isTableStart(lines, index) {
-			index += 2
-			for index < len(lines) && strings.HasPrefix(lines[index], "|") {
-				index++
+			text, nextIndex := parseMarkdownTable(lines, index)
+			index = nextIndex
+			if text == "" {
+				continue
 			}
-			specs = append(specs, Spec{Kind: "callout"})
+			specs = append(specs, Spec{Kind: "table", Text: text})
 			continue
 		}
 		if match := headingPattern.FindStringSubmatch(line); len(match) == 3 {
@@ -330,11 +331,55 @@ var (
 	headingPattern        = regexp.MustCompile(`^(#{1,9})\s+(.*)$`)
 	orderedPattern        = regexp.MustCompile(`^\d+\.\s+`)
 	inlineCodePattern     = regexp.MustCompile("`([^`]+)`")
-	tableSeparatorPattern = regexp.MustCompile(`^\|\s*-+`)
+	tableSeparatorPattern = regexp.MustCompile(`^\|\s*:?-+`)
 )
 
 func isTableStart(lines []string, index int) bool {
-	return index+1 < len(lines) && strings.HasPrefix(lines[index], "|") && tableSeparatorPattern.MatchString(lines[index+1])
+	return index+1 < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[index]), "|") && tableSeparatorPattern.MatchString(strings.TrimSpace(lines[index+1]))
+}
+
+func parseMarkdownTable(lines []string, index int) (string, int) {
+	rows := []string{}
+	for index < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[index]), "|") {
+		line := strings.TrimSpace(lines[index])
+		if !isTableSeparator(line) {
+			cells := markdownTableCells(line)
+			if len(cells) > 0 {
+				rows = append(rows, strings.Join(cells, " | "))
+			}
+		}
+		index++
+	}
+	return strings.Join(rows, "\n"), index
+}
+
+func isTableSeparator(line string) bool {
+	cells := markdownTableCells(line)
+	if len(cells) == 0 {
+		return false
+	}
+	for _, cell := range cells {
+		trimmed := strings.Trim(cell, " :-")
+		if trimmed != "" {
+			return false
+		}
+	}
+	return true
+}
+
+func markdownTableCells(line string) []string {
+	line = strings.TrimSpace(line)
+	line = strings.TrimPrefix(line, "|")
+	line = strings.TrimSuffix(line, "|")
+	rawCells := strings.Split(line, "|")
+	cells := make([]string, 0, len(rawCells))
+	for _, cell := range rawCells {
+		text := cleanInline(strings.TrimSpace(cell))
+		if text != "" {
+			cells = append(cells, text)
+		}
+	}
+	return cells
 }
 
 func cleanInline(text string) string {
@@ -695,7 +740,7 @@ func buildBlocks(specs []Spec, pageID string, factory *blockFactory) ([]string, 
 			newEntries, topID := factory.quoteBlocks(pageID, spec.Text)
 			topIDs = append(topIDs, topID)
 			entries = append(entries, newEntries...)
-		case "callout":
+		case "callout", "table":
 			newEntries, topID := factory.calloutBlocks(pageID, spec.Text)
 			topIDs = append(topIDs, topID)
 			entries = append(entries, newEntries...)

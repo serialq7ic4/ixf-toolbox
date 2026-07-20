@@ -67,6 +67,56 @@ func TestDocsAndOKRHelpListSupportedSubcommands(t *testing.T) {
 	}
 }
 
+func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
+	tests := []struct {
+		args     []string
+		expected []string
+	}{
+		{
+			args:     []string{"docs", "read", "--help"},
+			expected: []string{"usage: ixf docs read", "--out-dir", "--print-manifest", "--expand-sheets", "--cookies"},
+		},
+		{
+			args:     []string{"docs", "publish", "--help"},
+			expected: []string{"usage: ixf docs publish", "--base-url", "--dry-run", "--apply"},
+		},
+		{
+			args:     []string{"docs", "update", "--help"},
+			expected: []string{"usage: ixf docs update", "--url", "--dry-run", "--apply", "--allow-complex-replace"},
+		},
+		{
+			args:     []string{"okr", "read", "--help"},
+			expected: []string{"usage: ixf okr read", "--cookies", "--csrf-url"},
+		},
+		{
+			args:     []string{"messenger", "send", "--help"},
+			expected: []string{"Usage of ixf messenger send", "-to", "-message", "-dry-run", "-apply"},
+		},
+		{
+			args:     []string{"update", "self", "--help"},
+			expected: []string{"usage: ixf update self", "--target-path", "--apply", "--json"},
+		},
+	}
+	for _, test := range tests {
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+
+		code := run(test.args, &stdout, &stderr)
+
+		if code != 0 {
+			t.Fatalf("run(%v) exit code = %d, want 0; stderr=%q stdout=%q", test.args, code, stderr.String(), stdout.String())
+		}
+		if stderr.String() != "" {
+			t.Fatalf("run(%v) stderr = %q, want empty", test.args, stderr.String())
+		}
+		for _, expected := range test.expected {
+			if !strings.Contains(stdout.String(), expected) {
+				t.Fatalf("run(%v) stdout missing %q:\n%s", test.args, expected, stdout.String())
+			}
+		}
+	}
+}
+
 func TestMessengerDoctorJSONIsSecretSafe(t *testing.T) {
 	home := t.TempDir()
 	profile := filepath.Join(home, "profile_explorer")

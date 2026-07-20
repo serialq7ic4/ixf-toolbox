@@ -10,6 +10,59 @@ import (
 	"testing"
 )
 
+func TestMarkdownTablesArePreservedAsReadableBlocks(t *testing.T) {
+	_, specs, err := ParseMarkdown("# Title\n\n| 告警 | 阈值 |\n|---|---|\n| P0 | 立即处理 |\n| P1 | 尽快处理 |\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(specs) != 1 {
+		t.Fatalf("spec count = %d, want 1: %#v", len(specs), specs)
+	}
+	if specs[0].Kind != "table" {
+		t.Fatalf("table spec kind = %q, want table", specs[0].Kind)
+	}
+	for _, expected := range []string{"告警", "阈值", "P0", "立即处理", "P1", "尽快处理"} {
+		if !strings.Contains(specs[0].Text, expected) {
+			t.Fatalf("table spec text missing %q: %#v", expected, specs[0])
+		}
+	}
+
+	topIDs, entries := buildBlocks(specs, "doxrzPage", newBlockFactory("author_fixture"))
+	if len(topIDs) != 1 {
+		t.Fatalf("top ids = %#v, want one table fallback block", topIDs)
+	}
+	raw, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, expected := range []string{"callout", "告警", "阈值", "P0", "立即处理", "P1", "尽快处理"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("generated table fallback missing %q: %s", expected, text)
+		}
+	}
+}
+
+func TestPublishMarkdownDryRunCountsMarkdownTables(t *testing.T) {
+	tmpDir := t.TempDir()
+	markdownPath := filepath.Join(tmpDir, "table.md")
+	if err := os.WriteFile(markdownPath, []byte("# Title\n\n| Name | Value |\n|---|---|\n| Alpha | 1 |\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	payload, err := PublishMarkdown(Config{
+		MarkdownPath: markdownPath,
+		BaseURL:      "https://tenant.example.test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := payload["counts"].(map[string]int)
+	if counts["table"] != 1 {
+		t.Fatalf("counts = %+v, want table=1", counts)
+	}
+}
+
 func TestBuildReplaceBodyChangeMapLeavesOldBlocksUnmodified(t *testing.T) {
 	blockMap := map[string]any{
 		"doxrzExistingPage": map[string]any{

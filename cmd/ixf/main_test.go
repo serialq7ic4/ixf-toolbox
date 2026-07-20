@@ -46,7 +46,7 @@ func TestDocsAndOKRHelpListSupportedSubcommands(t *testing.T) {
 		args     []string
 		expected []string
 	}{
-		{args: []string{"docs", "--help"}, expected: []string{"usage: ixf docs", "read", "publish", "inspect"}},
+		{args: []string{"docs", "--help"}, expected: []string{"usage: ixf docs", "read", "publish", "update", "inspect"}},
 		{args: []string{"okr", "--help"}, expected: []string{"usage: ixf okr", "read", "write"}},
 		{args: []string{"messenger", "--help"}, expected: []string{"usage: ixf messenger", "doctor", "open", "read", "send"}},
 	}

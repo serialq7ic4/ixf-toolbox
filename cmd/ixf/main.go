@@ -27,7 +27,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "3.8.1"
+var version = "3.9.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -245,6 +245,7 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		{"inspect", "Print a safe local/remote source routing summary."},
 		{"cleanup", "Remove generated docs read artifacts."},
 		{"publish", "Create a new authorized docx document from Markdown."},
+		{"update", "Plan replacing an existing docx body from Markdown."},
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "ERROR docs requires a subcommand.")
@@ -268,6 +269,8 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runDocsCleanup(args[1:], stderr)
 	case "publish":
 		return runDocsPublish(args[1:], stdout, stderr)
+	case "update":
+		return runDocsUpdate(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "ERROR unsupported docs subcommand: %s\n", args[0])
 		printCommandHelp(stderr, "ixf docs", rows)
@@ -464,6 +467,28 @@ func runDocsPublish(args []string, stdout io.Writer, stderr io.Writer) int {
 		ParentToken:  parsed.parentToken,
 		Title:        parsed.title,
 		TitleSuffix:  parsed.titleSuffix,
+		RequiredText: parsed.requiredText,
+		Apply:        parsed.apply,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	writeJSON(stdout, payload)
+	return 0
+}
+
+func runDocsUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
+	parsed, err := parseDocsUpdateArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	payload, err := docspublish.UpdateMarkdown(docspublish.UpdateConfig{
+		MarkdownPath: parsed.markdown,
+		URL:          parsed.url,
+		CookiesPath:  parsed.cookiesPath,
+		SpaceAPI:     parsed.spaceAPI,
 		RequiredText: parsed.requiredText,
 		Apply:        parsed.apply,
 	})
@@ -825,6 +850,16 @@ type docsPublishArgs struct {
 	dryRun       bool
 }
 
+type docsUpdateArgs struct {
+	markdown     string
+	url          string
+	cookiesPath  string
+	spaceAPI     string
+	requiredText []string
+	apply        bool
+	dryRun       bool
+}
+
 func parseDocsReadArgs(args []string) (docsReadArgs, error) {
 	parsed := docsReadArgs{
 		cookiesPath: defaultCookies,
@@ -959,6 +994,64 @@ func parseDocsPublishArgs(args []string) (docsPublishArgs, error) {
 	}
 	if parsed.dryRun {
 		parsed.apply = false
+	}
+	return parsed, nil
+}
+
+func parseDocsUpdateArgs(args []string) (docsUpdateArgs, error) {
+	parsed := docsUpdateArgs{
+		cookiesPath: defaultCookies,
+		spaceAPI:    docslocal.DefaultSpaceAPI,
+	}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--url":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.url = args[i]
+		case "--space-api":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.spaceAPI = args[i]
+		case "--cookies":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.cookiesPath = args[i]
+		case "--require":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.requiredText = append(parsed.requiredText, args[i])
+		case "--apply":
+			parsed.apply = true
+		case "--dry-run":
+			parsed.dryRun = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return parsed, fmt.Errorf("unsupported docs update flag: %s", arg)
+			}
+			if parsed.markdown != "" {
+				return parsed, fmt.Errorf("update requires exactly one Markdown file")
+			}
+			parsed.markdown = arg
+		}
+	}
+	if parsed.markdown == "" {
+		return parsed, fmt.Errorf("update requires one Markdown file")
+	}
+	if parsed.url == "" {
+		return parsed, fmt.Errorf("--url is required")
+	}
+	if parsed.dryRun && parsed.apply {
+		return parsed, fmt.Errorf("--dry-run and --apply are mutually exclusive")
 	}
 	return parsed, nil
 }

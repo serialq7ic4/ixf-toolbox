@@ -203,6 +203,9 @@ func TestDocsWriterSkillDoesNotOverclaimExistingDocumentUpdate(t *testing.T) {
 			"new docx",
 			"does not modify existing docx",
 			"Use `ixf docs publish`",
+			"Use `ixf docs update`",
+			"preflight only",
+			"`--apply` is not supported",
 		} {
 			if !strings.Contains(writer, expected) {
 				t.Fatalf("%s missing create-only boundary %q:\n%s", writerPath, expected, writer)
@@ -220,8 +223,13 @@ func TestDocsWriterSkillDoesNotOverclaimExistingDocumentUpdate(t *testing.T) {
 
 		routingPath := filepath.ToSlash(filepath.Join(runtimeDir, "using-ixf-toolbox", "SKILL.md"))
 		routing := readRepoFile(t, routingPath)
-		if strings.Contains(routing, "document modification") {
-			t.Fatalf("%s still routes document modification to docs writer before docs update exists:\n%s", routingPath, routing)
+		for _, expected := range []string{
+			"approved Markdown publishing as a new docx document",
+			"existing-docx update preflight",
+		} {
+			if !strings.Contains(routing, expected) {
+				t.Fatalf("%s missing docs writer routing boundary %q:\n%s", routingPath, expected, routing)
+			}
 		}
 	}
 }

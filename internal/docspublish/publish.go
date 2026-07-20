@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,15 @@ type Config struct {
 	ParentToken  string
 	Title        string
 	TitleSuffix  string
+	RequiredText []string
+	Apply        bool
+}
+
+type UpdateConfig struct {
+	MarkdownPath string
+	URL          string
+	CookiesPath  string
+	SpaceAPI     string
 	RequiredText []string
 	Apply        bool
 }
@@ -61,6 +71,57 @@ func PublishMarkdown(config Config) (map[string]any, error) {
 		"operation": "create_docx",
 		"title":     title,
 		"counts":    counts,
+	}, nil
+}
+
+func UpdateMarkdown(config UpdateConfig) (map[string]any, error) {
+	if config.Apply {
+		return nil, fmt.Errorf("docs update --apply is not supported in this version")
+	}
+	content, err := os.ReadFile(expandUser(config.MarkdownPath))
+	if err != nil {
+		return nil, err
+	}
+	title, specs, err := ParseMarkdown(string(content))
+	if err != nil {
+		return nil, err
+	}
+	target, err := parseDocxTarget(config.URL)
+	if err != nil {
+		return nil, err
+	}
+	session, err := newPublishSession(Config{
+		CookiesPath: config.CookiesPath,
+		SpaceAPI:    config.SpaceAPI,
+	}, target.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+	state, err := session.clientVars(target.Token, target.Referer)
+	if err != nil {
+		return nil, err
+	}
+	summary, err := summarizeExistingDocument(state, target.Token)
+	if err != nil {
+		return nil, err
+	}
+	complexTypes := sortedKeys(summary.ComplexTypes)
+	return map[string]any{
+		"ok":                       true,
+		"dryRun":                   true,
+		"operation":                "update_docx",
+		"mode":                     "replace_body",
+		"destructive":              true,
+		"willWrite":                false,
+		"targetToken":              target.Token,
+		"title":                    title,
+		"counts":                   summarizeSpecs(specs),
+		"currentTopLevelBlocks":    summary.TopLevelCount,
+		"plannedTopLevelBlocks":    len(specs),
+		"supportedExistingContent": len(complexTypes) == 0,
+		"complexBlockCount":        summary.ComplexBlockCount,
+		"complexBlockTypes":        complexTypes,
+		"requiredTextChecks":       len(config.RequiredText),
 	}, nil
 }
 
@@ -321,20 +382,33 @@ func (session *publishSession) createDocument(title string, parentToken string) 
 }
 
 func (session *publishSession) clientVars(pageID string, referer string) (map[string]any, error) {
-	query := url.Values{"id": {pageID}, "open_type": {"1"}}
-	request, err := http.NewRequest("GET", session.spaceAPI+"/space/api/docx/pages/client_vars?"+query.Encode(), nil)
-	if err != nil {
-		return nil, err
+	data := map[string]any{}
+	cursor := ""
+	for {
+		query := url.Values{"id": {pageID}, "open_type": {"1"}}
+		if cursor != "" {
+			query.Set("mode", "4")
+			query.Set("cursor", cursor)
+		}
+		request, err := http.NewRequest("GET", session.spaceAPI+"/space/api/docx/pages/client_vars?"+query.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		session.addCommonHeaders(request, referer)
+		payload, err := session.doJSON(request, "client_vars")
+		if err != nil {
+			return nil, err
+		}
+		if asInt(payload["code"]) != 0 {
+			return nil, fmt.Errorf("could not load document state")
+		}
+		page := asMap(payload["data"])
+		mergeClientVarsPage(data, page)
+		cursor = asString(page["cursor"])
+		if !asBool(page["has_more"]) || cursor == "" {
+			return data, nil
+		}
 	}
-	session.addCommonHeaders(request, referer)
-	payload, err := session.doJSON(request, "client_vars")
-	if err != nil {
-		return nil, err
-	}
-	if asInt(payload["code"]) != 0 {
-		return nil, fmt.Errorf("could not load the created document state")
-	}
-	return asMap(payload["data"]), nil
 }
 
 func (session *publishSession) writeBlocks(pageID string, memberID string, changeMap map[string]any, referer string) error {
@@ -578,6 +652,129 @@ func buildBlocks(specs []Spec, pageID string, factory *blockFactory) ([]string, 
 		}
 	}
 	return topIDs, entries
+}
+
+type docxTarget struct {
+	Token   string
+	BaseURL string
+	Referer string
+}
+
+type documentSummary struct {
+	TopLevelCount     int
+	ComplexBlockCount int
+	ComplexTypes      map[string]bool
+}
+
+func parseDocxTarget(rawURL string) (docxTarget, error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return docxTarget{}, fmt.Errorf("--url must be an absolute HTTP(S) docx URL")
+	}
+	token := tokenAfterPath(parsed.Path, "/docx/")
+	if token == "" {
+		return docxTarget{}, fmt.Errorf("docs update requires a direct docx URL")
+	}
+	return docxTarget{
+		Token:   token,
+		BaseURL: parsed.Scheme + "://" + parsed.Host,
+		Referer: strings.TrimSpace(rawURL),
+	}, nil
+}
+
+func summarizeExistingDocument(clientVars map[string]any, pageID string) (documentSummary, error) {
+	blockMap := asMap(clientVars["block_map"])
+	rootData := dataForBlock(blockMap[pageID])
+	if len(rootData) == 0 {
+		return documentSummary{}, fmt.Errorf("could not load target document root block")
+	}
+	children := asSlice(rootData["children"])
+	summary := documentSummary{
+		TopLevelCount: len(children),
+		ComplexTypes:  map[string]bool{},
+	}
+	seen := map[string]bool{}
+	for _, child := range children {
+		collectComplexBlocks(blockMap, asString(child), seen, &summary)
+	}
+	return summary, nil
+}
+
+func collectComplexBlocks(blockMap map[string]any, blockID string, seen map[string]bool, summary *documentSummary) {
+	if blockID == "" || seen[blockID] {
+		return
+	}
+	seen[blockID] = true
+	data := dataForBlock(blockMap[blockID])
+	blockType := asString(data["type"])
+	if blockType == "" {
+		blockType = "unknown"
+	}
+	if !isSupportedMarkdownBlockType(blockType) {
+		summary.ComplexBlockCount++
+		summary.ComplexTypes[blockType] = true
+	}
+	for _, child := range asSlice(data["children"]) {
+		collectComplexBlocks(blockMap, asString(child), seen, summary)
+	}
+}
+
+func isSupportedMarkdownBlockType(blockType string) bool {
+	switch blockType {
+	case "page", "text", "bullet", "ordered", "code", "quote_container", "callout":
+		return true
+	}
+	return strings.HasPrefix(blockType, "heading")
+}
+
+func dataForBlock(value any) map[string]any {
+	entry := asMap(value)
+	data := asMap(entry["data"])
+	if len(data) > 0 {
+		return data
+	}
+	return entry
+}
+
+func mergeClientVarsPage(target map[string]any, page map[string]any) {
+	for key, value := range page {
+		if key == "block_map" {
+			targetBlockMap := asMap(target["block_map"])
+			if len(targetBlockMap) == 0 {
+				targetBlockMap = map[string]any{}
+				target["block_map"] = targetBlockMap
+			}
+			for blockID, blockValue := range asMap(value) {
+				targetBlockMap[blockID] = blockValue
+			}
+			continue
+		}
+		target[key] = value
+	}
+}
+
+func sortedKeys(values map[string]bool) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func tokenAfterPath(path string, marker string) string {
+	index := strings.Index(path, marker)
+	if index < 0 {
+		return ""
+	}
+	rest := strings.Trim(path[index+len(marker):], "/")
+	if rest == "" {
+		return ""
+	}
+	if slash := strings.Index(rest, "/"); slash >= 0 {
+		rest = rest[:slash]
+	}
+	return rest
 }
 
 func insertChildOps(rootChildren []any, topIDs []string) []map[string]any {

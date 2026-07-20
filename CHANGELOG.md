@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.9.0 - 2026-07-20
+
+- Added `ixf docs update <file.md> --url <docx-url> --dry-run` for API-only existing-docx update preflight.
+- The update preflight reads authorized target document state, reports `operation:update_docx`, `mode:replace_body`, destructive status, current and planned top-level block counts, and complex-block risk.
+- Kept `docs update --apply` disabled until the apply release so no existing docx content can be mutated in v3.9.0.
+
 ## 3.8.1 - 2026-07-20
 
 - Clarified that `ixf docs publish` is create-only and does not overwrite existing docx documents.

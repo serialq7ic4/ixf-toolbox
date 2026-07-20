@@ -61,6 +61,93 @@ func TestPublishMarkdownDryRunCountsMarkdownTables(t *testing.T) {
 	if counts["table"] != 1 {
 		t.Fatalf("counts = %+v, want table=1", counts)
 	}
+	if payload["tableFallbackCount"] != 1 {
+		t.Fatalf("tableFallbackCount = %#v, want 1", payload["tableFallbackCount"])
+	}
+	if payload["tableFallbackBlockType"] != "callout" {
+		t.Fatalf("tableFallbackBlockType = %#v, want callout", payload["tableFallbackBlockType"])
+	}
+}
+
+func TestVerifyReportsMissingRequiredText(t *testing.T) {
+	session, closeServer := newVerifyFixtureSession(t, map[string]any{
+		"doxrzPage": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":     "page",
+				"children": []any{"body"},
+			},
+		},
+		"body": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":      "text",
+				"parent_id": "doxrzPage",
+				"text":      attributedCLIText("present text"),
+			},
+		},
+	})
+	defer closeServer()
+
+	verify, err := session.verify("doxrzPage", session.spaceAPI+"/docx/doxrzPage", []string{"missing text"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify["ok"] != false {
+		t.Fatalf("verify ok = %#v, want false: %+v", verify["ok"], verify)
+	}
+	missing, ok := verify["missingRequiredText"].([]string)
+	if !ok || len(missing) != 1 || missing[0] != "missing text" {
+		t.Fatalf("missingRequiredText = %#v, want [missing text]", verify["missingRequiredText"])
+	}
+}
+
+func TestVerifyFailsWhenCalloutIsEmpty(t *testing.T) {
+	session, closeServer := newVerifyFixtureSession(t, map[string]any{
+		"doxrzPage": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":     "page",
+				"children": []any{"callout"},
+			},
+		},
+		"callout": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":      "callout",
+				"parent_id": "doxrzPage",
+				"children":  []any{"empty_text"},
+			},
+		},
+		"empty_text": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":      "text",
+				"parent_id": "callout",
+				"text":      attributedCLIText(""),
+			},
+		},
+		"body": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":      "text",
+				"parent_id": "doxrzPage",
+				"text":      attributedCLIText("required text"),
+			},
+		},
+	})
+	defer closeServer()
+
+	verify, err := session.verify("doxrzPage", session.spaceAPI+"/docx/doxrzPage", []string{"required text"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify["ok"] != false {
+		t.Fatalf("verify ok = %#v, want false for empty callout: %+v", verify["ok"], verify)
+	}
+	if verify["emptyCalloutCount"] != 1 {
+		t.Fatalf("emptyCalloutCount = %#v, want 1", verify["emptyCalloutCount"])
+	}
 }
 
 func TestBuildReplaceBodyChangeMapLeavesOldBlocksUnmodified(t *testing.T) {
@@ -215,6 +302,26 @@ func writeTestJSON(t *testing.T, w http.ResponseWriter, payload map[string]any) 
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func newVerifyFixtureSession(t *testing.T, blockMap map[string]any) (*publishSession, func()) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/space/api/docx/pages/client_vars" {
+			http.NotFound(w, r)
+			return
+		}
+		writeTestJSON(t, w, map[string]any{
+			"code": 0,
+			"data": map[string]any{"block_map": blockMap},
+		})
+	}))
+	return &publishSession{
+		client:   server.Client(),
+		csrf:     "csrf-fixture",
+		baseURL:  server.URL,
+		spaceAPI: server.URL,
+	}, server.Close
 }
 
 func attributedCLIText(text string) map[string]any {

@@ -191,7 +191,10 @@ func TestCLIDocsUpdateDryRunPreflight(t *testing.T) {
 		"# Replacement Title\n\n"+
 			"Replacement body.\n\n"+
 			"## Next Section\n\n"+
-			"- Replacement item\n",
+			"- Replacement item\n\n"+
+			"| Name | Value |\n"+
+			"|---|---|\n"+
+			"| Alpha | 1 |\n",
 	), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -266,13 +269,16 @@ func TestCLIDocsUpdateDryRunPreflight(t *testing.T) {
 		t.Fatalf("docs update dry-run payload = %+v", payload)
 	}
 	if payload["targetToken"] != "doxrzExistingPage" || payload["currentTopLevelBlocks"] != float64(2) ||
-		payload["plannedTopLevelBlocks"] != float64(3) {
+		payload["plannedTopLevelBlocks"] != float64(4) {
 		t.Fatalf("docs update target/counts payload = %+v", payload)
+	}
+	if payload["tableFallbackCount"] != float64(1) || payload["tableFallbackBlockType"] != "callout" {
+		t.Fatalf("docs update table fallback payload = %+v", payload)
 	}
 	if payload["supportedExistingContent"] != true || payload["complexBlockCount"] != float64(0) {
 		t.Fatalf("docs update complex block payload = %+v", payload)
 	}
-	assertMapNumbers(t, payload["counts"], map[string]int{"text": 1, "heading2": 1, "bullet": 1})
+	assertMapNumbers(t, payload["counts"], map[string]int{"text": 1, "heading2": 1, "bullet": 1, "table": 1})
 	if !reflect.DeepEqual(events, []string{"client_vars"}) {
 		t.Fatalf("events = %#v, want client_vars only", events)
 	}

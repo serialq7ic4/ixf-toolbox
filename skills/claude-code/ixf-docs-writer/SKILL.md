@@ -27,7 +27,9 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
    `ixf docs update <file.md> --url https://tenant.example.test/docx/example --apply`
 7. If dry-run reports complex blocks, do not apply unless the user explicitly approves losing those blocks:
    `ixf docs update <file.md> --url https://tenant.example.test/docx/example --allow-complex-replace --apply`
-8. Re-read or inspect the result when a verification URL is available.
+8. If dry-run reports `tableFallbackCount>0`, tell the user Markdown tables will be preserved as readable callout fallback blocks, not native table/sheet blocks.
+9. After apply, inspect `verify.ok`, `verify.missingRequiredText`, and `verify.emptyCalloutCount`; do not claim success if required text is missing or empty callouts are reported.
+10. Re-read or inspect the result when a verification URL is available.
 
 ## Safety
 

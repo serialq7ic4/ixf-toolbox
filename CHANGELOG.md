@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.12.0 - 2026-07-20
+
+- Added docs publish/update table fallback metadata so dry-runs report when Markdown tables will be preserved as readable callout fallback blocks.
+- Hardened docs publish/update verification with `missingRequiredText` and `emptyCalloutCount` diagnostics, and made empty callout regressions fail verification.
+- Updated docs writer skills and docs update guidance so agents inspect structural verification fields before claiming write success.
+
 ## 3.11.3 - 2026-07-20
 
 - Fixed leaf command help so `--help`, `-h`, and `help` return exit `0` on stdout for docs, OKR, Messenger, and update subcommands.

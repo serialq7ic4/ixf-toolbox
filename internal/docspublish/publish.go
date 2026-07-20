@@ -66,13 +66,13 @@ func PublishMarkdown(config Config) (map[string]any, error) {
 	if config.Apply {
 		return ApplyMarkdown(config, baseURL, title, specs, counts)
 	}
-	return map[string]any{
+	return withTableFallbackMetadata(map[string]any{
 		"ok":        true,
 		"dryRun":    true,
 		"operation": "create_docx",
 		"title":     title,
 		"counts":    counts,
-	}, nil
+	}, specs), nil
 }
 
 func UpdateMarkdown(config UpdateConfig) (map[string]any, error) {
@@ -107,7 +107,7 @@ func UpdateMarkdown(config UpdateConfig) (map[string]any, error) {
 	if config.Apply {
 		return applyUpdateMarkdown(config, target, title, specs, state, summary, complexTypes, session)
 	}
-	return map[string]any{
+	return withTableFallbackMetadata(map[string]any{
 		"ok":                       true,
 		"dryRun":                   true,
 		"operation":                "update_docx",
@@ -124,7 +124,7 @@ func UpdateMarkdown(config UpdateConfig) (map[string]any, error) {
 		"complexBlockTypes":        complexTypes,
 		"allowComplexReplace":      config.AllowComplex,
 		"requiredTextChecks":       len(config.RequiredText),
-	}, nil
+	}, specs), nil
 }
 
 func applyUpdateMarkdown(
@@ -157,7 +157,7 @@ func applyUpdateMarkdown(
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{
+	return withTableFallbackMetadata(map[string]any{
 		"ok":                       asBool(verify["ok"]),
 		"dryRun":                   false,
 		"operation":                "update_docx",
@@ -176,7 +176,7 @@ func applyUpdateMarkdown(
 		"requiredTextChecks":       len(config.RequiredText),
 		"verify":                   verify,
 		"url":                      target.Referer,
-	}, nil
+	}, specs), nil
 }
 
 func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, counts map[string]int) (map[string]any, error) {
@@ -237,7 +237,7 @@ func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, co
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{
+	return withTableFallbackMetadata(map[string]any{
 		"ok":        asBool(verify["ok"]),
 		"dryRun":    false,
 		"operation": "create_docx",
@@ -245,7 +245,7 @@ func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, co
 		"counts":    counts,
 		"verify":    verify,
 		"url":       finalURL,
-	}, nil
+	}, specs), nil
 }
 
 func ParseMarkdown(markdown string) (string, []Spec, error) {
@@ -392,6 +392,22 @@ func summarizeSpecs(specs []Spec) map[string]int {
 		counts[spec.Kind]++
 	}
 	return counts
+}
+
+func withTableFallbackMetadata(payload map[string]any, specs []Spec) map[string]any {
+	payload["tableFallbackCount"] = countSpecsByKind(specs, "table")
+	payload["tableFallbackBlockType"] = "callout"
+	return payload
+}
+
+func countSpecsByKind(specs []Spec, kind string) int {
+	count := 0
+	for _, spec := range specs {
+		if spec.Kind == kind {
+			count++
+		}
+	}
+	return count
 }
 
 type cookieObject struct {
@@ -549,11 +565,16 @@ func (session *publishSession) verify(pageID string, referer string, requiredTex
 		counts := map[string]int{}
 		textValues := []string{}
 		codeTexts := []string{}
-		for _, raw := range asMap(payload["block_map"]) {
-			data := asMap(asMap(raw)["data"])
+		emptyCalloutCount := 0
+		blockMap := asMap(payload["block_map"])
+		for blockID, raw := range blockMap {
+			data := dataForBlock(raw)
 			blockType := asString(data["type"])
 			if blockType != "" {
 				counts[blockType]++
+			}
+			if blockType == "callout" && strings.TrimSpace(blockSubtreeText(blockMap, blockID, map[string]bool{})) == "" {
+				emptyCalloutCount++
 			}
 			text := textFromBlockData(data)
 			if text == "" {
@@ -565,26 +586,29 @@ func (session *publishSession) verify(pageID string, referer string, requiredTex
 			}
 		}
 		allText := strings.Join(textValues, "\n")
-		ok := true
+		missingRequiredText := []string{}
 		for _, required := range requiredText {
 			if !strings.Contains(allText, required) {
-				ok = false
-				break
+				missingRequiredText = append(missingRequiredText, required)
 			}
 		}
-		if ok && len(codeTexts) > 0 {
-			ok = false
+		codeTextOK := true
+		if len(codeTexts) > 0 {
+			codeTextOK = false
 			for _, code := range codeTexts {
 				if strings.Contains(code, "\n") {
-					ok = true
+					codeTextOK = true
 					break
 				}
 			}
 		}
+		ok := len(missingRequiredText) == 0 && emptyCalloutCount == 0 && codeTextOK
 		last = map[string]any{
-			"ok":        ok,
-			"counts":    counts,
-			"textChars": len(allText),
+			"ok":                  ok,
+			"counts":              counts,
+			"textChars":           len(allText),
+			"missingRequiredText": missingRequiredText,
+			"emptyCalloutCount":   emptyCalloutCount,
 		}
 		if ok {
 			return last, nil
@@ -1046,6 +1070,24 @@ func textFromBlockData(data map[string]any) string {
 	initial := asMap(text["initialAttributedTexts"])
 	values := asMap(initial["text"])
 	return asString(values["0"])
+}
+
+func blockSubtreeText(blockMap map[string]any, blockID string, seen map[string]bool) string {
+	if blockID == "" || seen[blockID] {
+		return ""
+	}
+	seen[blockID] = true
+	data := dataForBlock(blockMap[blockID])
+	parts := []string{}
+	if text := textFromBlockData(data); text != "" {
+		parts = append(parts, text)
+	}
+	for _, child := range asSlice(data["children"]) {
+		if text := blockSubtreeText(blockMap, asString(child), seen); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func updateMemberID(state map[string]any, pageID string, rootData map[string]any) string {

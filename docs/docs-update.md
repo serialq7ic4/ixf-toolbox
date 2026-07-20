@@ -22,6 +22,8 @@ The dry-run reads the target document state and reports:
 - `destructive:true`
 - current and planned top-level block counts
 - complex blocks detected in the existing body
+- `tableFallbackCount` and `tableFallbackBlockType` when Markdown tables will
+  be written as readable fallback blocks instead of native sheet/table blocks
 
 Apply only after reviewing the plan:
 
@@ -32,6 +34,11 @@ ixf docs update notes/review.md \
   --require "critical content" \
   --apply
 ```
+
+After apply, inspect the `verify` object in the JSON response. Treat
+`verify.ok=false`, non-empty `verify.missingRequiredText`, or
+`verify.emptyCalloutCount>0` as a failed write that needs investigation before
+claiming success. Do not rely on a successful HTTP write alone.
 
 ## Complex Blocks
 

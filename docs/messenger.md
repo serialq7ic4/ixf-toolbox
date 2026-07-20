@@ -17,6 +17,11 @@ ixf messenger doctor --json
 
 When prerequisites are missing, `doctor` returns `ok:false` and a `remediation` list. The guidance is intentionally generic and secret-safe.
 
+`ixf messenger doctor --json` also returns `messenger.stability`. This field is
+intended for agents and automation: macOS is `tier1`, Windows is
+`experimental`, Linux is `unsupported`, and the operating model is
+`local-browser-automation`, not a hosted service or bot account.
+
 ## Profile Isolation
 
 Messenger automation must never open the live LarkShell browser profile directly. Toolbox copies `profile_explorer` to a temporary cloned profile, removes Chromium singleton locks and cache-heavy directories, and runs Chrome/Chromium against the clone.

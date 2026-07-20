@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.8.0 - 2026-07-20
+
+- Added `ixf doctor --json` agent routing diagnostics so agents can verify Go-only background routing and ignore historical implementation notes.
+- Added `docs/agent-routing.md` and hardened `using-ixf-toolbox` skill guidance for natural user prompts and read-only default routing.
+- Added Messenger stability metadata to `ixf messenger doctor --json`, documenting local-browser automation, platform support levels, and send success criteria.
+
 ## 3.7.2 - 2026-07-17
 
 - Fixed Windows CI coverage for Go-only legacy command diagnostics by creating platform-appropriate `ixfdoc` and `ixfwrite` shim fixtures.

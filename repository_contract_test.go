@@ -125,6 +125,37 @@ func TestCurrentAgentGuidanceForbidsPythonAndLegacyFallbacks(t *testing.T) {
 	}
 }
 
+func TestAgentRoutingContractIsAuthoritativeAndNatural(t *testing.T) {
+	routingDoc := readRepoFile(t, "docs/agent-routing.md")
+	for _, expected := range []string{
+		"Authoritative Current Guidance",
+		"Users do not need to name skills explicitly",
+		"background routing",
+		"Default ambiguous intent to read-only",
+		"Do not use `docs/superpowers/`",
+		"`ixf doctor --json` exposes `agentRouting`",
+	} {
+		if !strings.Contains(routingDoc, expected) {
+			t.Fatalf("docs/agent-routing.md missing %q:\n%s", expected, routingDoc)
+		}
+	}
+
+	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
+		routing := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, "using-ixf-toolbox", "SKILL.md")))
+		for _, expected := range []string{
+			"Users do not need to name this skill",
+			"background routing",
+			"Default ambiguous intent to read-only",
+			"docs/agent-routing.md",
+			"Do not route from historical implementation notes",
+		} {
+			if !strings.Contains(routing, expected) {
+				t.Fatalf("%s routing skill missing %q:\n%s", runtimeDir, expected, routing)
+			}
+		}
+	}
+}
+
 func TestIxfSkillsRejectPythonAndLegacyFallbacks(t *testing.T) {
 	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
 		for _, skillName := range skillNamesForContract() {

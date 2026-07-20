@@ -241,6 +241,7 @@ func Doctor(config Config) map[string]any {
 			"visibleFallbackByDefault": false,
 			"profileCloneRequired":     true,
 			"realSendAvailable":        true,
+			"stability":                StabilityStatus(goos),
 		},
 		"profile": profile,
 		"browser": browser,
@@ -264,6 +265,25 @@ func doctorRemediation(goos string, supported bool, profile ProfileDiscovery, br
 		result = append(result, "Run ixf cookies export --provider auto --output "+DefaultCookieJSON+", then rerun doctor with --cookies.")
 	}
 	return result
+}
+
+func StabilityStatus(goos string) map[string]any {
+	return map[string]any{
+		"operatingModel":  "local-browser-automation",
+		"macOS":           "tier1",
+		"windows":         "experimental",
+		"linux":           "unsupported",
+		"goos":            goos,
+		"notAService":     true,
+		"notABotAccount":  true,
+		"successBoundary": "Messenger sends are successful only after target verification, local echo matching, and fresh-session verification.",
+		"sendSuccessCriteria": []string{
+			"targetVerified:true",
+			"sent:true",
+			"localEchoMatched:true",
+			"verifiedPresent:true",
+		},
+	}
 }
 
 func PlanOpen(config OpenConfig) (map[string]any, error) {

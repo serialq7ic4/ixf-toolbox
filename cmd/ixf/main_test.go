@@ -106,6 +106,23 @@ func TestMessengerDoctorJSONIsSecretSafe(t *testing.T) {
 	if payload["runtime"] != "go" || payload["domain"] != "messenger" {
 		t.Fatalf("messenger doctor payload = %+v", payload)
 	}
+	messengerPayload := payload["messenger"].(map[string]any)
+	stability, ok := messengerPayload["stability"].(map[string]any)
+	if !ok {
+		t.Fatalf("messenger stability = %#v, want map", messengerPayload["stability"])
+	}
+	if stability["operatingModel"] != "local-browser-automation" || stability["macOS"] != "tier1" || stability["windows"] != "experimental" {
+		t.Fatalf("messenger stability metadata = %+v", stability)
+	}
+	criteria, ok := stability["sendSuccessCriteria"].([]any)
+	if !ok || len(criteria) != 4 {
+		t.Fatalf("sendSuccessCriteria = %#v, want four criteria", stability["sendSuccessCriteria"])
+	}
+	for _, expected := range []string{"targetVerified:true", "sent:true", "localEchoMatched:true", "verifiedPresent:true"} {
+		if !containsAnyString(criteria, expected) {
+			t.Fatalf("sendSuccessCriteria missing %q: %+v", expected, criteria)
+		}
+	}
 }
 
 func TestMessengerDoctorTextPrintsRemediation(t *testing.T) {
@@ -132,12 +149,16 @@ func TestMessengerDoctorTextPrintsRemediation(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"overall fail",
+		"stability operating_model=local-browser-automation macos=tier1 windows=experimental",
 		"remediation Install Google Chrome or Chromium",
 		"remediation Run ixf cookies export",
 	} {
 		if !strings.Contains(stdout.String(), expected) {
 			t.Fatalf("messenger doctor text missing %q:\n%s", expected, stdout.String())
 		}
+	}
+	if count := strings.Count(stdout.String(), "remediation Install Google Chrome or Chromium"); count != 1 {
+		t.Fatalf("browser remediation count = %d, want 1:\n%s", count, stdout.String())
 	}
 }
 
@@ -543,6 +564,41 @@ func TestCollectDiagnosticsReportsGoRuntimeSkillsCookiesAndNoSecrets(t *testing.
 	}
 }
 
+func TestCollectDiagnosticsReportsAgentRoutingContract(t *testing.T) {
+	payload := collectDiagnostics(filepath.Join(t.TempDir(), "missing-cookies.json"))
+
+	routing, ok := payload["agentRouting"].(map[string]any)
+	if !ok {
+		t.Fatalf("agentRouting = %#v, want map", payload["agentRouting"])
+	}
+	if routing["goOnly"] != true || routing["backgroundRouting"] != true {
+		t.Fatalf("agent routing contract = %+v, want go-only background routing", routing)
+	}
+	if routing["defaultAmbiguousIntent"] != "read-only" {
+		t.Fatalf("defaultAmbiguousIntent = %v, want read-only", routing["defaultAmbiguousIntent"])
+	}
+	guidance, ok := routing["currentGuidance"].([]string)
+	if !ok {
+		t.Fatalf("currentGuidance = %#v, want []string", routing["currentGuidance"])
+	}
+	for _, expected := range []string{"AGENTS.md", "docs/agent-routing.md", "skills/*/*/SKILL.md"} {
+		if !containsString(guidance, expected) {
+			t.Fatalf("currentGuidance missing %q: %+v", expected, guidance)
+		}
+	}
+
+	var stdout bytes.Buffer
+	formatDiagnostics(&stdout, map[string]any{
+		"ok":           false,
+		"version":      version,
+		"capabilities": map[string]bool{},
+		"agentRouting": routing,
+	})
+	if !strings.Contains(stdout.String(), "agent_routing go_only=true background=true default=read-only") {
+		t.Fatalf("diagnostics text missing agent routing line:\n%s", stdout.String())
+	}
+}
+
 func TestCollectDiagnosticsReportsLegacyCommandShimsAsIgnored(t *testing.T) {
 	home := t.TempDir()
 	bin := filepath.Join(home, "bin")
@@ -663,6 +719,11 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 			"hasLgwCsrf":  false,
 			"cookieNames": []string{"_csrf_token"},
 		},
+		"agentRouting": map[string]any{
+			"goOnly":                 true,
+			"backgroundRouting":      true,
+			"defaultAmbiguousIntent": "read-only",
+		},
 	}
 	var stdout bytes.Buffer
 
@@ -675,6 +736,7 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 		"native docsRead=true docsPublish=true okrRead=true okrWrite=true cookiesExport=true messengerDoctor=true messengerOpenPlan=true messengerOpenApply=true messengerReadPlan=true messengerReadApply=true messengerSendPlan=true messengerSendApply=true",
 		"skill codex ok=true",
 		"cookies ok count=1 csrf=true lgw_csrf=false",
+		"agent_routing go_only=true background=true default=read-only",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("diagnostics text missing %q:\n%s", expected, text)
@@ -719,6 +781,24 @@ func TestDoctorCommandJSONAndTextUseGoDiagnostics(t *testing.T) {
 	if !strings.Contains(textOut.String(), "native docsRead=true") {
 		t.Fatalf("doctor text missing native capabilities:\n%s", textOut.String())
 	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAnyString(values []any, target string) bool {
+	for _, value := range values {
+		if text, ok := value.(string); ok && text == target {
+			return true
+		}
+	}
+	return false
 }
 
 func mustReadFile(t *testing.T, path string) []byte {

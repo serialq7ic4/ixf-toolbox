@@ -5,7 +5,7 @@ description: Use when an i讯飞/LarkShell document, wiki, docx, sheets, cloud d
 
 # Using ixf Toolbox
 
-Use this as a lightweight routing skill for ixf Toolbox workflows. It does not replace the domain skills and does not perform direct writes.
+Use this as a lightweight routing skill for ixf Toolbox workflows. Users do not need to name this skill or any domain skill explicitly. Use background routing for natural user requests, then hand off to the correct domain skill. This skill does not replace the domain skills and does not perform direct writes.
 
 ## Runtime Boundary
 
@@ -13,6 +13,8 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 
 ## Routing
 
+- Use `docs/agent-routing.md`, `AGENTS.md`, and current `skills/*/*/SKILL.md` files as authoritative current guidance.
+- Do not route from historical implementation notes, old changelog entries, or `docs/superpowers/` plans.
 - Use `ixf-docs-reader` for authorized document, wiki, docx, cloud-doc, direct sheets link, embedded sheet, mindnote, image artifact, or local Markdown reading.
 - Use `ixf-docs-writer` for approved Markdown publishing or document modification.
 - Use `ixf-okr-reader` for authorized OKR reading, summary, ownership, mention, or alignment analysis.
@@ -24,9 +26,10 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 
 1. Classify the request as docs, OKR, or messenger.
 2. Classify the intent as read or write.
-3. Default to read-only when intent is ambiguous.
+3. Default ambiguous intent to read-only. Default to read-only when uncertain.
 4. For writes, confirm the exact target and content, then follow the relevant writer skill's dry-run-first workflow.
-5. If local authentication looks missing, run or suggest `ixf doctor --json` and `ixf cookies export --provider auto`.
+5. If local authentication or installed routing looks unclear, run `ixf doctor --json` and inspect `agentRouting`.
+6. If local authentication looks missing, run or suggest `ixf cookies export --provider auto`.
 
 ## Safety
 

@@ -27,7 +27,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "3.7.2"
+var version = "3.8.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -1344,6 +1344,26 @@ func collectDiagnostics(cookiesPath string) map[string]any {
 		"skills":         skills,
 		"cookies":        cookies,
 		"legacyCommands": legacyCommands,
+		"agentRouting":   agentRoutingStatus(),
+	}
+}
+
+func agentRoutingStatus() map[string]any {
+	return map[string]any{
+		"goOnly":                 true,
+		"backgroundRouting":      true,
+		"defaultAmbiguousIntent": "read-only",
+		"currentGuidance": []string{
+			"AGENTS.md",
+			"docs/agent-routing.md",
+			"skills/*/*/SKILL.md",
+		},
+		"historicalGuidanceIgnored": []string{
+			"CHANGELOG.md",
+			"docs/superpowers/",
+		},
+		"routingSkill": "using-ixf-toolbox",
+		"note":         "Users describe the task naturally; installed skills route docs, OKR, sheets, and Messenger requests in the background.",
 	}
 }
 
@@ -1491,6 +1511,15 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 			boolFromMap(cookies, "hasLgwCsrf"),
 		)
 	}
+	if routing, ok := payload["agentRouting"].(map[string]any); ok {
+		fmt.Fprintf(
+			w,
+			"agent_routing go_only=%t background=%t default=%s\n",
+			boolFromMap(routing, "goOnly"),
+			boolFromMap(routing, "backgroundRouting"),
+			routing["defaultAmbiguousIntent"],
+		)
+	}
 	if legacyCommands, ok := payload["legacyCommands"].([]map[string]string); ok {
 		for _, item := range legacyCommands {
 			fmt.Fprintf(w, "legacy %s %s path=%s note=%s\n", item["name"], item["status"], item["path"], item["note"])
@@ -1512,6 +1541,15 @@ func formatMessengerDiagnostics(w io.Writer, payload map[string]any) {
 	}
 	if messengerPayload, ok := payload["messenger"].(map[string]any); ok {
 		fmt.Fprintf(w, "platform supported=%t goos=%s\n", boolFromMap(messengerPayload, "supportedPlatform"), messengerPayload["goos"])
+		if stability, ok := messengerPayload["stability"].(map[string]any); ok {
+			fmt.Fprintf(
+				w,
+				"stability operating_model=%s macos=%s windows=%s\n",
+				stability["operatingModel"],
+				stability["macOS"],
+				stability["windows"],
+			)
+		}
 	}
 	if profile, ok := payload["profile"].(messenger.ProfileDiscovery); ok {
 		fmt.Fprintf(w, "profile %s", okWord(profile.OK))

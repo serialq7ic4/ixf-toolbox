@@ -56,10 +56,11 @@ func PublishMarkdown(config Config) (map[string]any, error) {
 		return ApplyMarkdown(config, baseURL, title, specs, counts)
 	}
 	return map[string]any{
-		"ok":     true,
-		"dryRun": true,
-		"title":  title,
-		"counts": counts,
+		"ok":        true,
+		"dryRun":    true,
+		"operation": "create_docx",
+		"title":     title,
+		"counts":    counts,
 	}, nil
 }
 
@@ -122,12 +123,13 @@ func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, co
 		return nil, err
 	}
 	return map[string]any{
-		"ok":     asBool(verify["ok"]),
-		"dryRun": false,
-		"title":  title,
-		"counts": counts,
-		"verify": verify,
-		"url":    finalURL,
+		"ok":        asBool(verify["ok"]),
+		"dryRun":    false,
+		"operation": "create_docx",
+		"title":     title,
+		"counts":    counts,
+		"verify":    verify,
+		"url":       finalURL,
 	}, nil
 }
 

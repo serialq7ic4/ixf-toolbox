@@ -194,6 +194,38 @@ func TestMessengerSkillsAreRoutedAndDocumentDryRunSafety(t *testing.T) {
 	}
 }
 
+func TestDocsWriterSkillDoesNotOverclaimExistingDocumentUpdate(t *testing.T) {
+	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
+		writerPath := filepath.ToSlash(filepath.Join(runtimeDir, "ixf-docs-writer", "SKILL.md"))
+		writer := readRepoFile(t, writerPath)
+		for _, expected := range []string{
+			"create-only",
+			"new docx",
+			"does not modify existing docx",
+			"Use `ixf docs publish`",
+		} {
+			if !strings.Contains(writer, expected) {
+				t.Fatalf("%s missing create-only boundary %q:\n%s", writerPath, expected, writer)
+			}
+		}
+		for _, forbidden := range []string{
+			"modifying document content",
+			"create or modify content",
+			"document modification",
+		} {
+			if strings.Contains(writer, forbidden) {
+				t.Fatalf("%s still overclaims existing-doc update with %q:\n%s", writerPath, forbidden, writer)
+			}
+		}
+
+		routingPath := filepath.ToSlash(filepath.Join(runtimeDir, "using-ixf-toolbox", "SKILL.md"))
+		routing := readRepoFile(t, routingPath)
+		if strings.Contains(routing, "document modification") {
+			t.Fatalf("%s still routes document modification to docs writer before docs update exists:\n%s", routingPath, routing)
+		}
+	}
+}
+
 func skillNamesForContract() []string {
 	return []string{
 		"using-ixf-toolbox",

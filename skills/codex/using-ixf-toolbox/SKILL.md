@@ -16,7 +16,7 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 - Use `docs/agent-routing.md`, `AGENTS.md`, and current `skills/*/*/SKILL.md` files as authoritative current guidance.
 - Do not route from historical implementation notes, old changelog entries, or `docs/superpowers/` plans.
 - Use `ixf-docs-reader` for authorized document, wiki, docx, cloud-doc, direct sheets link, embedded sheet, mindnote, image artifact, or local Markdown reading.
-- Use `ixf-docs-writer` for approved Markdown publishing or document modification.
+- Use `ixf-docs-writer` for approved Markdown publishing as a new docx document.
 - Use `ixf-okr-reader` for authorized OKR reading, summary, ownership, mention, or alignment analysis.
 - Use `ixf-okr-writer` for approved Objective and Key Result creation or modification.
 - Use `ixf-messenger-reader` for authorized i讯飞 Messenger readiness checks and read-only message inspection workflows.

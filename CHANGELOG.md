@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.8.1 - 2026-07-20
+
+- Clarified that `ixf docs publish` is create-only and does not overwrite existing docx documents.
+- Added `operation:create_docx` to docs publish dry-run and apply JSON payloads.
+- Hardened docs writer and routing skill guidance to avoid claiming existing-document update support before `ixf docs update` ships.
+
 ## 3.8.0 - 2026-07-20
 
 - Added `ixf doctor --json` agent routing diagnostics so agents can verify Go-only background routing and ignore historical implementation notes.

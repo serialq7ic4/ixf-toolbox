@@ -16,7 +16,7 @@ Let Codex, Claude Code, and other local coding agents read and publish authorize
 
 - `using-ixf-toolbox`: lightweight routing entry point for choosing the right document/OKR/Messenger and reader/writer skill.
 - `ixf-docs-reader`: read-only document reading, chunking, and image artifact handling.
-- `ixf-docs-writer`: dry-run-first Markdown to docx publishing.
+- `ixf-docs-writer`: dry-run-first Markdown publishing to a new docx; `publish` does not overwrite existing docx files.
 - `ixf-okr-reader`: read-only Objective / Key Result extraction from authorized OKR pages.
 - `ixf-okr-writer`: dry-run-first creation or update of confirmed Objective / Key Result content.
 - `ixf-messenger-reader`: read-only Messenger readiness checks plus recent or unread conversation extraction.
@@ -47,27 +47,27 @@ The recommended path is to let the agent you are already using install Toolbox. 
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.8.0_darwin_arm64`, macOS Intel: `ixf_3.8.0_darwin_amd64`, Windows: `ixf_3.8.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.8.1_darwin_arm64`, macOS Intel: `ixf_3.8.1_darwin_amd64`, Windows: `ixf_3.8.1_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.8.0/ixf_3.8.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.8.1/ixf_3.8.1_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_3.8.0_darwin_amd64` instead.
+For macOS Intel, use `ixf_3.8.1_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.8.0/ixf_3.8.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.8.1/ixf_3.8.1_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -113,7 +113,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf docs chunk <file.md> --index <n>` | Print one dynamic Markdown chunk |
 | `ixf docs inspect <source>` | Print a safe routing summary without reading content or printing full tokens |
 | `ixf docs cleanup <out-dir>` | Remove generated read artifacts |
-| `ixf docs publish <file.md>` | Publish Markdown as a new authorized docx document |
+| `ixf docs publish <file.md>` | Publish Markdown as a new authorized docx document; does not overwrite existing docx files |
 | `ixf okr read <url>` | Read an authorized OKR page as Markdown |
 | `ixf okr write --url <url> --input <file.json>` | Create or update confirmed Objective / KR content |
 | `ixf messenger doctor --json` | Inspect Messenger desktop profile, browser, and cookie readiness |
@@ -167,7 +167,7 @@ Generated Markdown, TSV, images, and manifests are local artifacts and should be
 
 Write commands default to dry-run. Real remote mutation requires explicit `--apply`.
 
-Publish Markdown:
+Publish Markdown as a new docx:
 
 ```bash
 ixf docs publish notes/review.md \

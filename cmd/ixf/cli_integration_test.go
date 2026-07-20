@@ -45,6 +45,9 @@ func TestCLIDocsPublishDryRunAndApply(t *testing.T) {
 	if dryRun["ok"] != true || dryRun["dryRun"] != true || dryRun["title"] != "Apply Title - Draft" {
 		t.Fatalf("dry-run payload = %+v", dryRun)
 	}
+	if dryRun["operation"] != "create_docx" {
+		t.Fatalf("dry-run operation = %q, want create_docx", dryRun["operation"])
+	}
 	assertMapNumbers(t, dryRun["counts"], map[string]int{"text": 1, "code": 1})
 	if stderr != "" {
 		t.Fatalf("dry-run stderr = %q, want empty", stderr)
@@ -165,6 +168,9 @@ func TestCLIDocsPublishDryRunAndApply(t *testing.T) {
 	payload := decodeCLIJSON(t, stdout)
 	if payload["ok"] != true || payload["dryRun"] != false || payload["title"] != "Apply Title - Published" {
 		t.Fatalf("apply payload = %+v", payload)
+	}
+	if payload["operation"] != "create_docx" {
+		t.Fatalf("apply operation = %q, want create_docx", payload["operation"])
 	}
 	verify := payload["verify"].(map[string]any)
 	if verify["ok"] != true {

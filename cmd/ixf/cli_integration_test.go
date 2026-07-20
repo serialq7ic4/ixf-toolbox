@@ -122,7 +122,7 @@ func TestCLIDocsPublishDryRunAndApply(t *testing.T) {
 				}
 			}
 			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"block_map": blockMap}})
-		case "/space/api/docx/blocks/user_change":
+		case "/space/api/docx/blocks/user_change/":
 			if r.Method != http.MethodPost {
 				t.Fatalf("user_change method = %s, want POST", r.Method)
 			}
@@ -219,7 +219,7 @@ func TestCLIDocsUpdateDryRunPreflight(t *testing.T) {
 							"version": 12,
 							"data": map[string]any{
 								"type":     "page",
-								"author":   "author_fixture",
+								"author":   "owner_fixture",
 								"children": []any{"old_text", "old_code"},
 							},
 						},
@@ -242,7 +242,7 @@ func TestCLIDocsUpdateDryRunPreflight(t *testing.T) {
 					},
 				},
 			})
-		case "/space/api/docx/blocks/user_change":
+		case "/space/api/docx/blocks/user_change/":
 			t.Fatal("dry-run must not call user_change")
 		default:
 			http.NotFound(w, r)
@@ -343,7 +343,7 @@ func TestCLIDocsUpdateApplyReplacesExistingBody(t *testing.T) {
 						"version": 13,
 						"data": map[string]any{
 							"type":     "page",
-							"author":   "author_fixture",
+							"author":   "editor_fixture",
 							"children": []any{"text_1", "code_1"},
 						},
 					},
@@ -363,8 +363,15 @@ func TestCLIDocsUpdateApplyReplacesExistingBody(t *testing.T) {
 					},
 				}
 			}
-			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"block_map": blockMap}})
-		case "/space/api/docx/blocks/user_change":
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{
+				"block_map": blockMap,
+				"meta_map": map[string]any{
+					"doxrzExistingPage": map[string]any{
+						"editor_id": "editor_fixture",
+					},
+				},
+			}})
+		case "/space/api/docx/blocks/user_change/":
 			if r.Method != http.MethodPost {
 				t.Fatalf("user_change method = %s, want POST", r.Method)
 			}
@@ -372,7 +379,7 @@ func TestCLIDocsUpdateApplyReplacesExistingBody(t *testing.T) {
 			assertHeader(t, r, "X-CSRFToken", "csrf-fixture")
 			assertCookie(t, r, "session", "session-fixture")
 			payload := decodeRequestBody(t, r)
-			if payload["member_id"] != "author_fixture" || payload["page_id"] != "doxrzExistingPage" {
+			if payload["member_id"] != "editor_fixture" || payload["page_id"] != "doxrzExistingPage" {
 				t.Fatalf("write payload identifiers = %+v", payload)
 			}
 			raw, err := json.Marshal(payload["change_map"])
@@ -383,13 +390,16 @@ func TestCLIDocsUpdateApplyReplacesExistingBody(t *testing.T) {
 			for _, expected := range []string{
 				`"ld":"old_code"`,
 				`"ld":"old_text"`,
-				`"od"`,
+				`"author":"editor_fixture"`,
 				"Replacement body with required text.",
 				"echo new\\necho next",
 			} {
 				if !strings.Contains(text, expected) {
 					t.Fatalf("change_map missing %q: %s", expected, text)
 				}
+			}
+			if strings.Contains(text, `"od"`) {
+				t.Fatalf("change_map must not hard-delete old blocks: %s", text)
 			}
 			wroteBlocks = true
 			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{}})
@@ -472,7 +482,7 @@ func TestCLIDocsUpdateRejectsUnsupportedURLsAndComplexApply(t *testing.T) {
 					},
 				},
 			})
-		case "/space/api/docx/blocks/user_change":
+		case "/space/api/docx/blocks/user_change/":
 			t.Fatal("complex apply must not call user_change")
 		default:
 			http.NotFound(w, r)
@@ -554,7 +564,7 @@ func TestCLIDocsUpdateAllowComplexReplaceAppliesAfterExplicitOptIn(t *testing.T)
 				}
 			}
 			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"block_map": blockMap}})
-		case "/space/api/docx/blocks/user_change":
+		case "/space/api/docx/blocks/user_change/":
 			events = append(events, "write")
 			payload := decodeRequestBody(t, r)
 			raw, err := json.Marshal(payload["change_map"])
@@ -562,10 +572,13 @@ func TestCLIDocsUpdateAllowComplexReplaceAppliesAfterExplicitOptIn(t *testing.T)
 				t.Fatal(err)
 			}
 			text := string(raw)
-			for _, expected := range []string{`"od"`, `"old_image"`, `"old_sheet"`, "Body with required text."} {
+			for _, expected := range []string{`"ld":"old_image"`, `"ld":"old_sheet"`, "Body with required text."} {
 				if !strings.Contains(text, expected) {
 					t.Fatalf("complex opt-in change_map missing %q: %s", expected, text)
 				}
+			}
+			if strings.Contains(text, `"od"`) {
+				t.Fatalf("complex opt-in change_map must not hard-delete old blocks: %s", text)
 			}
 			wroteBlocks = true
 			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{}})
@@ -640,7 +653,7 @@ func TestCLIDocsUpdateDryRunReportsComplexBlockRisk(t *testing.T) {
 					},
 				},
 			})
-		case "/space/api/docx/blocks/user_change":
+		case "/space/api/docx/blocks/user_change/":
 			t.Fatal("dry-run complex risk must not write")
 		default:
 			http.NotFound(w, r)

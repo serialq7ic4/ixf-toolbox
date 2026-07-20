@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.11.2 - 2026-07-20
+
+- Fixed `ixf docs update --apply` for existing docx body replacement by updating root children without hard-deleting old block objects, matching the accepted `user_change` contract.
+- Fixed docx writer attributed-text lengths for Chinese, emoji, and other non-ASCII content by counting UTF-16 code units instead of Go string bytes.
+- Improved docs update write failures so server rejection codes and messages are surfaced in CLI errors.
+
 ## 3.11.1 - 2026-07-20
 
 - Fixed `ixf update self` release discovery to use GitHub Release redirects and deterministic Go artifact URLs instead of the unauthenticated GitHub REST API, avoiding shared-proxy API rate limits.

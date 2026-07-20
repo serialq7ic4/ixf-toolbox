@@ -143,14 +143,14 @@ func applyUpdateMarkdown(
 	blockMap := asMap(state["block_map"])
 	root := asMap(blockMap[target.Token])
 	rootData := dataForBlock(root)
-	author := asString(rootData["author"])
-	if author == "" {
+	memberID := updateMemberID(state, target.Token, rootData)
+	if memberID == "" {
 		return nil, fmt.Errorf("could not determine the authenticated document member identifier")
 	}
 	rootChildren := asSlice(rootData["children"])
-	topIDs, entries := buildBlocks(specs, target.Token, newBlockFactory(author))
-	changeMap := buildReplaceBodyChangeMap(blockMap, target.Token, root, rootChildren, topIDs, entries)
-	if err := session.writeBlocks(target.Token, author, changeMap, target.Referer); err != nil {
+	topIDs, entries := buildBlocks(specs, target.Token, newBlockFactory(memberID))
+	changeMap := buildReplaceBodyChangeMap(target.Token, root, rootChildren, topIDs, entries)
+	if err := session.writeBlocks(target.Token, memberID, changeMap, target.Referer); err != nil {
 		return nil, err
 	}
 	verify, err := session.verify(target.Token, target.Referer, config.RequiredText)
@@ -475,7 +475,7 @@ func (session *publishSession) writeBlocks(pageID string, memberID string, chang
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequest("POST", session.baseURL+"/space/api/docx/blocks/user_change", bytes.NewReader(body))
+	request, err := http.NewRequest("POST", session.baseURL+"/space/api/docx/blocks/user_change/", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -485,8 +485,8 @@ func (session *publishSession) writeBlocks(pageID string, memberID string, chang
 	if err != nil {
 		return err
 	}
-	if asInt(payload["code"]) != 0 {
-		return fmt.Errorf("document content write failed")
+	if code := asInt(payload["code"]); code != 0 {
+		return fmt.Errorf("document content write failed: code=%d%s", code, serverMessageSuffix(payload))
 	}
 	return nil
 }
@@ -709,7 +709,6 @@ func buildBlocks(specs []Spec, pageID string, factory *blockFactory) ([]string, 
 }
 
 func buildReplaceBodyChangeMap(
-	blockMap map[string]any,
 	pageID string,
 	root map[string]any,
 	rootChildren []any,
@@ -724,10 +723,6 @@ func buildReplaceBodyChangeMap(
 				"ops": replaceChildOps(rootChildren, topIDs),
 			},
 		},
-	}
-	seen := map[string]bool{}
-	for _, child := range rootChildren {
-		addDeleteBlockOps(changeMap, blockMap, asString(child), seen)
 	}
 	for _, entry := range entries {
 		changeMap[entry.ID] = map[string]any{
@@ -926,15 +921,27 @@ func attribFor(text string) string {
 	}
 	parts := strings.Split(text, "\n")
 	if len(parts) == 1 {
-		return "*0+" + strconv.FormatInt(int64(len(text)), 36)
+		return "*0+" + strconv.FormatInt(int64(utf16CodeUnitLen(text)), 36)
 	}
 	prefixLen := 0
 	for _, part := range parts[:len(parts)-1] {
-		prefixLen += len(part) + 1
+		prefixLen += utf16CodeUnitLen(part) + 1
 	}
 	return "*0|" + strconv.FormatInt(int64(len(parts)-1), 36) + "+" +
 		strconv.FormatInt(int64(prefixLen), 36) + "*0+" +
-		strconv.FormatInt(int64(len(parts[len(parts)-1])), 36)
+		strconv.FormatInt(int64(utf16CodeUnitLen(parts[len(parts)-1])), 36)
+}
+
+func utf16CodeUnitLen(text string) int {
+	length := 0
+	for _, r := range text {
+		if r > 0xFFFF {
+			length += 2
+			continue
+		}
+		length++
+	}
+	return length
 }
 
 func loadCookieObjects(path string) ([]cookieObject, error) {
@@ -994,6 +1001,26 @@ func textFromBlockData(data map[string]any) string {
 	initial := asMap(text["initialAttributedTexts"])
 	values := asMap(initial["text"])
 	return asString(values["0"])
+}
+
+func updateMemberID(state map[string]any, pageID string, rootData map[string]any) string {
+	meta := asMap(asMap(state["meta_map"])[pageID])
+	for _, key := range []string{"editor_id", "editorId"} {
+		if value := strings.TrimSpace(asString(meta[key])); value != "" {
+			return value
+		}
+	}
+	return strings.TrimSpace(asString(rootData["author"]))
+}
+
+func serverMessageSuffix(payload map[string]any) string {
+	for _, key := range []string{"msg", "message", "error_msg", "errorMsg", "err_msg", "errMsg"} {
+		value := strings.TrimSpace(asString(payload[key]))
+		if value != "" {
+			return ": " + value
+		}
+	}
+	return ""
 }
 
 func asMap(value any) map[string]any {

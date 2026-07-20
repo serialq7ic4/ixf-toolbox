@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.13.1 - 2026-07-21
+
+- Fixed source-built `ixf --version` so it reads the repository `VERSION` value by default instead of drifting behind release builds.
+- Added regression coverage that fails when the default CLI version and `VERSION` file diverge.
+
 ## 3.13.0 - 2026-07-20
 
 - Added a dedicated `ixf sheets` command surface with direct sheet reads and TSV update dry-runs.

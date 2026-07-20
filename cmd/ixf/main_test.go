@@ -25,6 +25,17 @@ func TestVersionCommandPrintsUnifiedCLIName(t *testing.T) {
 	}
 }
 
+func TestDefaultVersionMatchesVersionFile(t *testing.T) {
+	content, err := os.ReadFile("../../VERSION")
+	if err != nil {
+		t.Fatalf("read VERSION: %v", err)
+	}
+	want := strings.TrimSpace(string(content))
+	if version != want {
+		t.Fatalf("default version = %q, want VERSION file %q", version, want)
+	}
+}
+
 func TestRootHelpListsCommands(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

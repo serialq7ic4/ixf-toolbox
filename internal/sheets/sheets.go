@@ -65,6 +65,8 @@ type cellUpdate struct {
 }
 
 var rangeStartPattern = regexp.MustCompile(`^[A-Z]+[1-9][0-9]*$`)
+var sheetVerifyTimeout = 45 * time.Second
+var sheetVerifyPollInterval = 500 * time.Millisecond
 
 func Read(config ReadConfig) (string, error) {
 	results, err := docslocal.ReadSourcesWithOptions([]string{config.Source}, docslocal.ReadOptions{
@@ -177,11 +179,7 @@ func applyUpdate(config UpdateConfig) (map[string]any, error) {
 	if err := session.postUserChanges(target, hostToken, referer, state.MemberID, state.Revision, content); err != nil {
 		return nil, err
 	}
-	verifyState, err := session.fetchState(target, hostToken, referer)
-	if err != nil {
-		return nil, err
-	}
-	if err := verifyCells(verifyState.Values, startRow, startCol, values); err != nil {
+	if _, err := session.waitForCells(target, hostToken, referer, startRow, startCol, values); err != nil {
 		return nil, err
 	}
 	rows := len(values)
@@ -487,6 +485,28 @@ func (session *sheetSession) postUserChanges(target Target, hostToken string, re
 		return fmt.Errorf("sheet user_changes failed")
 	}
 	return nil
+}
+
+func (session *sheetSession) waitForCells(target Target, hostToken string, referer string, startRow int, startCol int, expected [][]string) (sheetState, error) {
+	deadline := time.Now().Add(sheetVerifyTimeout)
+	var lastState sheetState
+	var lastErr error
+	for {
+		state, err := session.fetchState(target, hostToken, referer)
+		if err != nil {
+			return sheetState{}, err
+		}
+		if err := verifyCells(state.Values, startRow, startCol, expected); err == nil {
+			return state, nil
+		} else {
+			lastState = state
+			lastErr = err
+		}
+		if !time.Now().Before(deadline) {
+			return lastState, fmt.Errorf("%w after waiting %s", lastErr, sheetVerifyTimeout)
+		}
+		time.Sleep(sheetVerifyPollInterval)
+	}
 }
 
 func (session *sheetSession) addHeaders(request *http.Request, origin string, referer string) {

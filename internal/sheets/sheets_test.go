@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseTargetRequiresDirectSheetURL(t *testing.T) {
@@ -174,6 +175,67 @@ func TestUpdateApplyPostsUserChangesAndVerifiesReadback(t *testing.T) {
 	}
 	if payload["ok"] != true || payload["dryRun"] != false || payload["willWrite"] != true {
 		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestUpdateApplyPollsReadbackUntilSheetChangeIsVisible(t *testing.T) {
+	tmpDir := t.TempDir()
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	if err := os.WriteFile(cookiesPath, []byte(`[{"name":"_csrf_token","value":"csrf-fixture"},{"name":"session","value":"session-fixture"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input := filepath.Join(tmpDir, "cells.tsv")
+	if err := os.WriteFile(input, []byte("New"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldPollInterval := sheetVerifyPollInterval
+	oldTimeout := sheetVerifyTimeout
+	sheetVerifyPollInterval = 0
+	sheetVerifyTimeout = time.Second
+	defer func() {
+		sheetVerifyPollInterval = oldPollInterval
+		sheetVerifyTimeout = oldTimeout
+	}()
+
+	var sawUserChanges bool
+	postWriteReads := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/v3/sheet/client_vars":
+			value := "Old"
+			if sawUserChanges {
+				postWriteReads++
+				if postWriteReads >= 3 {
+					value = "New"
+				}
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": sheetApplyFixtureData(t, "sheet1", value)})
+		case "/space/api/v2/sheet/user_changes":
+			sawUserChanges = true
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{"revision": 8}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	payload, err := Update(UpdateConfig{
+		URL:         server.URL + "/sheets/shtr_fixture?sheet=sheet1",
+		HostURL:     server.URL + "/docx/dox_host",
+		Range:       "B2",
+		InputPath:   input,
+		Apply:       true,
+		CookiesPath: cookiesPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload["ok"] != true {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if postWriteReads != 3 {
+		t.Fatalf("post-write reads = %d, want 3", postWriteReads)
 	}
 }
 

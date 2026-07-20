@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.14.1 - 2026-07-21
+
+- Fixed `ixf sheets update --apply` readback verification to poll for asynchronous sheet commit visibility instead of failing immediately after an accepted `user_changes` response.
+- Added regression coverage for delayed sheet readback after API-only cell writes.
+
 ## 3.14.0 - 2026-07-21
 
 - Added API-only `ixf sheets update --apply` for confirmed TSV cell writes through the sheet `user_changes` endpoint.

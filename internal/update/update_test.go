@@ -60,6 +60,43 @@ func TestCheckLatestReleaseReturnsGoBinaryInstallCommand(t *testing.T) {
 	}
 }
 
+func TestLoadReleaseUsesGithubRedirectAndDerivedAssets(t *testing.T) {
+	paths := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/serialq7ic4/ixf-toolbox/releases/latest":
+			http.Redirect(w, r, "/serialq7ic4/ixf-toolbox/releases/tag/v1.3.0", http.StatusFound)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	release, err := loadReleaseFromGithubBase("serialq7ic4/ixf-toolbox", server.URL)
+	if err != nil {
+		t.Fatalf("loadReleaseFromGithubBase returned error: %v", err)
+	}
+
+	if release.TagName != "v1.3.0" {
+		t.Fatalf("TagName = %q, want v1.3.0", release.TagName)
+	}
+	if !strings.HasSuffix(release.HTMLURL, "/serialq7ic4/ixf-toolbox/releases/tag/v1.3.0") {
+		t.Fatalf("HTMLURL = %q, want tag URL", release.HTMLURL)
+	}
+	artifactName := ArtifactName("1.3.0", runtime.GOOS, runtime.GOARCH)
+	checksumName := ChecksumName("1.3.0")
+	if url, err := assetDownloadURL(release.Assets, artifactName); err != nil || !strings.HasSuffix(url, "/releases/download/v1.3.0/"+artifactName) {
+		t.Fatalf("artifact asset url = %q err=%v", url, err)
+	}
+	if url, err := assetDownloadURL(release.Assets, checksumName); err != nil || !strings.HasSuffix(url, "/releases/download/v1.3.0/"+checksumName) {
+		t.Fatalf("checksum asset url = %q err=%v", url, err)
+	}
+	if len(paths) != 1 || paths[0] != "/serialq7ic4/ixf-toolbox/releases/latest" {
+		t.Fatalf("requested paths = %#v, want release redirect only", paths)
+	}
+}
+
 func TestSelfUpdateApplyDownloadsVerifiesAndReplacesTarget(t *testing.T) {
 	version := "1.3.0"
 	artifactName := ArtifactName(version, runtime.GOOS, runtime.GOARCH)

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 3.11.1 - 2026-07-20
+
+- Fixed `ixf update self` release discovery to use GitHub Release redirects and deterministic Go artifact URLs instead of the unauthenticated GitHub REST API, avoiding shared-proxy API rate limits.
+
 ## 3.11.0 - 2026-07-20
 
 - Added explicit `--allow-complex-replace` support for confirmed `ixf docs update --apply` operations that intentionally replace complex existing body blocks.

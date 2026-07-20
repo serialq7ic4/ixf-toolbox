@@ -91,26 +91,83 @@ func LoadRelease(repo string, releaseFile string) (Release, error) {
 		return release, nil
 	}
 
-	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-	client := http.Client{Timeout: 15 * time.Second}
-	request, err := http.NewRequest(http.MethodGet, url, nil)
+	return loadReleaseFromGithubBase(repo, "https://github.com")
+}
+
+func loadReleaseFromGithubBase(repo string, baseURL string) (Release, error) {
+	repo = strings.Trim(strings.TrimSpace(repo), "/")
+	if repo == "" {
+		return Release{}, fmt.Errorf("release repo is required")
+	}
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return Release{}, fmt.Errorf("GitHub base URL is required")
+	}
+
+	latestURL := fmt.Sprintf("%s/%s/releases/latest", baseURL, repo)
+	client := http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	request, err := http.NewRequest(http.MethodGet, latestURL, nil)
 	if err != nil {
 		return Release{}, err
 	}
-	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("User-Agent", "ixf-toolbox-go")
 	response, err := client.Do(request)
 	if err != nil {
 		return Release{}, err
 	}
 	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return Release{}, fmt.Errorf("GitHub release request failed: %s", response.Status)
+	if response.StatusCode < 300 || response.StatusCode >= 400 {
+		return Release{}, fmt.Errorf("GitHub release redirect request failed: %s", response.Status)
 	}
-	var release Release
-	if err := json.NewDecoder(response.Body).Decode(&release); err != nil {
+	location := response.Header.Get("Location")
+	if strings.TrimSpace(location) == "" {
+		return Release{}, fmt.Errorf("GitHub release redirect did not include Location")
+	}
+	tagURL, err := response.Request.URL.Parse(location)
+	if err != nil {
 		return Release{}, err
 	}
-	return release, nil
+	tag, err := releaseTagFromURL(tagURL)
+	if err != nil {
+		return Release{}, err
+	}
+	version, err := VersionString(tag)
+	if err != nil {
+		return Release{}, err
+	}
+	tagName := "v" + version
+	artifactName := ArtifactName(version, runtime.GOOS, runtime.GOARCH)
+	checksumName := ChecksumName(version)
+	downloadBase := fmt.Sprintf("%s/%s/releases/download/%s", baseURL, repo, tagName)
+	return Release{
+		TagName: tagName,
+		HTMLURL: tagURL.String(),
+		Assets: []Asset{
+			{Name: artifactName, BrowserDownloadURL: downloadBase + "/" + url.PathEscape(artifactName)},
+			{Name: checksumName, BrowserDownloadURL: downloadBase + "/" + url.PathEscape(checksumName)},
+		},
+	}, nil
+}
+
+func releaseTagFromURL(location *url.URL) (string, error) {
+	if location == nil {
+		return "", fmt.Errorf("GitHub release redirect URL is empty")
+	}
+	marker := "/releases/tag/"
+	index := strings.Index(location.Path, marker)
+	if index < 0 {
+		return "", fmt.Errorf("GitHub release redirect did not point to a release tag: %s", location.String())
+	}
+	tag := strings.Trim(location.Path[index+len(marker):], "/")
+	if tag == "" || strings.Contains(tag, "/") {
+		return "", fmt.Errorf("GitHub release redirect had invalid tag path: %s", location.String())
+	}
+	return tag, nil
 }
 
 func CheckLatestRelease(repo string, currentVersion string, release Release) (map[string]any, error) {

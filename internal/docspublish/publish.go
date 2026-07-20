@@ -75,9 +75,6 @@ func PublishMarkdown(config Config) (map[string]any, error) {
 }
 
 func UpdateMarkdown(config UpdateConfig) (map[string]any, error) {
-	if config.Apply {
-		return nil, fmt.Errorf("docs update --apply is not supported in this version")
-	}
 	content, err := os.ReadFile(expandUser(config.MarkdownPath))
 	if err != nil {
 		return nil, err
@@ -106,6 +103,9 @@ func UpdateMarkdown(config UpdateConfig) (map[string]any, error) {
 		return nil, err
 	}
 	complexTypes := sortedKeys(summary.ComplexTypes)
+	if config.Apply {
+		return applyUpdateMarkdown(config, target, title, specs, state, summary, complexTypes, session)
+	}
 	return map[string]any{
 		"ok":                       true,
 		"dryRun":                   true,
@@ -122,6 +122,57 @@ func UpdateMarkdown(config UpdateConfig) (map[string]any, error) {
 		"complexBlockCount":        summary.ComplexBlockCount,
 		"complexBlockTypes":        complexTypes,
 		"requiredTextChecks":       len(config.RequiredText),
+	}, nil
+}
+
+func applyUpdateMarkdown(
+	config UpdateConfig,
+	target docxTarget,
+	title string,
+	specs []Spec,
+	state map[string]any,
+	summary documentSummary,
+	complexTypes []string,
+	session *publishSession,
+) (map[string]any, error) {
+	if len(complexTypes) > 0 {
+		return nil, fmt.Errorf("complex existing content requires a later explicit override: %s", strings.Join(complexTypes, ","))
+	}
+	blockMap := asMap(state["block_map"])
+	root := asMap(blockMap[target.Token])
+	rootData := dataForBlock(root)
+	author := asString(rootData["author"])
+	if author == "" {
+		return nil, fmt.Errorf("could not determine the authenticated document member identifier")
+	}
+	rootChildren := asSlice(rootData["children"])
+	topIDs, entries := buildBlocks(specs, target.Token, newBlockFactory(author))
+	changeMap := buildReplaceBodyChangeMap(blockMap, target.Token, root, rootChildren, topIDs, entries)
+	if err := session.writeBlocks(target.Token, author, changeMap, target.Referer); err != nil {
+		return nil, err
+	}
+	verify, err := session.verify(target.Token, target.Referer, config.RequiredText)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"ok":                       asBool(verify["ok"]),
+		"dryRun":                   false,
+		"operation":                "update_docx",
+		"mode":                     "replace_body",
+		"destructive":              true,
+		"willWrite":                true,
+		"targetToken":              target.Token,
+		"title":                    title,
+		"counts":                   summarizeSpecs(specs),
+		"currentTopLevelBlocks":    summary.TopLevelCount,
+		"plannedTopLevelBlocks":    len(specs),
+		"supportedExistingContent": true,
+		"complexBlockCount":        0,
+		"complexBlockTypes":        []string{},
+		"requiredTextChecks":       len(config.RequiredText),
+		"verify":                   verify,
+		"url":                      target.Referer,
 	}, nil
 }
 
@@ -654,6 +705,80 @@ func buildBlocks(specs []Spec, pageID string, factory *blockFactory) ([]string, 
 	return topIDs, entries
 }
 
+func buildReplaceBodyChangeMap(
+	blockMap map[string]any,
+	pageID string,
+	root map[string]any,
+	rootChildren []any,
+	topIDs []string,
+	entries []blockEntry,
+) map[string]any {
+	changeMap := map[string]any{
+		pageID: map[string]any{
+			"id":      pageID,
+			"version": asInt(root["version"]),
+			"payload": map[string]any{
+				"ops": replaceChildOps(rootChildren, topIDs),
+			},
+		},
+	}
+	seen := map[string]bool{}
+	for _, child := range rootChildren {
+		addDeleteBlockOps(changeMap, blockMap, asString(child), seen)
+	}
+	for _, entry := range entries {
+		changeMap[entry.ID] = map[string]any{
+			"id":      entry.ID,
+			"version": 0,
+			"payload": map[string]any{
+				"ops": []map[string]any{
+					{
+						"p":      []any{},
+						"action": map[string]any{"oi": entry.Data},
+					},
+				},
+			},
+		}
+	}
+	return changeMap
+}
+
+func replaceChildOps(rootChildren []any, topIDs []string) []map[string]any {
+	ops := make([]map[string]any, 0, len(rootChildren)+len(topIDs))
+	for index := len(rootChildren) - 1; index >= 0; index-- {
+		ops = append(ops, map[string]any{
+			"p":      []any{"children", index},
+			"action": map[string]any{"ld": rootChildren[index]},
+		})
+	}
+	ops = append(ops, insertChildOpsAt(0, topIDs)...)
+	return ops
+}
+
+func addDeleteBlockOps(changeMap map[string]any, blockMap map[string]any, blockID string, seen map[string]bool) {
+	if blockID == "" || seen[blockID] {
+		return
+	}
+	seen[blockID] = true
+	entry := asMap(blockMap[blockID])
+	data := dataForBlock(entry)
+	for _, child := range asSlice(data["children"]) {
+		addDeleteBlockOps(changeMap, blockMap, asString(child), seen)
+	}
+	changeMap[blockID] = map[string]any{
+		"id":      blockID,
+		"version": asInt(entry["version"]),
+		"payload": map[string]any{
+			"ops": []map[string]any{
+				{
+					"p":      []any{},
+					"action": map[string]any{"od": data},
+				},
+			},
+		},
+	}
+}
+
 type docxTarget struct {
 	Token   string
 	BaseURL string
@@ -778,10 +903,14 @@ func tokenAfterPath(path string, marker string) string {
 }
 
 func insertChildOps(rootChildren []any, topIDs []string) []map[string]any {
+	return insertChildOpsAt(len(rootChildren), topIDs)
+}
+
+func insertChildOpsAt(startIndex int, topIDs []string) []map[string]any {
 	ops := make([]map[string]any, 0, len(topIDs))
 	for index, blockID := range topIDs {
 		ops = append(ops, map[string]any{
-			"p":      []any{"children", len(rootChildren) + index},
+			"p":      []any{"children", startIndex + index},
 			"action": map[string]any{"li": blockID},
 		})
 	}

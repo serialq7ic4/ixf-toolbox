@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.10.0 - 2026-07-20
+
+- Added `ixf docs update <file.md> --url <docx-url> --apply` for API-only existing-docx `replace_body` writes.
+- The apply flow reads target state, rejects complex existing content by default, replaces root body children through `user_change`, and re-reads the document for required-text verification.
+- Kept `ixf docs publish` create-only so new-document publishing and existing-document updates remain separate operations.
+
 ## 3.9.0 - 2026-07-20
 
 - Added `ixf docs update <file.md> --url <docx-url> --dry-run` for API-only existing-docx update preflight.

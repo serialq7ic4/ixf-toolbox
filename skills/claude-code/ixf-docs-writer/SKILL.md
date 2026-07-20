@@ -1,13 +1,13 @@
 ---
 name: ixf-docs-writer
-description: Use when publishing local Markdown as a new i讯飞 docx document or preflighting an approved existing-docx update.
+description: Use when publishing local Markdown as a new i讯飞 docx document or updating an approved existing docx document.
 ---
 
 # ixf Docs Writer
 
 Use `ixf docs publish` through the local Toolbox CLI for new documents. The command is API-only and create-only for a new docx document. It does not modify existing docx content.
 
-Use `ixf docs update` for existing docx update preflight only. `--apply` is not supported in this version, so do not claim that original docx content was changed.
+Use `ixf docs update` for existing docx updates. The supported mode is `replace_body`: it keeps the original URL, permissions, and location, but replaces the body blocks. It rejects complex existing content by default.
 
 ## Runtime Boundary
 
@@ -21,9 +21,11 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 3. Review the planned title, create-only target, and required text checks with the user.
 4. Apply only after explicit approval:
    `ixf docs publish <file.md> --base-url https://tenant.example.test --apply`
-5. For existing docx update requests, run preflight only:
+5. For existing docx update requests, run update dry-run first:
    `ixf docs update <file.md> --url https://tenant.example.test/docx/example --dry-run`
-6. Re-read or inspect the result when a verification URL is available.
+6. Apply existing docx updates only after explicit approval:
+   `ixf docs update <file.md> --url https://tenant.example.test/docx/example --apply`
+7. Re-read or inspect the result when a verification URL is available.
 
 ## Safety
 

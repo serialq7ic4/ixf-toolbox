@@ -204,8 +204,8 @@ func TestDocsWriterSkillDoesNotOverclaimExistingDocumentUpdate(t *testing.T) {
 			"does not modify existing docx",
 			"Use `ixf docs publish`",
 			"Use `ixf docs update`",
-			"preflight only",
-			"`--apply` is not supported",
+			"replace_body",
+			"explicit approval",
 		} {
 			if !strings.Contains(writer, expected) {
 				t.Fatalf("%s missing create-only boundary %q:\n%s", writerPath, expected, writer)
@@ -225,7 +225,7 @@ func TestDocsWriterSkillDoesNotOverclaimExistingDocumentUpdate(t *testing.T) {
 		routing := readRepoFile(t, routingPath)
 		for _, expected := range []string{
 			"approved Markdown publishing as a new docx document",
-			"existing-docx update preflight",
+			"existing-docx update",
 		} {
 			if !strings.Contains(routing, expected) {
 				t.Fatalf("%s missing docs writer routing boundary %q:\n%s", routingPath, expected, routing)

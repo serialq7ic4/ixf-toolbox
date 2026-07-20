@@ -27,7 +27,7 @@ import (
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
 
-var version = "3.9.0"
+var version = "3.10.0"
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -245,7 +245,7 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		{"inspect", "Print a safe local/remote source routing summary."},
 		{"cleanup", "Remove generated docs read artifacts."},
 		{"publish", "Create a new authorized docx document from Markdown."},
-		{"update", "Plan replacing an existing docx body from Markdown."},
+		{"update", "Update an existing docx body from Markdown."},
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "ERROR docs requires a subcommand.")

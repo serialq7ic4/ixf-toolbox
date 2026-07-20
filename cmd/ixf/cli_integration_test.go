@@ -281,7 +281,153 @@ func TestCLIDocsUpdateDryRunPreflight(t *testing.T) {
 	}
 }
 
-func TestCLIDocsUpdateRejectsUnsupportedURLsAndApplyBeforeMutation(t *testing.T) {
+func TestCLIDocsUpdateApplyReplacesExistingBody(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := filepath.Join(tmpDir, "replacement.md")
+	if err := os.WriteFile(source, []byte(
+		"# Replacement Title\n\n"+
+			"Replacement body with required text.\n\n"+
+			"```bash\n"+
+			"echo new\n"+
+			"echo next\n"+
+			"```\n",
+	), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+
+	var events []string
+	wroteBlocks := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/docx/pages/client_vars":
+			if r.Method != http.MethodGet {
+				t.Fatalf("client_vars method = %s, want GET", r.Method)
+			}
+			events = append(events, "client_vars")
+			assertHeader(t, r, "X-CSRFToken", "csrf-fixture")
+			assertCookie(t, r, "session", "session-fixture")
+			if got := r.URL.Query().Get("id"); got != "doxrzExistingPage" {
+				t.Fatalf("client_vars id = %q", got)
+			}
+			blockMap := map[string]any{
+				"doxrzExistingPage": map[string]any{
+					"version": 12,
+					"data": map[string]any{
+						"type":     "page",
+						"author":   "author_fixture",
+						"children": []any{"old_text", "old_code"},
+					},
+				},
+				"old_text": map[string]any{
+					"version": 3,
+					"data": map[string]any{
+						"type":      "text",
+						"parent_id": "doxrzExistingPage",
+						"text":      attributedCLIText("Old body."),
+					},
+				},
+				"old_code": map[string]any{
+					"version": 4,
+					"data": map[string]any{
+						"type":      "code",
+						"parent_id": "doxrzExistingPage",
+						"text":      attributedCLIText("echo old"),
+					},
+				},
+			}
+			if wroteBlocks {
+				blockMap = map[string]any{
+					"doxrzExistingPage": map[string]any{
+						"version": 13,
+						"data": map[string]any{
+							"type":     "page",
+							"author":   "author_fixture",
+							"children": []any{"text_1", "code_1"},
+						},
+					},
+					"text_1": map[string]any{
+						"version": 1,
+						"data": map[string]any{
+							"type": "text",
+							"text": attributedCLIText("Replacement body with required text."),
+						},
+					},
+					"code_1": map[string]any{
+						"version": 1,
+						"data": map[string]any{
+							"type": "code",
+							"text": attributedCLIText("echo new\necho next"),
+						},
+					},
+				}
+			}
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"block_map": blockMap}})
+		case "/space/api/docx/blocks/user_change":
+			if r.Method != http.MethodPost {
+				t.Fatalf("user_change method = %s, want POST", r.Method)
+			}
+			events = append(events, "write")
+			assertHeader(t, r, "X-CSRFToken", "csrf-fixture")
+			assertCookie(t, r, "session", "session-fixture")
+			payload := decodeRequestBody(t, r)
+			if payload["member_id"] != "author_fixture" || payload["page_id"] != "doxrzExistingPage" {
+				t.Fatalf("write payload identifiers = %+v", payload)
+			}
+			raw, err := json.Marshal(payload["change_map"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(raw)
+			for _, expected := range []string{
+				`"ld":"old_code"`,
+				`"ld":"old_text"`,
+				`"od"`,
+				"Replacement body with required text.",
+				"echo new\\necho next",
+			} {
+				if !strings.Contains(text, expected) {
+					t.Fatalf("change_map missing %q: %s", expected, text)
+				}
+			}
+			wroteBlocks = true
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "update", source,
+		"--url", server.URL+"/docx/doxrzExistingPage",
+		"--space-api", server.URL,
+		"--cookies", cookiesPath,
+		"--require", "required text",
+		"--apply",
+	)
+	if code != 0 {
+		t.Fatalf("docs update apply exit code = %d, stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["ok"] != true || payload["dryRun"] != false || payload["operation"] != "update_docx" ||
+		payload["mode"] != "replace_body" || payload["destructive"] != true {
+		t.Fatalf("docs update apply payload = %+v", payload)
+	}
+	verify := payload["verify"].(map[string]any)
+	if verify["ok"] != true {
+		t.Fatalf("verify payload = %+v", verify)
+	}
+	if !reflect.DeepEqual(events, []string{"client_vars", "write", "client_vars"}) {
+		t.Fatalf("events = %#v", events)
+	}
+	if stderr != "" {
+		t.Fatalf("docs update apply stderr = %q, want empty", stderr)
+	}
+}
+
+func TestCLIDocsUpdateRejectsUnsupportedURLsAndComplexApply(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "replacement.md")
 	if err := os.WriteFile(source, []byte("# Replacement\n\nBody.\n"), 0o644); err != nil {
@@ -299,10 +445,38 @@ func TestCLIDocsUpdateRejectsUnsupportedURLsAndApplyBeforeMutation(t *testing.T)
 
 	cookiesPath := filepath.Join(tmpDir, "cookies.json")
 	writeCLICookieFixture(t, cookiesPath)
-	var called bool
+	var events []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		http.NotFound(w, r)
+		switch r.URL.Path {
+		case "/space/api/docx/pages/client_vars":
+			events = append(events, "client_vars")
+			writeTestJSON(t, w, map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"block_map": map[string]any{
+						"doxrzExistingPage": map[string]any{
+							"version": 12,
+							"data": map[string]any{
+								"type":     "page",
+								"author":   "author_fixture",
+								"children": []any{"old_image"},
+							},
+						},
+						"old_image": map[string]any{
+							"version": 1,
+							"data": map[string]any{
+								"type":      "image",
+								"parent_id": "doxrzExistingPage",
+							},
+						},
+					},
+				},
+			})
+		case "/space/api/docx/blocks/user_change":
+			t.Fatal("complex apply must not call user_change")
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	defer server.Close()
 
@@ -313,11 +487,11 @@ func TestCLIDocsUpdateRejectsUnsupportedURLsAndApplyBeforeMutation(t *testing.T)
 		"--cookies", cookiesPath,
 		"--apply",
 	)
-	if code != 2 || !strings.Contains(stderr, "docs update --apply is not supported in this version") {
-		t.Fatalf("apply rejection code=%d stderr=%q", code, stderr)
+	if code != 2 || !strings.Contains(stderr, "complex existing content") {
+		t.Fatalf("complex apply rejection code=%d stderr=%q", code, stderr)
 	}
-	if called {
-		t.Fatal("unsupported apply must not call remote APIs")
+	if !reflect.DeepEqual(events, []string{"client_vars"}) {
+		t.Fatalf("events = %#v, want client_vars only", events)
 	}
 }
 

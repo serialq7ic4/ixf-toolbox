@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -846,6 +847,102 @@ func TestCLISheetsUpdateDryRunPlansTSVWithoutNetwork(t *testing.T) {
 	}
 }
 
+func TestCLISheetsUpdateApplyPostsUserChangesAndVerifiesReadback(t *testing.T) {
+	tmpDir := t.TempDir()
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+	inputPath := filepath.Join(tmpDir, "cells.tsv")
+	if err := os.WriteFile(inputPath, []byte("New"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	clientVarsCalls := 0
+	var sawUserChanges bool
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/v3/sheet/client_vars":
+			clientVarsCalls++
+			if got := r.URL.Query().Get("synced_block_host_token"); got != "dox_host" {
+				t.Fatalf("client_vars host token = %q, want dox_host", got)
+			}
+			if got := r.Header.Get("X-CSRFToken"); got != "csrf-fixture" {
+				t.Fatalf("client_vars csrf = %q, want csrf-fixture", got)
+			}
+			if got := r.Header.Get("Referer"); got != server.URL+"/docx/dox_host" {
+				t.Fatalf("client_vars referer = %q, want host document URL", got)
+			}
+			request := decodeRequestBody(t, r)
+			if request["token"] != "shtr_fixture" {
+				t.Fatalf("client_vars token = %#v, want shtr_fixture", request["token"])
+			}
+			value := "Old"
+			if sawUserChanges {
+				value = "New"
+			}
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": sheetCLIApplyFixtureData(t, "sheet1", value)})
+		case "/space/api/v2/sheet/user_changes":
+			sawUserChanges = true
+			if got := r.URL.Query().Get("token"); got != "shtr_fixture" {
+				t.Fatalf("user_changes token = %q, want shtr_fixture", got)
+			}
+			if got := r.URL.Query().Get("member_id"); got != "12345" {
+				t.Fatalf("user_changes member_id = %q, want 12345", got)
+			}
+			if got := r.URL.Query().Get("synced_block_host_token"); got != "dox_host" {
+				t.Fatalf("user_changes host token = %q, want dox_host", got)
+			}
+			body := decodeRequestBody(t, r)
+			if body["base_rev"] != float64(7) || body["mode"] != float64(0) || body["retryCount"] != float64(0) {
+				t.Fatalf("user_changes metadata = %#v", body)
+			}
+			content, ok := body["content"].(string)
+			if !ok || content == "" {
+				t.Fatalf("user_changes content = %#v", body["content"])
+			}
+			if decoded := decodeCLIGzipBase64(t, content); !strings.Contains(string(decoded), `"value":"New"`) {
+				t.Fatalf("user_changes content missing value: %q", string(decoded))
+			}
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"revision": 8}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr, code := runCLITest(t,
+		"sheets", "update",
+		"--url", server.URL+"/sheets/shtr_fixture?sheet=sheet1",
+		"--host-url", server.URL+"/docx/dox_host",
+		"--range", "B2",
+		"--input", inputPath,
+		"--cookies", cookiesPath,
+		"--space-api", server.URL,
+		"--apply",
+	)
+	if code != 0 {
+		t.Fatalf("sheets update apply exit code = %d, stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	if !sawUserChanges {
+		t.Fatal("user_changes endpoint was not requested")
+	}
+	if clientVarsCalls != 2 {
+		t.Fatalf("client_vars calls = %d, want 2", clientVarsCalls)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["ok"] != true || payload["dryRun"] != false || payload["willWrite"] != true ||
+		payload["operation"] != "update_sheet" {
+		t.Fatalf("sheets update apply payload = %+v", payload)
+	}
+	verify := payload["verify"].(map[string]any)
+	if verify["ok"] != true || verify["checked"] != float64(1) {
+		t.Fatalf("sheets update apply verify = %+v", verify)
+	}
+	if stderr != "" {
+		t.Fatalf("sheets update apply stderr = %q, want empty", stderr)
+	}
+}
+
 func TestCLIOKRWriteDryRunAndApplyObjectiveIndex(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "okr.json")
@@ -1305,6 +1402,36 @@ func sheetCLIFixtureData(t *testing.T, sheetID string) map[string]any {
 	}
 }
 
+func sheetCLIApplyFixtureData(t *testing.T, sheetID string, b2 string) map[string]any {
+	t.Helper()
+	data := sheetCLIFixtureData(t, sheetID)
+	formerly := data["formerlySchema"].(map[string]any)
+	formerly["member_id"] = "12345"
+	clientvars := formerly["clientvars"].(map[string]any)
+	clientvars["version"] = 7
+	clientvars["revision"] = 7
+	extraData := clientvars["extra_data"].(map[string]any)
+	blocks := extraData["blocks"].([]any)
+	block := blocks[0].(map[string]any)
+	block["gzip_datatable"] = gzipCLIJSON(t, map[string]any{
+		"rows": []any{
+			map[string]any{
+				"columns": []any{
+					map[string]any{"value": "Name"},
+					map[string]any{"value": "Value"},
+				},
+			},
+			map[string]any{
+				"columns": []any{
+					map[string]any{"value": "Alpha"},
+					map[string]any{"value": b2},
+				},
+			},
+		},
+	})
+	return data
+}
+
 func gzipCLIJSON(t *testing.T, value map[string]any) string {
 	t.Helper()
 	raw, err := json.Marshal(value)
@@ -1320,6 +1447,24 @@ func gzipCLIJSON(t *testing.T, value map[string]any) string {
 		t.Fatal(err)
 	}
 	return base64.StdEncoding.EncodeToString(buffer.Bytes())
+}
+
+func decodeCLIGzipBase64(t *testing.T, encoded string) []byte {
+	t.Helper()
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	decoded, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return decoded
 }
 
 func attributedCLIText(text string) map[string]any {

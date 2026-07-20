@@ -10,8 +10,8 @@ Use `ixf docs publish` through the local Toolbox CLI for new documents. The comm
 Use `ixf docs update` for existing docx updates. The supported mode is `replace_body`: it keeps the original URL, permissions, and location, but replaces the body blocks. It rejects complex existing content by default; use `--allow-complex-replace` only after explicit destructive approval.
 
 This skill does not edit embedded or direct sheet cell data. For sheet cell
-update requests, use `ixf sheets update --dry-run` only; `ixf sheets update
---apply` is unavailable until a real sheet write API contract is captured.
+update requests, do not use `ixf docs update`; route to `ixf sheets update`
+with dry-run first and `--apply` only after explicit approval.
 
 ## Runtime Boundary
 
@@ -33,7 +33,7 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
    `ixf docs update <file.md> --url https://tenant.example.test/docx/example --allow-complex-replace --apply`
 8. If dry-run reports `tableFallbackCount>0`, tell the user Markdown tables will be preserved as readable callout fallback blocks, not native table/sheet blocks.
 9. After apply, inspect `verify.ok`, `verify.missingRequiredText`, and `verify.emptyCalloutCount`; do not claim success if required text is missing or empty callouts are reported.
-10. For sheets update requests, do not use `ixf docs update`; show only an `ixf sheets update --dry-run` plan.
+10. For sheets update requests, do not use `ixf docs update`; route to `ixf sheets update --dry-run`, then apply only after explicit approval.
 11. Re-read or inspect the result when a verification URL is available.
 
 ## Safety

@@ -102,7 +102,7 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 		},
 		{
 			args:     []string{"sheets", "update", "--help"},
-			expected: []string{"Usage of ixf sheets update", "-url", "-range", "-input", "-dry-run", "-apply"},
+			expected: []string{"Usage of ixf sheets update", "-url", "-host-url", "-range", "-input", "-cookies", "-space-api", "-dry-run", "-apply"},
 		},
 		{
 			args:     []string{"okr", "read", "--help"},
@@ -623,7 +623,7 @@ func TestCollectDiagnosticsReportsGoRuntimeSkillsCookiesAndNoSecrets(t *testing.
 		t.Fatalf("legacy commands should be absent by default: %+v", payload["legacyCommands"])
 	}
 	capabilities := payload["capabilities"].(map[string]bool)
-	for _, name := range []string{"docsRead", "docsPublish", "sheetsRead", "sheetsUpdateDryRun", "okrRead", "okrWrite", "cookiesExport", "messengerDoctor", "messengerOpenPlan", "messengerOpenApply", "messengerReadPlan", "messengerReadApply", "messengerSendPlan", "messengerSendApply"} {
+	for _, name := range []string{"docsRead", "docsPublish", "sheetsRead", "sheetsUpdateDryRun", "sheetsUpdateApply", "okrRead", "okrWrite", "cookiesExport", "messengerDoctor", "messengerOpenPlan", "messengerOpenApply", "messengerReadPlan", "messengerReadApply", "messengerSendPlan", "messengerSendApply"} {
 		if !capabilities[name] {
 			t.Fatalf("capability %s = false", name)
 		}
@@ -764,6 +764,7 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 			"docsPublish":        true,
 			"sheetsRead":         true,
 			"sheetsUpdateDryRun": true,
+			"sheetsUpdateApply":  true,
 			"okrRead":            true,
 			"okrWrite":           true,
 			"cookiesExport":      true,
@@ -805,7 +806,7 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 	for _, expected := range []string{
 		"ixf-toolbox " + version,
 		"overall fail",
-		"native docsRead=true docsPublish=true sheetsRead=true sheetsUpdateDryRun=true okrRead=true okrWrite=true cookiesExport=true messengerDoctor=true messengerOpenPlan=true messengerOpenApply=true messengerReadPlan=true messengerReadApply=true messengerSendPlan=true messengerSendApply=true",
+		"native docsRead=true docsPublish=true sheetsRead=true sheetsUpdateDryRun=true sheetsUpdateApply=true okrRead=true okrWrite=true cookiesExport=true messengerDoctor=true messengerOpenPlan=true messengerOpenApply=true messengerReadPlan=true messengerReadApply=true messengerSendPlan=true messengerSendApply=true",
 		"skill codex ok=true",
 		"cookies ok count=1 csrf=true lgw_csrf=false",
 		"agent_routing go_only=true background=true default=read-only",

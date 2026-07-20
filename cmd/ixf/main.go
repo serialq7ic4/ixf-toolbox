@@ -274,7 +274,7 @@ func runCookies(args []string, stdout io.Writer, stderr io.Writer) int {
 func runSheets(args []string, stdout io.Writer, stderr io.Writer) int {
 	rows := [][2]string{
 		{"read", "Read a direct authorized sheets link as Markdown/TSV."},
-		{"update", "Plan an approved TSV update for a direct sheets link."},
+		{"update", "Dry-run or apply an approved TSV cell update."},
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "ERROR sheets requires a subcommand.")
@@ -361,8 +361,11 @@ func runSheetsUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("ixf sheets update", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	targetURL := flags.String("url", "", "")
+	hostURL := flags.String("host-url", "", "")
 	rangeStart := flags.String("range", "", "")
 	inputPath := flags.String("input", "", "")
+	cookiesPath := flags.String("cookies", defaultCookies, "")
+	spaceAPI := flags.String("space-api", "", "")
 	dryRun := flags.Bool("dry-run", false, "")
 	apply := flags.Bool("apply", false, "")
 	if hasHelpArg(args) {
@@ -389,12 +392,15 @@ func runSheetsUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "ERROR --dry-run and --apply are mutually exclusive")
 		return 2
 	}
-	payload, err := ixfsheets.PlanUpdate(ixfsheets.UpdateConfig{
-		URL:       *targetURL,
-		Range:     *rangeStart,
-		InputPath: *inputPath,
-		DryRun:    *dryRun,
-		Apply:     *apply,
+	payload, err := ixfsheets.Update(ixfsheets.UpdateConfig{
+		URL:         *targetURL,
+		HostURL:     *hostURL,
+		Range:       *rangeStart,
+		InputPath:   *inputPath,
+		DryRun:      *dryRun,
+		Apply:       *apply,
+		CookiesPath: *cookiesPath,
+		SpaceAPI:    *spaceAPI,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
@@ -1712,6 +1718,7 @@ func collectDiagnostics(cookiesPath string) map[string]any {
 			"docsPublish":        true,
 			"sheetsRead":         true,
 			"sheetsUpdateDryRun": true,
+			"sheetsUpdateApply":  true,
 			"okrRead":            true,
 			"okrWrite":           true,
 			"cookiesExport":      true,
@@ -1852,11 +1859,12 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 	capabilities := payload["capabilities"]
 	fmt.Fprintf(
 		w,
-		"native docsRead=%t docsPublish=%t sheetsRead=%t sheetsUpdateDryRun=%t okrRead=%t okrWrite=%t cookiesExport=%t messengerDoctor=%t messengerOpenPlan=%t messengerOpenApply=%t messengerReadPlan=%t messengerReadApply=%t messengerSendPlan=%t messengerSendApply=%t\n",
+		"native docsRead=%t docsPublish=%t sheetsRead=%t sheetsUpdateDryRun=%t sheetsUpdateApply=%t okrRead=%t okrWrite=%t cookiesExport=%t messengerDoctor=%t messengerOpenPlan=%t messengerOpenApply=%t messengerReadPlan=%t messengerReadApply=%t messengerSendPlan=%t messengerSendApply=%t\n",
 		boolFromMap(capabilities, "docsRead"),
 		boolFromMap(capabilities, "docsPublish"),
 		boolFromMap(capabilities, "sheetsRead"),
 		boolFromMap(capabilities, "sheetsUpdateDryRun"),
+		boolFromMap(capabilities, "sheetsUpdateApply"),
 		boolFromMap(capabilities, "okrRead"),
 		boolFromMap(capabilities, "okrWrite"),
 		boolFromMap(capabilities, "cookiesExport"),

@@ -15,7 +15,7 @@ installs and for the agent skills installed by `ixf setup skills`.
 | `docs publish` | Owned | Creates a new docx from Markdown with dry-run-first and explicit `--apply` semantics. |
 | `docs update` | Owned | Updates an existing docx body from Markdown with dry-run-first, `replace_body`, complex-block safeguards, and explicit `--apply` semantics. |
 | `sheets read` | Owned | `ixf sheets read` reads direct authorized sheets links as Markdown/TSV through the sheet client-vars API. |
-| `sheets update` | Dry-run owned | `ixf sheets update --dry-run` plans TSV cell updates with target token, sheet id, range, row count, and column count; `ixf sheets update --apply` remains unavailable until the real write API contract is captured. |
+| `sheets update` | Owned | `ixf sheets update --dry-run` plans TSV cell updates; `ixf sheets update --apply` writes confirmed cells through the sheet user_changes API and verifies by readback. |
 | `okr read` | Owned | Reads authorized OKR pages through the OKR detail APIs. |
 | `okr write` | Owned | Writes confirmed Objective / KR JSON, including index-targeted, full-spec, and explicit prune flows. |
 | `cookies export` | Owned | Exports local desktop-session cookies on macOS and CI-covered Windows providers. |

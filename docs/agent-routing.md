@@ -38,8 +38,11 @@ inside supported docx payloads may still be expanded through
 Sheet cell update requests must not use `ixf docs update`. Use
 `ixf sheets update --url <sheets-url> --range A1 --input cells.tsv --dry-run`
 to plan target token, sheet id, range, row count, and column count without
-network mutation. `ixf sheets update --apply` is intentionally unavailable until
-the real sheet write API contract is captured and fixture-backed.
+network mutation. After the user confirms the exact target range and TSV input,
+use `ixf sheets update --apply` for API-only cell updates and inspect the
+returned `verify.ok` result before claiming success. For embedded sheets, keep
+`--url` on the direct sheets link and add `--host-url` for the parent docx/wiki
+link so the request carries the required host token.
 
 ## Runtime Boundary
 

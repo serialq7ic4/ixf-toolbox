@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.14.0 - 2026-07-21
+
+- Added API-only `ixf sheets update --apply` for confirmed TSV cell writes through the sheet `user_changes` endpoint.
+- Added readback verification, `--host-url` support for embedded sheets, and `--space-api` endpoint override coverage for sheet writes.
+- Updated doctor capabilities, README, routing docs, and installed skill guidance so agents route sheet cell changes through `ixf sheets update` instead of `ixf docs update`.
+
 ## 3.13.1 - 2026-07-21
 
 - Fixed source-built `ixf --version` so it reads the repository `VERSION` value by default instead of drifting behind release builds.

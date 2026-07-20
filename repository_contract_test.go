@@ -252,6 +252,43 @@ func TestDocsUpdateRunbookDocumentsStableSafetyBoundary(t *testing.T) {
 	}
 }
 
+func TestSheetsRoutingAndUpdateBoundaryAreDocumented(t *testing.T) {
+	for _, relative := range []string{"README.md", "README.en.md", "docs/agent-routing.md", "docs/go-python-parity.md"} {
+		text := readRepoFile(t, relative)
+		for _, expected := range []string{"ixf sheets read", "ixf sheets update", "sheets update --apply"} {
+			if !strings.Contains(text, expected) {
+				t.Fatalf("%s missing sheet command boundary %q:\n%s", relative, expected, text)
+			}
+		}
+	}
+
+	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
+		routingPath := filepath.ToSlash(filepath.Join(runtimeDir, "using-ixf-toolbox", "SKILL.md"))
+		routing := readRepoFile(t, routingPath)
+		for _, expected := range []string{"Classify the request as docs, sheets, OKR, or messenger", "direct sheets link reads", "ixf sheets update --dry-run"} {
+			if !strings.Contains(routing, expected) {
+				t.Fatalf("%s missing sheet routing guidance %q:\n%s", routingPath, expected, routing)
+			}
+		}
+
+		readerPath := filepath.ToSlash(filepath.Join(runtimeDir, "ixf-docs-reader", "SKILL.md"))
+		reader := readRepoFile(t, readerPath)
+		for _, expected := range []string{"direct sheets link", "ixf sheets read"} {
+			if !strings.Contains(reader, expected) {
+				t.Fatalf("%s missing sheet read guidance %q:\n%s", readerPath, expected, reader)
+			}
+		}
+
+		writerPath := filepath.ToSlash(filepath.Join(runtimeDir, "ixf-docs-writer", "SKILL.md"))
+		writer := readRepoFile(t, writerPath)
+		for _, expected := range []string{"does not edit embedded or direct sheet cell data", "ixf sheets update --dry-run"} {
+			if !strings.Contains(writer, expected) {
+				t.Fatalf("%s missing sheet write boundary %q:\n%s", writerPath, expected, writer)
+			}
+		}
+	}
+}
+
 func skillNamesForContract() []string {
 	return []string{
 		"using-ixf-toolbox",

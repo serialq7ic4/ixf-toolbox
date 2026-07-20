@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -750,6 +752,100 @@ func TestCLIDocsReadManifestCleanupAndOKRGuard(t *testing.T) {
 	}
 }
 
+func TestCLISheetsReadDirectSheet(t *testing.T) {
+	tmpDir := t.TempDir()
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+
+	var sheetRequested bool
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/v3/sheet/client_vars":
+			sheetRequested = true
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %s, want POST", r.Method)
+			}
+			if got := r.URL.Query().Get("synced_block_host_token"); got != "shtr_fixture" {
+				t.Fatalf("synced host token = %q, want shtr_fixture", got)
+			}
+			if got := r.Header.Get("Referer"); got != server.URL+"/sheets/shtr_fixture?sheet=sheet1" {
+				t.Fatalf("referer = %q, want direct sheet URL", got)
+			}
+			request := decodeRequestBody(t, r)
+			if request["token"] != "shtr_fixture" {
+				t.Fatalf("sheet token = %#v, want shtr_fixture", request["token"])
+			}
+			rangeValue := request["sheetRange"].(map[string]any)
+			if rangeValue["sheetId"] != "sheet1" {
+				t.Fatalf("sheet range = %#v, want sheet1", rangeValue)
+			}
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": sheetCLIFixtureData(t, "sheet1")})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr, code := runCLITest(t,
+		"sheets", "read", server.URL+"/sheets/shtr_fixture?sheet=sheet1",
+		"--space-api", server.URL,
+		"--cookies", cookiesPath,
+	)
+	if code != 0 {
+		t.Fatalf("sheets read exit code = %d, stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	if !sheetRequested {
+		t.Fatal("sheet client_vars endpoint was not requested")
+	}
+	for _, expected := range []string{"# shtr_fixture sheet1", "Name\tValue", "Alpha\t42"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("sheets read stdout missing %q:\n%s", expected, stdout)
+		}
+	}
+	if stderr != "" {
+		t.Fatalf("sheets read stderr = %q, want empty", stderr)
+	}
+}
+
+func TestCLISheetsUpdateDryRunPlansTSVWithoutNetwork(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "cells.tsv")
+	if err := os.WriteFile(inputPath, []byte("Name\tValue\nAlpha\t42\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runCLITest(t,
+		"sheets", "update",
+		"--url", "https://tenant.example.test/sheets/shtr_fixture?sheet=sheet1",
+		"--range", "B2",
+		"--input", inputPath,
+		"--dry-run",
+	)
+	if code != 0 {
+		t.Fatalf("sheets update dry-run exit code = %d, stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["ok"] != true || payload["dryRun"] != true || payload["willWrite"] != false ||
+		payload["operation"] != "update_sheet" {
+		t.Fatalf("sheets update dry-run payload = %+v", payload)
+	}
+	for key, want := range map[string]any{
+		"targetToken": "shtr_fixture",
+		"sheetId":     "sheet1",
+		"range":       "B2",
+		"rows":        float64(2),
+		"cols":        float64(2),
+	} {
+		if payload[key] != want {
+			t.Fatalf("payload[%s] = %#v, want %#v; payload=%+v", key, payload[key], want, payload)
+		}
+	}
+	if stderr != "" {
+		t.Fatalf("sheets update dry-run stderr = %q, want empty", stderr)
+	}
+}
+
 func TestCLIOKRWriteDryRunAndApplyObjectiveIndex(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "okr.json")
@@ -1169,6 +1265,61 @@ func writeTestJSON(t *testing.T, w http.ResponseWriter, payload map[string]any) 
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func sheetCLIFixtureData(t *testing.T, sheetID string) map[string]any {
+	t.Helper()
+	return map[string]any{
+		"formerlySchema": map[string]any{
+			"clientvars": map[string]any{
+				"gzip_snapshot": gzipCLIJSON(t, map[string]any{
+					"sheets": map[string]any{
+						sheetID: map[string]any{"rowCount": 2, "columnCount": 2},
+					},
+				}),
+				"extra_data": map[string]any{
+					"blocks": []any{
+						map[string]any{
+							"row": 0,
+							"gzip_datatable": gzipCLIJSON(t, map[string]any{
+								"rows": []any{
+									map[string]any{
+										"columns": []any{
+											map[string]any{"value": "Name"},
+											map[string]any{"value": "Value"},
+										},
+									},
+									map[string]any{
+										"columns": []any{
+											map[string]any{"value": "Alpha"},
+											map[string]any{"value": 42},
+										},
+									},
+								},
+							}),
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func gzipCLIJSON(t *testing.T, value map[string]any) string {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buffer bytes.Buffer
+	writer := gzip.NewWriter(&buffer)
+	if _, err := writer.Write(raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(buffer.Bytes())
 }
 
 func attributedCLIText(text string) map[string]any {

@@ -47,27 +47,27 @@ The recommended path is to let the agent you are already using install Toolbox. 
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.11.2_darwin_arm64`, macOS Intel: `ixf_3.11.2_darwin_amd64`, Windows: `ixf_3.11.2_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.13.0_darwin_arm64`, macOS Intel: `ixf_3.13.0_darwin_amd64`, Windows: `ixf_3.13.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.11.2/ixf_3.11.2_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.13.0/ixf_3.13.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_3.11.2_darwin_amd64` instead.
+For macOS Intel, use `ixf_3.13.0_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.11.2/ixf_3.11.2_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.13.0/ixf_3.13.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -94,6 +94,8 @@ After installing the skills, ask your agent to work with authorized links, local
 
 > Review this OKR page and summarize the objectives, key results, owners, and mentions relevant to me.
 
+> Summarize the server SN list in this sheet.
+
 > Publish `notes/review.md` to `https://tenant.example.test`. Show the dry-run first and only apply after I confirm.
 
 > Write my approved O3 and three KRs into this OKR page. Only modify O3 and show the dry-run plan first.
@@ -109,6 +111,9 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | Command | Purpose |
 |---|---|
 | `ixf docs read <source>...` | Read authorized cloud document links or local Markdown into Markdown, TSV, image, and manifest artifacts |
+| `ixf sheets read <sheets-url>` | Read a direct sheets link as Markdown/TSV content |
+| `ixf sheets update --url <sheets-url> --range A1 --input cells.tsv --dry-run` | Plan a TSV cell update without writing |
+| `ixf sheets update --apply` | Not available yet; requires a captured real sheet write API contract and fixture coverage |
 | `ixf docs outline <file.md>` | Build heading-aware dynamic reading metadata |
 | `ixf docs chunk <file.md> --index <n>` | Print one dynamic Markdown chunk |
 | `ixf docs inspect <source>` | Print a safe routing summary without reading content or printing full tokens |
@@ -134,7 +139,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Runtime Status
 
-Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations. Starting with v3.6, it can send approved messages and requires fresh-session verification before reporting success. Starting with v3.7, Messenger has a GA runbook and actionable diagnostic remediation. Starting with v3.8, agent routing diagnostics and Messenger stability metadata are exposed through doctor commands. Starting with v3.9, existing-docx body replacement dry-run/preflight is available. Starting with v3.10, approved existing-docx body replacement writes are available. Starting with v3.11, complex-block explicit override and the update runbook are available.
+Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations. Starting with v3.6, it can send approved messages and requires fresh-session verification before reporting success. Starting with v3.7, Messenger has a GA runbook and actionable diagnostic remediation. Starting with v3.8, agent routing diagnostics and Messenger stability metadata are exposed through doctor commands. Starting with v3.9, existing-docx body replacement dry-run/preflight is available. Starting with v3.10, approved existing-docx body replacement writes are available. Starting with v3.11, complex-block explicit override and the update runbook are available. Starting with v3.13, dedicated `ixf sheets read` and `ixf sheets update --dry-run` command surfaces are available.
 
 See [`docs/agent-routing.md`](docs/agent-routing.md) for the agent routing contract. See [`docs/messenger.md`](docs/messenger.md) for Messenger operations, including Chrome/Chromium-only discovery, cloned profile isolation, read side effects, and send success criteria.
 
@@ -152,6 +157,10 @@ ixf doctor \
 ixf docs inspect \
   "https://tenant.example.test/wiki/example" \
   --json
+
+ixf sheets read \
+  "https://tenant.example.test/sheets/example?sheet=sheet1" \
+  --cookies /tmp/ixf_cookies.json
 
 ixf docs read \
   "https://tenant.example.test/wiki/example" \
@@ -212,6 +221,18 @@ ixf docs update notes/review.md \
   --apply
 ```
 
+Plan direct sheet cell updates:
+
+Direct sheets links use a separate command surface, not `ixf docs update`. The current release supports dry-run planning only; `ixf sheets update --apply` is unavailable until the real write API contract is captured and fixture-covered.
+
+```bash
+ixf sheets update \
+  --url "https://tenant.example.test/sheets/example?sheet=sheet1" \
+  --range B2 \
+  --input cells.tsv \
+  --dry-run
+```
+
 Write one OKR Objective by index:
 
 ```bash
@@ -231,7 +252,7 @@ Toolbox currently supports:
 - i讯飞/LarkShell `docx` document reading and Markdown conversion.
 - Supported `wiki` links, including docx token resolution and bitable TSV output.
 - Direct mindnote and sheets link reads, plus mindnote markers and embedded sheet TSV expansion exposed by supported document payloads.
-- Simple tables, task lists, code languages, rich-text links, image block download, direct sheets reads, embedded sheet expansion, and safe artifact cleanup.
+- Simple tables, task lists, code languages, rich-text links, image block download, direct sheets reads, embedded sheet expansion, sheets update dry-run planning, and safe artifact cleanup.
 - Local Markdown chunking, reading, publishing, and test workflows.
 - Authorized OKR reading, selected Objective update/create, multi-Objective writes by Objective text, KR create/update/order, explicit prune, and publish-after-edit.
 - Messenger readiness diagnostics, profile discovery, safe cloned profile usage, dry-run open planning, explicit --apply target verification, read-only recent/unread extraction, and approved sends with fresh-session verification.
@@ -260,6 +281,7 @@ See [`docs/migration-from-legacy.md`](docs/migration-from-legacy.md) for command
 - `doctor` does not print cookie values.
 - Remote read errors do not echo raw API payloads.
 - Remote writes default to dry-run and require explicit `--apply`.
+- `ixf sheets update --apply` is currently unavailable; do not claim remote sheet cell writes are supported.
 - Messenger currently supports diagnostics, dry-run open planning, explicit --apply target verification, read-only conversation extraction, and approved sends with fresh-session verification. Messenger auto-discovers only Chrome/Chromium and always uses a cloned profile.
 - Destructive OKR pruning requires explicit `--prune`.
 - Generated Markdown, TSV, images, manifests, and OKR JSON may contain private content.

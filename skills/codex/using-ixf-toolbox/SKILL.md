@@ -15,8 +15,9 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 
 - Use `docs/agent-routing.md`, `AGENTS.md`, and current `skills/*/*/SKILL.md` files as authoritative current guidance.
 - Do not route from historical implementation notes, old changelog entries, or `docs/superpowers/` plans.
-- Use `ixf-docs-reader` for authorized document, wiki, docx, cloud-doc, direct sheets link, embedded sheet, mindnote, image artifact, or local Markdown reading.
+- Use `ixf-docs-reader` for authorized document, wiki, docx, cloud-doc, embedded sheet, mindnote, image artifact, local Markdown reading, and direct sheets link reads through `ixf sheets read`.
 - Use `ixf-docs-writer` for approved Markdown publishing as a new docx document or existing-docx update.
+- For sheet cell update requests, run only `ixf sheets update --dry-run`; `ixf sheets update --apply` is unavailable until a real write API contract is captured.
 - Use `ixf-okr-reader` for authorized OKR reading, summary, ownership, mention, or alignment analysis.
 - Use `ixf-okr-writer` for approved Objective and Key Result creation or modification.
 - Use `ixf-messenger-reader` for authorized i讯飞 Messenger readiness checks and read-only message inspection workflows.
@@ -24,12 +25,14 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 
 ## Decision Rules
 
-1. Classify the request as docs, OKR, or messenger.
+1. Classify the request as docs, sheets, OKR, or messenger.
 2. Classify the intent as read or write.
 3. Default ambiguous intent to read-only. Default to read-only when uncertain.
 4. For writes, confirm the exact target and content, then follow the relevant writer skill's dry-run-first workflow.
-5. If local authentication or installed routing looks unclear, run `ixf doctor --json` and inspect `agentRouting`.
-6. If local authentication looks missing, run or suggest `ixf cookies export --provider auto`.
+5. For direct sheets link reads, prefer `ixf sheets read`; for embedded sheet reads inside docx, use `ixf docs read --expand-sheets`.
+6. For sheets update requests, do not use `ixf docs update`; plan only with `ixf sheets update --dry-run`.
+7. If local authentication or installed routing looks unclear, run `ixf doctor --json` and inspect `agentRouting`.
+8. If local authentication looks missing, run or suggest `ixf cookies export --provider auto`.
 
 ## Safety
 

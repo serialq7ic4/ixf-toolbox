@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.13.0 - 2026-07-20
+
+- Added a dedicated `ixf sheets` command surface with direct sheet reads and TSV update dry-runs.
+- Added `sheetsRead` and `sheetsUpdateDryRun` doctor capabilities so agents can discover sheet support without relying on historical docs.
+- Updated README, routing docs, and agent skills to route sheet cell work through `ixf sheets update --dry-run` and to treat `sheets update --apply` as unavailable until a real write API contract is captured.
+
 ## 3.12.0 - 2026-07-20
 
 - Added docs publish/update table fallback metadata so dry-runs report when Markdown tables will be preserved as readable callout fallback blocks.

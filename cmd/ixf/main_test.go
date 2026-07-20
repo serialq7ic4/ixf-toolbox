@@ -34,7 +34,7 @@ func TestRootHelpListsCommands(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
-	for _, expected := range []string{"usage: ixf", "docs", "okr", "messenger", "update"} {
+	for _, expected := range []string{"usage: ixf", "docs", "sheets", "okr", "messenger", "update"} {
 		if !strings.Contains(stdout.String(), expected) {
 			t.Fatalf("stdout missing %q: %s", expected, stdout.String())
 		}
@@ -47,6 +47,7 @@ func TestDocsAndOKRHelpListSupportedSubcommands(t *testing.T) {
 		expected []string
 	}{
 		{args: []string{"docs", "--help"}, expected: []string{"usage: ixf docs", "read", "publish", "update", "inspect"}},
+		{args: []string{"sheets", "--help"}, expected: []string{"usage: ixf sheets", "read", "update"}},
 		{args: []string{"okr", "--help"}, expected: []string{"usage: ixf okr", "read", "write"}},
 		{args: []string{"messenger", "--help"}, expected: []string{"usage: ixf messenger", "doctor", "open", "read", "send"}},
 	}
@@ -83,6 +84,14 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 		{
 			args:     []string{"docs", "update", "--help"},
 			expected: []string{"usage: ixf docs update", "--url", "--dry-run", "--apply", "--allow-complex-replace"},
+		},
+		{
+			args:     []string{"sheets", "read", "--help"},
+			expected: []string{"usage: ixf sheets read", "--cookies", "--space-api"},
+		},
+		{
+			args:     []string{"sheets", "update", "--help"},
+			expected: []string{"Usage of ixf sheets update", "-url", "-range", "-input", "-dry-run", "-apply"},
 		},
 		{
 			args:     []string{"okr", "read", "--help"},
@@ -603,7 +612,7 @@ func TestCollectDiagnosticsReportsGoRuntimeSkillsCookiesAndNoSecrets(t *testing.
 		t.Fatalf("legacy commands should be absent by default: %+v", payload["legacyCommands"])
 	}
 	capabilities := payload["capabilities"].(map[string]bool)
-	for _, name := range []string{"docsRead", "docsPublish", "okrRead", "okrWrite", "cookiesExport", "messengerDoctor", "messengerOpenPlan", "messengerOpenApply", "messengerReadPlan", "messengerReadApply", "messengerSendPlan", "messengerSendApply"} {
+	for _, name := range []string{"docsRead", "docsPublish", "sheetsRead", "sheetsUpdateDryRun", "okrRead", "okrWrite", "cookiesExport", "messengerDoctor", "messengerOpenPlan", "messengerOpenApply", "messengerReadPlan", "messengerReadApply", "messengerSendPlan", "messengerSendApply"} {
 		if !capabilities[name] {
 			t.Fatalf("capability %s = false", name)
 		}
@@ -742,6 +751,8 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 		"capabilities": map[string]bool{
 			"docsRead":           true,
 			"docsPublish":        true,
+			"sheetsRead":         true,
+			"sheetsUpdateDryRun": true,
 			"okrRead":            true,
 			"okrWrite":           true,
 			"cookiesExport":      true,
@@ -783,7 +794,7 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 	for _, expected := range []string{
 		"ixf-toolbox " + version,
 		"overall fail",
-		"native docsRead=true docsPublish=true okrRead=true okrWrite=true cookiesExport=true messengerDoctor=true messengerOpenPlan=true messengerOpenApply=true messengerReadPlan=true messengerReadApply=true messengerSendPlan=true messengerSendApply=true",
+		"native docsRead=true docsPublish=true sheetsRead=true sheetsUpdateDryRun=true okrRead=true okrWrite=true cookiesExport=true messengerDoctor=true messengerOpenPlan=true messengerOpenApply=true messengerReadPlan=true messengerReadApply=true messengerSendPlan=true messengerSendApply=true",
 		"skill codex ok=true",
 		"cookies ok count=1 csrf=true lgw_csrf=false",
 		"agent_routing go_only=true background=true default=read-only",

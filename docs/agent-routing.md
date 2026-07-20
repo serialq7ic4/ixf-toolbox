@@ -29,6 +29,18 @@ correct domain skill.
 5. Use dry-run-first workflows before any remote mutation or message send.
 6. Run `ixf doctor --json` when the installed routing or local auth state is unclear; `ixf doctor --json` exposes `agentRouting` for machine-readable verification.
 
+## Sheets Boundary
+
+Direct sheets link reads use `ixf sheets read <sheets-url>`. Embedded sheets
+inside supported docx payloads may still be expanded through
+`ixf docs read --expand-sheets` when the user is reading the parent document.
+
+Sheet cell update requests must not use `ixf docs update`. Use
+`ixf sheets update --url <sheets-url> --range A1 --input cells.tsv --dry-run`
+to plan target token, sheet id, range, row count, and column count without
+network mutation. `ixf sheets update --apply` is intentionally unavailable until
+the real sheet write API contract is captured and fixture-backed.
+
 ## Runtime Boundary
 
 Go `ixf` is the only supported runtime. Do not call `ixfdoc`, `ixfwrite`,

@@ -22,6 +22,7 @@ import (
 	"github.com/serialq7ic4/ixf-toolbox/internal/markdown"
 	"github.com/serialq7ic4/ixf-toolbox/internal/messenger"
 	ixfokr "github.com/serialq7ic4/ixf-toolbox/internal/okr"
+	ixfsheets "github.com/serialq7ic4/ixf-toolbox/internal/sheets"
 	ixfupdate "github.com/serialq7ic4/ixf-toolbox/internal/update"
 )
 
@@ -73,6 +74,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	switch args[0] {
 	case "docs":
 		return runDocs(args[1:], stdout, stderr)
+	case "sheets":
+		return runSheets(args[1:], stdout, stderr)
 	case "okr":
 		return runOKR(args[1:], stdout, stderr)
 	case "messenger":
@@ -95,6 +98,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 func printRootHelp(w io.Writer) {
 	rows := [][2]string{
 		{"docs", "Read, inspect, chunk, clean up, or publish authorized documents."},
+		{"sheets", "Read direct sheets links or plan approved sheet cell updates."},
 		{"okr", "Read or plan approved OKR changes."},
 		{"messenger", "Inspect and plan safe i讯飞 Messenger automation."},
 		{"doctor", "Inspect local Toolbox setup without printing secrets."},
@@ -262,6 +266,139 @@ func runCookies(args []string, stdout io.Writer, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "ERROR %s\n", err)
 		}
 		return 6
+	}
+	writeJSON(stdout, payload)
+	return 0
+}
+
+func runSheets(args []string, stdout io.Writer, stderr io.Writer) int {
+	rows := [][2]string{
+		{"read", "Read a direct authorized sheets link as Markdown/TSV."},
+		{"update", "Plan an approved TSV update for a direct sheets link."},
+	}
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "ERROR sheets requires a subcommand.")
+		printCommandHelp(stderr, "ixf sheets", rows)
+		return 2
+	}
+	if isHelpArg(args[0]) {
+		printCommandHelp(stdout, "ixf sheets", rows)
+		return 0
+	}
+	switch args[0] {
+	case "read":
+		return runSheetsRead(args[1:], stdout, stderr)
+	case "update":
+		return runSheetsUpdate(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "ERROR unsupported sheets subcommand: %s\n", args[0])
+		printCommandHelp(stderr, "ixf sheets", rows)
+		return 2
+	}
+}
+
+func runSheetsRead(args []string, stdout io.Writer, stderr io.Writer) int {
+	if hasHelpArg(args) {
+		printUsageHelp(stdout, "ixf sheets read <sheets-url> [--cookies PATH] [--space-api URL]", [][2]string{
+			{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+			{"--space-api URL", "Override the i讯飞 Space API base URL."},
+		})
+		return 0
+	}
+	source := ""
+	cookiesPath := defaultCookies
+	spaceAPI := docslocal.DefaultSpaceAPI
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--cookies":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stderr, "ERROR --cookies requires a value")
+				return 2
+			}
+			cookiesPath = args[i]
+		case "--space-api":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stderr, "ERROR --space-api requires a value")
+				return 2
+			}
+			spaceAPI = args[i]
+		default:
+			if strings.HasPrefix(arg, "-") {
+				fmt.Fprintf(stderr, "ERROR unsupported sheets read flag: %s\n", arg)
+				return 2
+			}
+			if source != "" {
+				fmt.Fprintln(stderr, "ERROR sheets read requires exactly one direct sheets URL")
+				return 2
+			}
+			source = arg
+		}
+	}
+	if source == "" {
+		fmt.Fprintln(stderr, "ERROR sheets read requires exactly one direct sheets URL")
+		return 2
+	}
+	content, err := ixfsheets.Read(ixfsheets.ReadConfig{
+		Source:      source,
+		CookiesPath: cookiesPath,
+		SpaceAPI:    spaceAPI,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	fmt.Fprint(stdout, content)
+	if !strings.HasSuffix(content, "\n") {
+		fmt.Fprintln(stdout)
+	}
+	return 0
+}
+
+func runSheetsUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("ixf sheets update", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	targetURL := flags.String("url", "", "")
+	rangeStart := flags.String("range", "", "")
+	inputPath := flags.String("input", "", "")
+	dryRun := flags.Bool("dry-run", false, "")
+	apply := flags.Bool("apply", false, "")
+	if hasHelpArg(args) {
+		flags.SetOutput(stdout)
+		flags.Usage()
+		return 0
+	}
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *targetURL == "" {
+		fmt.Fprintln(stderr, "ERROR --url is required")
+		return 2
+	}
+	if *rangeStart == "" {
+		fmt.Fprintln(stderr, "ERROR --range is required")
+		return 2
+	}
+	if *inputPath == "" {
+		fmt.Fprintln(stderr, "ERROR --input is required")
+		return 2
+	}
+	if *dryRun && *apply {
+		fmt.Fprintln(stderr, "ERROR --dry-run and --apply are mutually exclusive")
+		return 2
+	}
+	payload, err := ixfsheets.PlanUpdate(ixfsheets.UpdateConfig{
+		URL:       *targetURL,
+		Range:     *rangeStart,
+		InputPath: *inputPath,
+		DryRun:    *dryRun,
+		Apply:     *apply,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
 	}
 	writeJSON(stdout, payload)
 	return 0
@@ -1573,6 +1710,8 @@ func collectDiagnostics(cookiesPath string) map[string]any {
 		"capabilities": map[string]bool{
 			"docsRead":           true,
 			"docsPublish":        true,
+			"sheetsRead":         true,
+			"sheetsUpdateDryRun": true,
 			"okrRead":            true,
 			"okrWrite":           true,
 			"cookiesExport":      true,
@@ -1713,9 +1852,11 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 	capabilities := payload["capabilities"]
 	fmt.Fprintf(
 		w,
-		"native docsRead=%t docsPublish=%t okrRead=%t okrWrite=%t cookiesExport=%t messengerDoctor=%t messengerOpenPlan=%t messengerOpenApply=%t messengerReadPlan=%t messengerReadApply=%t messengerSendPlan=%t messengerSendApply=%t\n",
+		"native docsRead=%t docsPublish=%t sheetsRead=%t sheetsUpdateDryRun=%t okrRead=%t okrWrite=%t cookiesExport=%t messengerDoctor=%t messengerOpenPlan=%t messengerOpenApply=%t messengerReadPlan=%t messengerReadApply=%t messengerSendPlan=%t messengerSendApply=%t\n",
 		boolFromMap(capabilities, "docsRead"),
 		boolFromMap(capabilities, "docsPublish"),
+		boolFromMap(capabilities, "sheetsRead"),
+		boolFromMap(capabilities, "sheetsUpdateDryRun"),
 		boolFromMap(capabilities, "okrRead"),
 		boolFromMap(capabilities, "okrWrite"),
 		boolFromMap(capabilities, "cookiesExport"),

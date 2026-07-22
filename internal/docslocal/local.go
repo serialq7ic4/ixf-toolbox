@@ -200,10 +200,18 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 		if err != nil {
 			return Result{}, err
 		}
+		var bitableErr error
 		if isBitableWikiHTML(html) {
-			return session.readBitableWiki(source, origin, html)
+			if result, err := session.readBitableWiki(source, origin, html); err == nil {
+				return result, nil
+			} else {
+				bitableErr = err
+			}
 		}
 		token = extractDocTokenFromHTML(html)
+		if token == "" && bitableErr != nil {
+			return Result{}, bitableErr
+		}
 	}
 	if token == "" {
 		return Result{}, fmt.Errorf("remote source is not supported by Go docs read yet")

@@ -319,6 +319,75 @@ func TestReadSourcesWithOptionsExpandsRemoteDocxSheets(t *testing.T) {
 	assertResultCounts(t, result.Counts, map[string]int{"page": 1, "sheet": 1, "sheet_expanded": 1})
 }
 
+func TestReadSourcesWithOptionsFallsBackFromEmptyBitableWikiObjectToDocxToken(t *testing.T) {
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = append(requested, r.URL.String())
+		switch r.URL.Path {
+		case "/wiki/wiki_1":
+			_, _ = w.Write([]byte(`<html><script>
+				current_space_wiki = Object();
+				window.wiki_suite_type = 'docx';
+				window.bootstrap = {"obj_token":"dox_page_1"};
+			</script><script src="/static/bitable-runtime.js"></script></html>`))
+		case "/space/api/docx/pages/client_vars":
+			if got := r.URL.Query().Get("id"); got != "dox_page_1" {
+				t.Fatalf("id query = %q, want dox_page_1", got)
+			}
+			writeJSONResponse(t, w, map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"block_map": map[string]any{
+						"dox_page_1": map[string]any{
+							"data": map[string]any{
+								"type":     "page",
+								"children": []any{"text_1"},
+								"text":     attributedTextValue("Wiki Doc"),
+							},
+						},
+						"text_1": map[string]any{
+							"data": map[string]any{
+								"type":      "text",
+								"parent_id": "dox_page_1",
+								"text":      attributedTextValue("From fallback"),
+							},
+						},
+					},
+					"has_more": false,
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	results, err := ReadSourcesWithOptions([]string{server.URL + "/wiki/wiki_1"}, ReadOptions{
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	})
+	if err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("results length = %d, want 1", len(results))
+	}
+	result := results[0]
+	if result.Kind != "wiki" || result.Title != "Wiki Doc" || result.Token != "dox_page_1" {
+		t.Fatalf("result metadata = %#v", result)
+	}
+	if result.Content != "# Wiki Doc\n\nFrom fallback\n" {
+		t.Fatalf("content = %q", result.Content)
+	}
+	assertResultCounts(t, result.Counts, map[string]int{"page": 1, "text": 1})
+	if len(requested) != 2 || requested[1] != "/space/api/docx/pages/client_vars?id=dox_page_1&open_type=1" {
+		t.Fatalf("requested URLs = %#v", requested)
+	}
+}
+
 func TestReadSourcesWithOptionsReadsDirectSheetLinks(t *testing.T) {
 	var sheetRequested bool
 	var server *httptest.Server

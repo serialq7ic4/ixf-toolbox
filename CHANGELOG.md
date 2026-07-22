@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.14.3 - 2026-07-22
+
+- Fixed wiki reads for pages whose HTML initializes `current_space_wiki` as an empty `Object()` while still exposing the backing docx token.
+- Added regression coverage so ordinary wiki/docx pages are no longer misrouted into the bitable wiki reader because unrelated page scripts contain `bitable`.
+
 ## 3.14.2 - 2026-07-22
 
 - Hardened docs writer skill guidance so natural "publish to i讯飞 doc" requests proceed to publish dry-run when a tenant base URL can be inferred.

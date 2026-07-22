@@ -275,8 +275,8 @@ func TestCLIDocsUpdateDryRunPreflight(t *testing.T) {
 		payload["plannedTopLevelBlocks"] != float64(4) {
 		t.Fatalf("docs update target/counts payload = %+v", payload)
 	}
-	if payload["tableFallbackCount"] != float64(1) || payload["tableFallbackBlockType"] != "callout" {
-		t.Fatalf("docs update table fallback payload = %+v", payload)
+	if payload["tableFallbackCount"] != float64(0) || payload["tableBlockType"] != "table" || payload["tableCount"] != float64(1) {
+		t.Fatalf("docs update table payload = %+v", payload)
 	}
 	if payload["supportedExistingContent"] != true || payload["complexBlockCount"] != float64(0) {
 		t.Fatalf("docs update complex block payload = %+v", payload)

@@ -22,8 +22,8 @@ The dry-run reads the target document state and reports:
 - `destructive:true`
 - current and planned top-level block counts
 - complex blocks detected in the existing body
-- `tableFallbackCount` and `tableFallbackBlockType` when Markdown tables will
-  be written as readable fallback blocks instead of native sheet/table blocks
+- `tableCount`, `tableBlockType`, and `tableFallbackCount`; Markdown tables are
+  written as native docx table blocks when possible
 
 Apply only after reviewing the plan:
 

@@ -37,7 +37,7 @@ Do not treat top-level `doctor.ok=false` alone as an authentication failure. Ins
    `ixf docs update <file.md> --url https://tenant.example.test/docx/example --apply`
 7. If dry-run reports complex blocks, do not apply unless the user explicitly approves losing those blocks:
    `ixf docs update <file.md> --url https://tenant.example.test/docx/example --allow-complex-replace --apply`
-8. If dry-run reports `tableFallbackCount>0`, tell the user Markdown tables will be preserved as readable callout fallback blocks, not native table/sheet blocks.
+8. Markdown tables are expected to publish as native docx table blocks; if `tableFallbackCount>0`, stop and investigate before applying.
 9. After apply, inspect `verify.ok`, `verify.missingRequiredText`, and `verify.emptyCalloutCount`; do not claim success if required text is missing or empty callouts are reported.
 10. For sheets update requests, do not use `ixf docs update`; route to `ixf sheets update --dry-run`, then apply only after explicit approval.
 11. Re-read or inspect the result when a verification URL is available.

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.15.0 - 2026-07-22
+
+- Added native docx table block generation for Markdown tables in `ixf docs publish` and `ixf docs update`.
+- Changed docs publish/update dry-run metadata to report `tableBlockType: "table"` and `tableFallbackCount: 0` for Markdown tables.
+- Updated docs writer agent guidance so table fallback is treated as a publish regression instead of expected behavior.
+
 ## 3.14.3 - 2026-07-22
 
 - Fixed wiki reads for pages whose HTML initializes `current_space_wiki` as an empty `Object()` while still exposing the backing docx token.

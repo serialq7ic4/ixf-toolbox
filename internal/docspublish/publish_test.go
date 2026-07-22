@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestMarkdownTablesArePreservedAsReadableBlocks(t *testing.T) {
+func TestMarkdownTablesBuildNativeTableBlocks(t *testing.T) {
 	_, specs, err := ParseMarkdown("# Title\n\n| 告警 | 阈值 |\n|---|---|\n| P0 | 立即处理 |\n| P1 | 尽快处理 |\n")
 	if err != nil {
 		t.Fatal(err)
@@ -29,16 +29,89 @@ func TestMarkdownTablesArePreservedAsReadableBlocks(t *testing.T) {
 
 	topIDs, entries := buildBlocks(specs, "doxrzPage", newBlockFactory("author_fixture"))
 	if len(topIDs) != 1 {
-		t.Fatalf("top ids = %#v, want one table fallback block", topIDs)
+		t.Fatalf("top ids = %#v, want one table block", topIDs)
+	}
+	dataByID := map[string]map[string]any{}
+	for _, entry := range entries {
+		dataByID[entry.ID] = entry.Data
+	}
+	table := dataByID[topIDs[0]]
+	if table["type"] != "table" {
+		raw, _ := json.Marshal(entries)
+		t.Fatalf("top block type = %#v, want table; blocks=%s", table["type"], string(raw))
+	}
+	if len(asSlice(table["rows_id"])) != 3 || len(asSlice(table["columns_id"])) != 2 {
+		t.Fatalf("table dimensions = rows %#v cols %#v", table["rows_id"], table["columns_id"])
+	}
+	if _, ok := table["children"]; ok {
+		t.Fatalf("table block includes unsupported children field: %#v", table)
+	}
+	if _, ok := table["align"]; ok {
+		t.Fatalf("table block includes unsupported align field: %#v", table)
+	}
+	rows := asSlice(table["rows_id"])
+	columns := asSlice(table["columns_id"])
+	for _, rowID := range rows {
+		if !strings.HasPrefix(asString(rowID), "row") {
+			t.Fatalf("row id = %#v, want row-prefixed uuid", rowID)
+		}
+	}
+	columnSet := asMap(table["column_set"])
+	if len(columnSet) != len(columns) {
+		t.Fatalf("column_set len = %d, want %d: %#v", len(columnSet), len(columns), columnSet)
+	}
+	for _, columnID := range columns {
+		id := asString(columnID)
+		if !strings.HasPrefix(id, "col") {
+			t.Fatalf("column id = %#v, want col-prefixed uuid", columnID)
+		}
+		if asInt(asMap(columnSet[id])["column_width"]) <= 0 {
+			t.Fatalf("column_set[%q] = %#v, want positive column_width", id, columnSet[id])
+		}
+	}
+	cellSet := asMap(table["cell_set"])
+	if len(cellSet) != 6 {
+		t.Fatalf("cell set len = %d, want 6; cell_set=%#v", len(cellSet), cellSet)
+	}
+	for _, entry := range entries {
+		if entry.ID == topIDs[0] {
+			continue
+		}
+		if entry.Data["type"] == "table_cell" {
+			if entry.Data["vertical_align"] != "middle" {
+				t.Fatalf("table cell missing vertical_align: %#v", entry.Data)
+			}
+			if _, ok := entry.Data["align"]; ok {
+				t.Fatalf("table cell includes unsupported align field: %#v", entry.Data)
+			}
+			continue
+		}
+		if entry.Data["type"] != "text" {
+			raw, _ := json.Marshal(entries)
+			t.Fatalf("unexpected table child block type: %#v in %s", entry.Data["type"], string(raw))
+		}
+	}
+	for _, rowID := range rows {
+		for _, columnID := range columns {
+			key := asString(rowID) + asString(columnID)
+			cell := asMap(cellSet[key])
+			if cell["block_id"] == "" {
+				t.Fatalf("cell_set[%q] missing block_id: %#v", key, cellSet)
+			}
+			merge := asMap(cell["merge_info"])
+			if asInt(merge["row_span"]) != 1 || asInt(merge["col_span"]) != 1 {
+				t.Fatalf("cell_set[%q].merge_info = %#v, want 1x1", key, merge)
+			}
+		}
 	}
 	raw, err := json.Marshal(entries)
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(raw)
-	for _, expected := range []string{"callout", "告警", "阈值", "P0", "立即处理", "P1", "尽快处理"} {
+	for _, expected := range []string{"告警", "阈值", "P0", "立即处理", "P1", "尽快处理"} {
 		if !strings.Contains(text, expected) {
-			t.Fatalf("generated table fallback missing %q: %s", expected, text)
+			t.Fatalf("generated table missing %q: %s", expected, text)
 		}
 	}
 }
@@ -61,11 +134,14 @@ func TestPublishMarkdownDryRunCountsMarkdownTables(t *testing.T) {
 	if counts["table"] != 1 {
 		t.Fatalf("counts = %+v, want table=1", counts)
 	}
-	if payload["tableFallbackCount"] != 1 {
-		t.Fatalf("tableFallbackCount = %#v, want 1", payload["tableFallbackCount"])
+	if payload["tableFallbackCount"] != 0 {
+		t.Fatalf("tableFallbackCount = %#v, want 0", payload["tableFallbackCount"])
 	}
-	if payload["tableFallbackBlockType"] != "callout" {
-		t.Fatalf("tableFallbackBlockType = %#v, want callout", payload["tableFallbackBlockType"])
+	if payload["tableBlockType"] != "table" {
+		t.Fatalf("tableBlockType = %#v, want table", payload["tableBlockType"])
+	}
+	if payload["tableCount"] != 1 {
+		t.Fatalf("tableCount = %#v, want 1", payload["tableCount"])
 	}
 }
 

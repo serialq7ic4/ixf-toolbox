@@ -43,6 +43,7 @@ type UpdateConfig struct {
 type Spec struct {
 	Kind string
 	Text string
+	Rows [][]string
 }
 
 func PublishMarkdown(config Config) (map[string]any, error) {
@@ -275,12 +276,12 @@ func ParseMarkdown(markdown string) (string, []Spec, error) {
 			continue
 		}
 		if isTableStart(lines, index) {
-			text, nextIndex := parseMarkdownTable(lines, index)
+			text, rows, nextIndex := parseMarkdownTable(lines, index)
 			index = nextIndex
 			if text == "" {
 				continue
 			}
-			specs = append(specs, Spec{Kind: "table", Text: text})
+			specs = append(specs, Spec{Kind: "table", Text: text, Rows: rows})
 			continue
 		}
 		if match := headingPattern.FindStringSubmatch(line); len(match) == 3 {
@@ -338,19 +339,21 @@ func isTableStart(lines []string, index int) bool {
 	return index+1 < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[index]), "|") && tableSeparatorPattern.MatchString(strings.TrimSpace(lines[index+1]))
 }
 
-func parseMarkdownTable(lines []string, index int) (string, int) {
+func parseMarkdownTable(lines []string, index int) (string, [][]string, int) {
 	rows := []string{}
+	tableRows := [][]string{}
 	for index < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[index]), "|") {
 		line := strings.TrimSpace(lines[index])
 		if !isTableSeparator(line) {
 			cells := markdownTableCells(line)
 			if len(cells) > 0 {
 				rows = append(rows, strings.Join(cells, " | "))
+				tableRows = append(tableRows, cells)
 			}
 		}
 		index++
 	}
-	return strings.Join(rows, "\n"), index
+	return strings.Join(rows, "\n"), tableRows, index
 }
 
 func isTableSeparator(line string) bool {
@@ -375,9 +378,7 @@ func markdownTableCells(line string) []string {
 	cells := make([]string, 0, len(rawCells))
 	for _, cell := range rawCells {
 		text := cleanInline(strings.TrimSpace(cell))
-		if text != "" {
-			cells = append(cells, text)
-		}
+		cells = append(cells, text)
 	}
 	return cells
 }
@@ -395,8 +396,9 @@ func summarizeSpecs(specs []Spec) map[string]int {
 }
 
 func withTableFallbackMetadata(payload map[string]any, specs []Spec) map[string]any {
-	payload["tableFallbackCount"] = countSpecsByKind(specs, "table")
-	payload["tableFallbackBlockType"] = "callout"
+	payload["tableFallbackCount"] = 0
+	payload["tableBlockType"] = "table"
+	payload["tableCount"] = countSpecsByKind(specs, "table")
 	return payload
 }
 
@@ -755,6 +757,96 @@ func (factory *blockFactory) calloutBlocks(parentID string, text string) ([]bloc
 	}, calloutID
 }
 
+func (factory *blockFactory) tableBlocks(parentID string, rows [][]string) ([]blockEntry, string) {
+	rows = normalizeTableRows(rows)
+	if len(rows) == 0 || len(rows[0]) == 0 {
+		return factory.calloutBlocks(parentID, "")
+	}
+	tableID := factory.blockID()
+	rowIDs := make([]any, len(rows))
+	columnIDs := make([]any, len(rows[0]))
+	for index := range rows {
+		rowIDs[index] = "row" + randomUUID()
+	}
+	for index := range rows[0] {
+		columnIDs[index] = "col" + randomUUID()
+	}
+	cellSet := map[string]any{}
+	columnSet := map[string]any{}
+	for _, columnIDValue := range columnIDs {
+		columnSet[asString(columnIDValue)] = map[string]any{"column_width": 120}
+	}
+	entries := []blockEntry{{
+		ID: tableID,
+		Data: map[string]any{
+			"type":       "table",
+			"parent_id":  parentID,
+			"comments":   []any{},
+			"revisions":  []any{},
+			"locked":     false,
+			"hidden":     false,
+			"author":     factory.author,
+			"rows_id":    rowIDs,
+			"columns_id": columnIDs,
+			"column_set": columnSet,
+			"cell_set":   cellSet,
+		},
+	}}
+	for rowIndex, rowIDValue := range rowIDs {
+		rowID := asString(rowIDValue)
+		for columnIndex, columnIDValue := range columnIDs {
+			columnID := asString(columnIDValue)
+			cellID := factory.blockID()
+			textID := factory.blockID()
+			cellSet[rowID+columnID] = map[string]any{
+				"block_id": cellID,
+				"merge_info": map[string]any{
+					"row_span": 1,
+					"col_span": 1,
+				},
+			}
+			entries = append(entries,
+				blockEntry{ID: cellID, Data: factory.tableCellBlock(tableID, textID)},
+				blockEntry{ID: textID, Data: factory.baseBlock("text", cellID, rows[rowIndex][columnIndex])},
+			)
+		}
+	}
+	return entries, tableID
+}
+
+func (factory *blockFactory) tableCellBlock(tableID string, textID string) map[string]any {
+	return map[string]any{
+		"type":           "table_cell",
+		"parent_id":      tableID,
+		"children":       []any{textID},
+		"comments":       []any{},
+		"revisions":      []any{},
+		"locked":         false,
+		"hidden":         false,
+		"author":         factory.author,
+		"vertical_align": "middle",
+	}
+}
+
+func normalizeTableRows(rows [][]string) [][]string {
+	width := 0
+	for _, row := range rows {
+		if len(row) > width {
+			width = len(row)
+		}
+	}
+	if width == 0 {
+		return [][]string{}
+	}
+	normalized := make([][]string, 0, len(rows))
+	for _, row := range rows {
+		next := make([]string, width)
+		copy(next, row)
+		normalized = append(normalized, next)
+	}
+	return normalized
+}
+
 func buildBlocks(specs []Spec, pageID string, factory *blockFactory) ([]string, []blockEntry) {
 	topIDs := []string{}
 	entries := []blockEntry{}
@@ -764,8 +856,12 @@ func buildBlocks(specs []Spec, pageID string, factory *blockFactory) ([]string, 
 			newEntries, topID := factory.quoteBlocks(pageID, spec.Text)
 			topIDs = append(topIDs, topID)
 			entries = append(entries, newEntries...)
-		case "callout", "table":
+		case "callout":
 			newEntries, topID := factory.calloutBlocks(pageID, spec.Text)
+			topIDs = append(topIDs, topID)
+			entries = append(entries, newEntries...)
+		case "table":
+			newEntries, topID := factory.tableBlocks(pageID, spec.Rows)
 			topIDs = append(topIDs, topID)
 			entries = append(entries, newEntries...)
 		default:
@@ -913,7 +1009,7 @@ func collectComplexBlocks(blockMap map[string]any, blockID string, seen map[stri
 
 func isSupportedMarkdownBlockType(blockType string) bool {
 	switch blockType {
-	case "page", "text", "bullet", "ordered", "code", "quote_container", "callout":
+	case "page", "text", "bullet", "ordered", "code", "quote_container", "callout", "table", "table_cell":
 		return true
 	}
 	return strings.HasPrefix(blockType, "heading")

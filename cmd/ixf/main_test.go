@@ -561,6 +561,16 @@ func TestInstallSkillsWritesEmbeddedCodexSkillsAndPreservesExistingWithoutForce(
 			t.Fatalf("installed skill %s missing frontmatter name", skillName)
 		}
 	}
+	docsWriterContent := string(mustReadFile(t, filepath.Join(codexDir, "ixf-docs-writer", "SKILL.md")))
+	for _, expected := range []string{
+		"Do not treat top-level `doctor.ok=false` alone as an authentication failure",
+		"Inspect `.cookies.ok` and `.capabilities.docsPublish`",
+		"derive the tenant base URL from the user's i讯飞 link",
+	} {
+		if !strings.Contains(docsWriterContent, expected) {
+			t.Fatalf("ixf-docs-writer skill missing publish guard %q", expected)
+		}
+	}
 
 	marker := filepath.Join(codexDir, "ixf-docs-reader", "marker.txt")
 	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {

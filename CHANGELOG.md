@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.14.2 - 2026-07-22
+
+- Hardened docs writer skill guidance so natural "publish to i讯飞 doc" requests proceed to publish dry-run when a tenant base URL can be inferred.
+- Clarified that agents must inspect `cookies.ok` and `capabilities.docsPublish` instead of treating top-level `doctor.ok=false` alone as an authentication failure.
+- Added regression coverage for installed docs writer skill publish-readiness guidance.
+
 ## 3.14.1 - 2026-07-21
 
 - Fixed `ixf sheets update --apply` readback verification to poll for asynchronous sheet commit visibility instead of failing immediately after an accepted `user_changes` response.

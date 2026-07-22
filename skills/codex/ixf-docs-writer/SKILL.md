@@ -17,6 +17,12 @@ with dry-run first and `--apply` only after explicit approval.
 
 Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, Python-compatible readers, or Python-compatible writers.
 
+## Publish Readiness
+
+When a user asks to publish or整理到 i讯飞文档, produce a publishable Markdown file and continue to `ixf docs publish --dry-run` whenever a tenant/base URL can be inferred. When possible, derive the tenant base URL from the user's i讯飞 link or explicitly provided destination. If no base URL or parent location is available, ask only for the destination; do not stop at a local-only draft.
+
+Do not treat top-level `doctor.ok=false` alone as an authentication failure. Inspect `.cookies.ok` and `.capabilities.docsPublish` from `ixf doctor --json`; if cookies are missing, run or ask for `ixf cookies export --provider auto`, then retry the dry-run.
+
 ## Workflow
 
 1. For new docx publishing, confirm the Markdown file and destination URL or parent location.

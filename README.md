@@ -16,7 +16,7 @@
 
 - `using-ixf-toolbox`: 轻量路由入口，在文档/OKR/Messenger、读取/写入意图不明确时选择正确的具体 skill。
 - `ixf-docs-reader`: 只读，读取已授权云文档、本地 Markdown、动态分块和图片产物。
-- `ixf-docs-writer`: 写入，先 dry-run，再将 Markdown 发布为新 docx 文档；`publish` 不覆盖已有 docx。
+- `ixf-docs-writer`: 写入，先 dry-run，再发布新 docx、在标题下插入片段或整体替换已有 docx；`publish` 不覆盖已有 docx。
 - `ixf-okr-reader`: 只读，读取已授权 OKR 页面并输出 Objective / Key Result Markdown。
 - `ixf-okr-writer`: 写入，先 dry-run，再创建或修改经过确认的 Objective / Key Result。
 - `ixf-messenger-reader`: 只读，检查 Messenger 自动化就绪状态，读取最近或未读会话。
@@ -98,6 +98,8 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 
 > 将 `notes/review.md` 发布到 `https://tenant.example.test`，先展示 dry-run 计划，我确认后再实际写入。
 
+> 把这个表格插入到文档的 `1.1 账号全集群初始化` 章节下，先展示 dry-run 计划。
+
 > 把我确认后的 O3 和 3 个 KR 写入这个 OKR 页面，只修改 O3，先展示 dry-run 计划。
 
 > 看一下未读消息，帮我汇总需要我处理的事项。
@@ -121,6 +123,8 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf docs inspect <source>` | 输出安全路由摘要，不读取正文、不打印完整 token |
 | `ixf docs cleanup <out-dir>` | 删除读取流程生成的文件和图片产物 |
 | `ixf docs publish <file.md>` | 将 Markdown 发布为新的授权 docx 文档，不覆盖已有 docx |
+| `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run` | 规划在指定标题下非破坏性插入片段 |
+| `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --apply` | 插入确认后的片段 blocks，不替换已有正文 |
 | `ixf docs update <file.md> --url <docx-url> --dry-run` | 规划替换已有 docx 正文，不执行写入 |
 | `ixf docs update <file.md> --url <docx-url> --apply` | 替换已有 docx 正文，默认拒绝复杂块；确认后可加 `--allow-complex-replace` |
 | `ixf okr read <url>` | 读取授权 OKR 页面并输出 Markdown |
@@ -141,7 +145,7 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 
 ### Runtime 状态
 
-v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；v3.0 起 Python runtime/package 实现已删除；v3.1 起测试和发布流程也不再依赖 Python；v3.3 起 Messenger 进入 Go-native 分阶段上线；v3.4 起支持显式 --apply 打开并验证目标会话；v3.5 起支持只读读取未读或最近会话；v3.6 起支持确认后的消息发送，并要求 fresh-session 复核；v3.7 起补齐 Messenger GA 运行手册和可执行诊断提示；v3.8 起补齐 agent routing 诊断和 Messenger 稳定边界元数据；v3.9 起支持已有 docx 正文替换的 dry-run/preflight；v3.10 起支持确认后的已有 docx 正文替换写入；v3.11 起补齐复杂块显式覆盖开关和更新 runbook；v3.13 起提供独立 `ixf sheets read` 和 `ixf sheets update --dry-run` 命令面；v3.14 起支持 API-only `ixf sheets update --apply` 写入和回读校验。
+v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；v3.0 起 Python runtime/package 实现已删除；v3.1 起测试和发布流程也不再依赖 Python；v3.3 起 Messenger 进入 Go-native 分阶段上线；v3.4 起支持显式 --apply 打开并验证目标会话；v3.5 起支持只读读取未读或最近会话；v3.6 起支持确认后的消息发送，并要求 fresh-session 复核；v3.7 起补齐 Messenger GA 运行手册和可执行诊断提示；v3.8 起补齐 agent routing 诊断和 Messenger 稳定边界元数据；v3.9 起支持已有 docx 正文替换的 dry-run/preflight；v3.10 起支持确认后的已有 docx 正文替换写入；v3.11 起补齐复杂块显式覆盖开关和更新 runbook；v3.13 起提供独立 `ixf sheets read` 和 `ixf sheets update --dry-run` 命令面；v3.14 起支持 API-only `ixf sheets update --apply` 写入和回读校验；v3.16 起引入 docx block graph 基础；v3.17 起支持 `ixf docs patch insert --dry-run`；v3.18 起支持确认后的 API-only 标题下块插入和未改动块校验。
 
 Agent 路由契约见 [`docs/agent-routing.md`](docs/agent-routing.md)。Messenger 详细运行手册见 [`docs/messenger.md`](docs/messenger.md)，覆盖 Chrome/Chromium-only discovery、cloned profile 隔离、读取副作用和发送成功判定。
 
@@ -242,6 +246,31 @@ ixf docs publish notes/review.md \
   --cookies /tmp/ixf_cookies.json \
   --apply
 ```
+
+### 在标题下插入内容
+
+对“把表格插入到 1.1 章节下”这类局部新增内容，使用 `ixf docs patch insert`，不要使用 `ixf docs update`。patch insert 会新增 blocks 并插入到目标标题所在 section，不会整体替换正文。
+
+```bash
+ixf docs patch insert fragment.md \
+  --url https://tenant.example.test/wiki/example \
+  --under-heading "1.1 账号全集群初始化" \
+  --cookies /tmp/ixf_cookies.json \
+  --dry-run
+```
+
+确认 `duplicateCandidate=false`、`existingBlocksTouched=false`、`tableBlockType="table"` 且 `tableFallbackCount=0` 后再执行：
+
+```bash
+ixf docs patch insert fragment.md \
+  --url https://tenant.example.test/wiki/example \
+  --under-heading "1.1 账号全集群初始化" \
+  --cookies /tmp/ixf_cookies.json \
+  --require "关键内容" \
+  --apply
+```
+
+应用后检查 `verify.ok=true` 和 `verify.unchangedExistingBlocks=true`。如果 `duplicateCandidate=true`，停止，不要重复插入。
 
 ### 更新已有 docx
 

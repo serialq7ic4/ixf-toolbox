@@ -234,6 +234,24 @@ func TestDocsWriterSkillDoesNotOverclaimExistingDocumentUpdate(t *testing.T) {
 	}
 }
 
+func TestDocsWriterSkillRoutesLocalizedInsertToPatch(t *testing.T) {
+	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
+		writerPath := filepath.ToSlash(filepath.Join(runtimeDir, "ixf-docs-writer", "SKILL.md"))
+		writer := readRepoFile(t, writerPath)
+		for _, expected := range []string{
+			"ixf docs patch insert",
+			"insert under heading",
+			"do not use `ixf docs update` for localized insertion",
+			"duplicateCandidate",
+			"verify.unchangedExistingBlocks",
+		} {
+			if !strings.Contains(writer, expected) {
+				t.Fatalf("%s missing localized insert routing %q:\n%s", writerPath, expected, writer)
+			}
+		}
+	}
+}
+
 func TestDocsUpdateRunbookDocumentsStableSafetyBoundary(t *testing.T) {
 	runbook := readRepoFile(t, "docs/docs-update.md")
 	for _, expected := range []string{

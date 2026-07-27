@@ -16,7 +16,7 @@ Let Codex, Claude Code, and other local coding agents read and publish authorize
 
 - `using-ixf-toolbox`: lightweight routing entry point for choosing the right document/OKR/Messenger and reader/writer skill.
 - `ixf-docs-reader`: read-only document reading, chunking, and image artifact handling.
-- `ixf-docs-writer`: dry-run-first Markdown publishing to a new docx; `publish` does not overwrite existing docx files.
+- `ixf-docs-writer`: dry-run-first writes for publishing new docx files, inserting fragments under headings, or replacing an existing docx body; `publish` does not overwrite existing docx files.
 - `ixf-okr-reader`: read-only Objective / Key Result extraction from authorized OKR pages.
 - `ixf-okr-writer`: dry-run-first creation or update of confirmed Objective / Key Result content.
 - `ixf-messenger-reader`: read-only Messenger readiness checks plus recent or unread conversation extraction.
@@ -100,6 +100,8 @@ After installing the skills, ask your agent to work with authorized links, local
 
 > Publish `notes/review.md` to `https://tenant.example.test`. Show the dry-run first and only apply after I confirm.
 
+> Insert this table under the `1.1 Account initialization` section in this document. Show the dry-run plan first.
+
 > Write my approved O3 and three KRs into this OKR page. Only modify O3 and show the dry-run plan first.
 
 > Check unread messages and summarize what needs my attention.
@@ -121,6 +123,8 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf docs inspect <source>` | Print a safe routing summary without reading content or printing full tokens |
 | `ixf docs cleanup <out-dir>` | Remove generated read artifacts |
 | `ixf docs publish <file.md>` | Publish Markdown as a new authorized docx document; does not overwrite existing docx files |
+| `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run` | Plan a non-destructive block insertion under a heading |
+| `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --apply` | Insert confirmed fragment blocks without replacing existing document body |
 | `ixf docs update <file.md> --url <docx-url> --dry-run` | Plan replacing an existing docx body without writing |
 | `ixf docs update <file.md> --url <docx-url> --apply` | Replace an existing docx body, rejecting complex blocks by default; use `--allow-complex-replace` after confirmation |
 | `ixf okr read <url>` | Read an authorized OKR page as Markdown |
@@ -141,7 +145,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Runtime Status
 
-Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations. Starting with v3.6, it can send approved messages and requires fresh-session verification before reporting success. Starting with v3.7, Messenger has a GA runbook and actionable diagnostic remediation. Starting with v3.8, agent routing diagnostics and Messenger stability metadata are exposed through doctor commands. Starting with v3.9, existing-docx body replacement dry-run/preflight is available. Starting with v3.10, approved existing-docx body replacement writes are available. Starting with v3.11, complex-block explicit override and the update runbook are available. Starting with v3.13, dedicated `ixf sheets read` and `ixf sheets update --dry-run` command surfaces are available. Starting with v3.14, API-only `ixf sheets update --apply` writes cells and verifies by readback.
+Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations. Starting with v3.6, it can send approved messages and requires fresh-session verification before reporting success. Starting with v3.7, Messenger has a GA runbook and actionable diagnostic remediation. Starting with v3.8, agent routing diagnostics and Messenger stability metadata are exposed through doctor commands. Starting with v3.9, existing-docx body replacement dry-run/preflight is available. Starting with v3.10, approved existing-docx body replacement writes are available. Starting with v3.11, complex-block explicit override and the update runbook are available. Starting with v3.13, dedicated `ixf sheets read` and `ixf sheets update --dry-run` command surfaces are available. Starting with v3.14, API-only `ixf sheets update --apply` writes cells and verifies by readback. Starting with v3.16, the docx block graph foundation is available. Starting with v3.17, `ixf docs patch insert --dry-run` is available. Starting with v3.18, approved API-only insert-under-heading writes verify unchanged existing blocks.
 
 See [`docs/agent-routing.md`](docs/agent-routing.md) for the agent routing contract. See [`docs/messenger.md`](docs/messenger.md) for Messenger operations, including Chrome/Chromium-only discovery, cloned profile isolation, read side effects, and send success criteria.
 
@@ -191,6 +195,36 @@ ixf docs publish notes/review.md \
   --cookies /tmp/ixf_cookies.json \
   --apply
 ```
+
+Insert content under a heading:
+
+For localized additions such as "insert this table under section 1.1", use
+`ixf docs patch insert`, not `ixf docs update`. Patch insert creates new blocks
+and links them into the target heading's section without replacing the whole
+body.
+
+```bash
+ixf docs patch insert fragment.md \
+  --url https://tenant.example.test/wiki/example \
+  --under-heading "1.1 Account initialization" \
+  --cookies /tmp/ixf_cookies.json \
+  --dry-run
+```
+
+After confirming `duplicateCandidate=false`, `existingBlocksTouched=false`,
+`tableBlockType="table"`, and `tableFallbackCount=0`, apply:
+
+```bash
+ixf docs patch insert fragment.md \
+  --url https://tenant.example.test/wiki/example \
+  --under-heading "1.1 Account initialization" \
+  --cookies /tmp/ixf_cookies.json \
+  --require "critical content" \
+  --apply
+```
+
+After apply, require `verify.ok=true` and `verify.unchangedExistingBlocks=true`.
+If `duplicateCandidate=true`, stop instead of inserting again.
 
 Update an existing docx:
 

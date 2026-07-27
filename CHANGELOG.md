@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.19.0 - 2026-07-27
+
+- Updated README, routing docs, and installed skills so localized document insert requests use `ixf docs patch insert` instead of destructive `ixf docs update`.
+- Added repository contract coverage for docs patch insert agent guidance.
+
 ## 3.18.0 - 2026-07-27
 
 - Added `ixf docs patch insert --apply` for API-only block insert writes.

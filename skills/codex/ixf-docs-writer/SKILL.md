@@ -7,7 +7,9 @@ description: Use when publishing local Markdown as a new i讯飞 docx document o
 
 Use `ixf docs publish` through the local Toolbox CLI for new documents. The command is API-only and create-only for a new docx document. It does not modify existing docx content.
 
-Use `ixf docs update` for existing docx updates. The supported mode is `replace_body`: it keeps the original URL, permissions, and location, but replaces the body blocks. It rejects complex existing content by default; use `--allow-complex-replace` only after explicit destructive approval.
+Use `ixf docs patch insert` for localized insertion under an existing heading, such as "insert this table under heading 1.1". Treat natural "insert under heading" requests as patch insert requests. This mode adds new blocks without replacing the document body. For localized insertion, do not use `ixf docs update` for localized insertion.
+
+Use `ixf docs update` for whole-body existing docx updates. The supported mode is `replace_body`: it keeps the original URL, permissions, and location, but replaces the body blocks. It rejects complex existing content by default; use `--allow-complex-replace` only after explicit destructive approval.
 
 This skill does not edit embedded or direct sheet cell data. For sheet cell
 update requests, do not use `ixf docs update`; route to `ixf sheets update`
@@ -31,16 +33,22 @@ Do not treat top-level `doctor.ok=false` alone as an authentication failure. Ins
 3. Review the planned title, create-only target, and required text checks with the user.
 4. Apply only after explicit approval:
    `ixf docs publish <file.md> --base-url https://tenant.example.test --apply`
-5. For existing docx update requests, run update dry-run first:
+5. For localized insertion under a heading, create a fragment Markdown file and run patch dry-run first:
+   `ixf docs patch insert <fragment.md> --url https://tenant.example.test/docx/example --under-heading "Target Heading" --dry-run`
+6. Review `duplicateCandidate:false`, `existingBlocksTouched:false`, `tableBlockType:"table"`, and `tableFallbackCount:0`. If `duplicateCandidate:true`, stop instead of applying.
+7. Apply localized insertion only after explicit approval:
+   `ixf docs patch insert <fragment.md> --url https://tenant.example.test/docx/example --under-heading "Target Heading" --require "critical content" --apply`
+8. After patch apply, inspect `verify.ok`, `verify.unchangedExistingBlocks`, and `verify.missingRequiredText`; do not claim success unless `verify.ok=true` and `verify.unchangedExistingBlocks=true`.
+9. For existing docx whole-body update requests, run update dry-run first:
    `ixf docs update <file.md> --url https://tenant.example.test/docx/example --dry-run`
-6. Apply existing docx updates only after explicit approval:
+10. Apply existing docx whole-body updates only after explicit approval:
    `ixf docs update <file.md> --url https://tenant.example.test/docx/example --apply`
-7. If dry-run reports complex blocks, do not apply unless the user explicitly approves losing those blocks:
+11. If dry-run reports complex blocks, do not apply unless the user explicitly approves losing those blocks:
    `ixf docs update <file.md> --url https://tenant.example.test/docx/example --allow-complex-replace --apply`
-8. Markdown tables are expected to publish as native docx table blocks; if `tableFallbackCount>0`, stop and investigate before applying.
-9. After apply, inspect `verify.ok`, `verify.missingRequiredText`, and `verify.emptyCalloutCount`; do not claim success if required text is missing or empty callouts are reported.
-10. For sheets update requests, do not use `ixf docs update`; route to `ixf sheets update --dry-run`, then apply only after explicit approval.
-11. Re-read or inspect the result when a verification URL is available.
+12. Markdown tables are expected to publish or patch as native docx table blocks; if `tableFallbackCount>0`, stop and investigate before applying.
+13. After update apply, inspect `verify.ok`, `verify.missingRequiredText`, and `verify.emptyCalloutCount`; do not claim success if required text is missing or empty callouts are reported.
+14. For sheets update requests, do not use `ixf docs update`; route to `ixf sheets update --dry-run`, then apply only after explicit approval.
+15. Re-read or inspect the result when a verification URL is available.
 
 ## Safety
 

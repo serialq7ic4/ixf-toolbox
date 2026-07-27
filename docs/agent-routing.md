@@ -39,6 +39,22 @@ ask only for the target base URL or parent location. Do not stop with a
 local-only Markdown draft after a publish request unless authentication and
 cookie export remediation have been attempted or explicitly blocked.
 
+## Docs Write Boundary
+
+Use the smallest docs write surface that matches the request:
+
+- New document: `ixf docs publish <file.md> --base-url <tenant> --dry-run`.
+- Localized insertion or append under an existing heading: `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run`.
+- Whole-body replacement: `ixf docs update <file.md> --url <docx-url> --dry-run`.
+
+Localized insert requests include prompts such as "insert this table under
+heading", "add this block to section 1.1", or "append this content below this
+chapter". Route those to `ixf docs patch insert`; do not use `ixf docs update`
+for localized insertion because `docs update` is `replace_body` and will replace
+the whole body. Before applying patch insert, show `duplicateCandidate`,
+`existingBlocksTouched`, `tableBlockType`, and `tableFallbackCount`. After apply,
+require `verify.ok=true` and `verify.unchangedExistingBlocks=true`.
+
 ## Sheets Boundary
 
 Direct sheets link reads use `ixf sheets read <sheets-url>`. Embedded sheets

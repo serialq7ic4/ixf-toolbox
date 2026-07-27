@@ -4,6 +4,22 @@
 Markdown. It uses `replace_body` mode: the original document URL, permissions,
 and location stay unchanged, while the body blocks are replaced.
 
+Do not use `ixf docs update` for localized insertion. For requests like "insert
+this table under heading 1.1" or "append this paragraph to a section", use
+`ixf docs patch insert` instead:
+
+```bash
+ixf docs patch insert fragment.md \
+  --url https://tenant.example.test/wiki/example \
+  --under-heading "1.1 Account initialization" \
+  --cookies /tmp/ixf_cookies.json \
+  --dry-run
+```
+
+Patch insert reports `duplicateCandidate`, `existingBlocksTouched`,
+`tableBlockType`, and `tableFallbackCount`. Apply only after confirmation, then
+inspect `verify.ok` and `verify.unchangedExistingBlocks`.
+
 ## Safety Boundary
 
 Always dry-run first:

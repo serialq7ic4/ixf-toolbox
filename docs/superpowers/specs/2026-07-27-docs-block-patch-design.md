@@ -56,6 +56,8 @@ Initial positioning flags:
 - `--position section-end`: default; insert before the next heading whose level
   is less than or equal to the matched heading level.
 - `--position after-heading`: insert immediately after the matched heading.
+- `--require <text>`: optional explicit post-write text check. When omitted, the
+  command derives a short required-text sample from the fragment.
 
 Later releases can add `--before-heading`, `--after-block-id`, and
 `--before-block-id` after the structured locator model is stable.
@@ -81,6 +83,11 @@ Markdown for existing content.
 This preserves all old block IDs and all old block data. Existing rich blocks are
 not rendered to Markdown and are not regenerated.
 
+For multiple inserted top-level blocks, root `children` operations must preserve
+fragment order. The generated `li` operations should insert at
+`insertIndex + offset` for each top-level block in order, or use an equivalent
+server-accepted operation ordering proven by fixture tests.
+
 ## Fragment Markdown Rules
 
 The insert input is a Markdown fragment. It does not need to start with a level-1
@@ -97,6 +104,12 @@ title. Supported fragment blocks in the first release:
 Unsupported fragment syntax must fail dry-run instead of falling back to empty
 or lossy blocks. Markdown tables must report `tableBlockType:"table"` and
 `tableFallbackCount:0`, matching the current native table contract.
+
+The first release should accept table-only fragments, paragraph-only fragments,
+and mixed fragments. It should reject full-document-only assumptions such as
+requiring a level-1 title. If the fragment contains a level-1 heading, that
+heading is inserted as a normal heading block; it must not rename the target
+document.
 
 ## Locator Model
 
@@ -144,6 +157,9 @@ with at least:
 - `tableCount`
 - `tableBlockType`
 - `tableFallbackCount`
+- `requiredTextChecks`
+- `insertFingerprint`
+- `duplicateCandidate`
 - `existingBlocksTouched:false`
 
 Dry-run should also show the previous and next sibling block summaries around
@@ -163,6 +179,8 @@ After write, verification must refetch the document and assert:
 - inserted block IDs appear at the expected root child index;
 - required text from the inserted fragment is present;
 - `tableFallbackCount` is zero for Markdown table inserts.
+- if duplicate protection is enabled, the same fragment fingerprint was not
+  already present in the target section before apply.
 
 Apply output must include:
 
@@ -186,6 +204,25 @@ ambiguous, or moves under an unsupported container, apply fails before writing.
 The root page version from the refetched state must be included in the
 `user_change` payload. If the service rejects the change due to version conflict,
 the CLI reports a retryable concurrency error with no private payload dump.
+
+## Idempotency
+
+Localized insert can be repeated accidentally if an agent retries after a timeout
+or if a user runs apply twice. The first release must include duplicate
+protection rather than relying only on human inspection.
+
+The command should compute a stable `insertFingerprint` from normalized fragment
+text and table cell values. Dry-run and apply both scan the matched target
+section for the same fingerprint or a strong text/table match.
+
+Default behavior:
+
+- dry-run reports `duplicateCandidate:true` when the same fragment appears to be
+  present in the target section;
+- apply refuses to insert when `duplicateCandidate:true`;
+- an explicit future `--allow-duplicate-insert` flag may override the refusal
+  for intentional repeated content, but the first apply release can omit that
+  override until real usage requires it.
 
 ## Safety Model
 
@@ -264,6 +301,7 @@ Add an internal `docxgraph` package or exported docx graph type with:
 - heading hierarchy;
 - subtree signature calculation;
 - section range calculation;
+- fragment fingerprint calculation;
 - secret-safe block summaries for dry-run output.
 
 An optional later command can expose safe structure diagnostics:
@@ -280,9 +318,10 @@ normal insert workflows.
 - `v3.16.0`: add shared docx graph/section locator foundation and fixture tests.
   No remote mutation surface changes.
 - `v3.17.0`: add `ixf docs patch insert --dry-run` for docx and wiki-backed
-  docx targets.
+  docx targets, including duplicate detection and fragment required-text
+  planning.
 - `v3.18.0`: add `ixf docs patch insert --apply` with unchanged-block
-  verification and native table insertion smoke coverage.
+  verification, duplicate protection, and native table insertion smoke coverage.
 - `v3.19.0`: update README, routing docs, and installed skills so natural
   "insert under heading" requests use block patch insert, not `docs update`.
 - `v3.20.0`: add bounded `replace-section` and `delete-section` dry-run/apply
@@ -301,10 +340,12 @@ Unit tests:
 - section range calculation for heading levels;
 - insert index calculation for `section-end` and `after-heading`;
 - generated change map contains `li` and `oi` only for insert;
+- generated `li` operations preserve inserted top-level block order;
 - generated change map contains no `ld` or `od` for existing blocks;
 - subtree signature ignores service-managed version fields but catches content
   and children changes;
-- Markdown table fragments generate native table blocks.
+- Markdown table fragments generate native table blocks;
+- fragment fingerprinting catches an already inserted table in the same section.
 
 CLI integration tests with mocked endpoints:
 
@@ -312,13 +353,15 @@ CLI integration tests with mocked endpoints:
 - dry-run reports non-destructive insert metadata;
 - apply inserts a table under the requested heading;
 - apply verifies old rich blocks remain unchanged;
+- apply refuses a duplicate insert retry;
 - ambiguous heading fails without writing;
 - direct sheets, bitable, and unsupported wiki suites are rejected.
 
 Manual smoke tests:
 
-- use a non-sensitive test wiki/docx containing a heading, a high-light/callout
-  block, and a table insertion target;
+- use a non-sensitive test wiki/docx containing a heading, a real high-light
+  block created in the web editor, an image or embedded sheet if available, and
+  a table insertion target;
 - run dry-run and inspect insertion point;
 - apply only after confirmation;
 - read back and confirm the inserted table appears while the pre-existing rich

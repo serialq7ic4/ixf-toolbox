@@ -323,6 +323,66 @@ func TestDocsPatchInsertDryRunCLI(t *testing.T) {
 	}
 }
 
+func TestDocsPatchInsertApplyPreservesExistingBlocks(t *testing.T) {
+	server := newDocsPatchInsertApplyServer(t)
+	defer server.Close()
+	tmpDir := t.TempDir()
+	input := filepath.Join(tmpDir, "table.md")
+	if err := os.WriteFile(input, []byte("| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "patch", "insert", input,
+		"--url", server.URL+"/docx/page_1",
+		"--space-api", server.URL,
+		"--cookies", cookiesPath,
+		"--under-heading", "1.1 账号全集群初始化",
+		"--require", "Alpha",
+		"--apply",
+	)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	verify := payload["verify"].(map[string]any)
+	if verify["ok"] != true || verify["unchangedExistingBlocks"] != true {
+		t.Fatalf("verify = %+v", verify)
+	}
+	if payload["existingBlocksTouched"] != false {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestDocsPatchInsertApplyRefusesDuplicate(t *testing.T) {
+	server := newDocsPatchDuplicateServer(t)
+	defer server.Close()
+	tmpDir := t.TempDir()
+	input := filepath.Join(tmpDir, "table.md")
+	if err := os.WriteFile(input, []byte("| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "patch", "insert", input,
+		"--url", server.URL+"/docx/page_1",
+		"--space-api", server.URL,
+		"--cookies", cookiesPath,
+		"--under-heading", "1.1 账号全集群初始化",
+		"--apply",
+	)
+	if code != 2 || !strings.Contains(stderr, "duplicate insert candidate") {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	if server.WriteCount() != 0 {
+		t.Fatalf("duplicate apply wrote %d times", server.WriteCount())
+	}
+}
+
 func TestCLIDocsUpdateApplyReplacesExistingBody(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "replacement.md")
@@ -1448,6 +1508,207 @@ func newDocsPatchInsertServer(t *testing.T) *httptest.Server {
 			http.NotFound(w, r)
 		}
 	}))
+}
+
+type docsPatchApplyServer struct {
+	*httptest.Server
+	t          *testing.T
+	writeCount int
+	topIDs     []string
+	entries    map[string]any
+	duplicate  bool
+}
+
+func newDocsPatchInsertApplyServer(t *testing.T) *docsPatchApplyServer {
+	t.Helper()
+	server := &docsPatchApplyServer{t: t, entries: map[string]any{}}
+	server.Server = httptest.NewServer(http.HandlerFunc(server.handle))
+	return server
+}
+
+func newDocsPatchDuplicateServer(t *testing.T) *docsPatchApplyServer {
+	t.Helper()
+	server := &docsPatchApplyServer{t: t, entries: map[string]any{}, duplicate: true}
+	server.Server = httptest.NewServer(http.HandlerFunc(server.handle))
+	return server
+}
+
+func (server *docsPatchApplyServer) WriteCount() int {
+	return server.writeCount
+}
+
+func (server *docsPatchApplyServer) handle(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/space/api/docx/pages/client_vars":
+		if r.Method != http.MethodGet {
+			server.t.Fatalf("client_vars method = %s, want GET", r.Method)
+		}
+		assertHeader(server.t, r, "X-CSRFToken", "csrf-fixture")
+		assertCookie(server.t, r, "session", "session-fixture")
+		if got := r.URL.Query().Get("id"); got != "page_1" {
+			server.t.Fatalf("client_vars id = %q, want page_1", got)
+		}
+		writeTestJSON(server.t, w, map[string]any{
+			"code": 0,
+			"data": map[string]any{
+				"meta_map":  map[string]any{"page_1": map[string]any{"editor_id": "member_fixture"}},
+				"block_map": docsPatchBlockMap(server.duplicate, server.topIDs, server.entries),
+			},
+		})
+	case "/space/api/docx/blocks/user_change/":
+		if r.Method != http.MethodPost {
+			server.t.Fatalf("user_change method = %s, want POST", r.Method)
+		}
+		assertHeader(server.t, r, "X-CSRFToken", "csrf-fixture")
+		assertCookie(server.t, r, "session", "session-fixture")
+		server.writeCount++
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			server.t.Fatal(err)
+		}
+		if payload["member_id"] != "member_fixture" || payload["page_id"] != "page_1" {
+			server.t.Fatalf("write identifiers = %+v", payload)
+		}
+		raw, err := json.Marshal(payload["change_map"])
+		if err != nil {
+			server.t.Fatal(err)
+		}
+		text := string(raw)
+		for _, forbidden := range []string{`"ld"`, `"od"`} {
+			if strings.Contains(text, forbidden) {
+				server.t.Fatalf("patch insert touched existing blocks: %s", text)
+			}
+		}
+		server.topIDs, server.entries = extractPatchInsertChangeMap(server.t, payload["change_map"])
+		writeTestJSON(server.t, w, map[string]any{"code": 0, "data": map[string]any{}})
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func docsPatchBlockMap(duplicate bool, topIDs []string, entries map[string]any) map[string]any {
+	children := []any{"h1", "p1"}
+	if duplicate {
+		children = append(children, "duplicate_text")
+	}
+	for _, id := range topIDs {
+		children = append(children, id)
+	}
+	children = append(children, "h2")
+	blockMap := map[string]any{
+		"page_1": map[string]any{
+			"version": 7 + len(topIDs),
+			"data": map[string]any{
+				"type":     "page",
+				"author":   "author_fixture",
+				"children": children,
+			},
+		},
+		"h1": map[string]any{
+			"version": 2,
+			"data": map[string]any{
+				"type":      "heading2",
+				"parent_id": "page_1",
+				"text":      attributedCLIText("1.1 账号全集群初始化"),
+			},
+		},
+		"p1": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":      "text",
+				"parent_id": "page_1",
+				"text":      attributedCLIText("existing body"),
+			},
+		},
+		"h2": map[string]any{
+			"version": 2,
+			"data": map[string]any{
+				"type":      "heading2",
+				"parent_id": "page_1",
+				"text":      attributedCLIText("1.2 其他章节"),
+			},
+		},
+	}
+	if duplicate {
+		blockMap["duplicate_text"] = map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":      "text",
+				"parent_id": "page_1",
+				"text":      attributedCLIText("Name | Value\nAlpha | 42"),
+			},
+		}
+	}
+	for id, data := range entries {
+		blockMap[id] = map[string]any{"version": 1, "data": data}
+	}
+	return blockMap
+}
+
+func extractPatchInsertChangeMap(t *testing.T, rawChangeMap any) ([]string, map[string]any) {
+	t.Helper()
+	changeMap, ok := rawChangeMap.(map[string]any)
+	if !ok {
+		t.Fatalf("change_map = %#v, want map", rawChangeMap)
+	}
+	root, ok := changeMap["page_1"].(map[string]any)
+	if !ok {
+		t.Fatalf("change_map missing page_1 root: %#v", changeMap)
+	}
+	payload, ok := root["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("root payload = %#v, want map", root["payload"])
+	}
+	ops, ok := payload["ops"].([]any)
+	if !ok {
+		t.Fatalf("root ops = %#v, want slice", payload["ops"])
+	}
+	topIDs := []string{}
+	for _, rawOp := range ops {
+		op, ok := rawOp.(map[string]any)
+		if !ok {
+			t.Fatalf("root op = %#v, want map", rawOp)
+		}
+		action, ok := op["action"].(map[string]any)
+		if !ok {
+			t.Fatalf("root op action = %#v, want map", op["action"])
+		}
+		if id, ok := action["li"].(string); ok {
+			topIDs = append(topIDs, id)
+		}
+	}
+	entries := map[string]any{}
+	for id, rawEntry := range changeMap {
+		if id == "page_1" {
+			continue
+		}
+		entry, ok := rawEntry.(map[string]any)
+		if !ok {
+			t.Fatalf("entry %s = %#v, want map", id, rawEntry)
+		}
+		entryPayload, ok := entry["payload"].(map[string]any)
+		if !ok {
+			t.Fatalf("entry %s payload = %#v, want map", id, entry["payload"])
+		}
+		entryOps, ok := entryPayload["ops"].([]any)
+		if !ok || len(entryOps) == 0 {
+			t.Fatalf("entry %s ops = %#v, want non-empty slice", id, entryPayload["ops"])
+		}
+		op, ok := entryOps[0].(map[string]any)
+		if !ok {
+			t.Fatalf("entry %s op = %#v, want map", id, entryOps[0])
+		}
+		action, ok := op["action"].(map[string]any)
+		if !ok {
+			t.Fatalf("entry %s action = %#v, want map", id, op["action"])
+		}
+		data, ok := action["oi"].(map[string]any)
+		if !ok {
+			t.Fatalf("entry %s action missing oi: %#v", id, action)
+		}
+		entries[id] = data
+	}
+	return topIDs, entries
 }
 
 func writeTestJSON(t *testing.T, w http.ResponseWriter, payload map[string]any) {

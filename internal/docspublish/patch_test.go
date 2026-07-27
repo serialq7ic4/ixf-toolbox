@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -58,6 +59,29 @@ func TestPatchInsertDryRunReportsNonDestructivePlan(t *testing.T) {
 	}
 	if payload["insertIndex"] != 2 {
 		t.Fatalf("insertIndex = %#v, want 2", payload["insertIndex"])
+	}
+}
+
+func TestBuildPatchInsertChangeMapOnlyAddsNewBlocksAndRootLinks(t *testing.T) {
+	root := map[string]any{"version": 7}
+	topIDs := []string{"new_table", "new_text"}
+	entries := []blockEntry{
+		{ID: "new_table", Data: map[string]any{"type": "table", "parent_id": "page_1"}},
+		{ID: "new_text", Data: map[string]any{"type": "text", "parent_id": "page_1"}},
+	}
+	changeMap := buildPatchInsertChangeMap("page_1", root, 2, topIDs, entries)
+	raw, err := json.Marshal(changeMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, forbidden := range []string{`"ld"`, `"od"`} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("insert change map touched existing blocks: %s", text)
+		}
+	}
+	if !strings.Contains(text, `"li":"new_table"`) || !strings.Contains(text, `"li":"new_text"`) {
+		t.Fatalf("missing root insert ops: %s", text)
 	}
 }
 

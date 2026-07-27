@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.18.0 - 2026-07-27
+
+- Added `ixf docs patch insert --apply` for API-only block insert writes.
+- Added unchanged-existing-block verification, duplicate insert refusal, and native table insertion apply coverage.
+
 ## 3.17.0 - 2026-07-27
 
 - Added `ixf docs patch insert --dry-run` for non-destructive docx/wiki-backed docx insertion planning.

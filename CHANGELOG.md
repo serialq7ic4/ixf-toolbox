@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.16.0 - 2026-07-27
+
+- Added internal docx block graph, heading locator, section range, and signature foundations for future non-destructive docs patching.
+- Added fixture coverage for heading insertion indexes and duplicate-fragment detection without adding a remote mutation surface.
+
 ## 3.15.0 - 2026-07-22
 
 - Added native docx table block generation for Markdown tables in `ixf docs publish` and `ixf docs update`.

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.17.0 - 2026-07-27
+
+- Added `ixf docs patch insert --dry-run` for non-destructive docx/wiki-backed docx insertion planning.
+- Added Markdown fragment parsing, heading locator metadata, duplicate-candidate detection, and native table dry-run metadata for block insert plans.
+
 ## 3.16.0 - 2026-07-27
 
 - Added internal docx block graph, heading locator, section range, and signature foundations for future non-destructive docs patching.

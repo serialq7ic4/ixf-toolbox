@@ -419,6 +419,7 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		{"cleanup", "Remove generated docs read artifacts."},
 		{"publish", "Create a new authorized docx document from Markdown."},
 		{"update", "Update an existing docx body from Markdown."},
+		{"patch", "Plan or apply localized docx/wiki block patches."},
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "ERROR docs requires a subcommand.")
@@ -444,6 +445,8 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runDocsPublish(args[1:], stdout, stderr)
 	case "update":
 		return runDocsUpdate(args[1:], stdout, stderr)
+	case "patch":
+		return runDocsPatch(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "ERROR unsupported docs subcommand: %s\n", args[0])
 		printCommandHelp(stderr, "ixf docs", rows)
@@ -686,6 +689,57 @@ func runDocsUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
+func runDocsPatch(args []string, stdout io.Writer, stderr io.Writer) int {
+	rows := [][2]string{
+		{"insert", "Insert Markdown blocks under a heading without replacing the body."},
+	}
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "ERROR docs patch requires a subcommand.")
+		printCommandHelp(stderr, "ixf docs patch", rows)
+		return 2
+	}
+	if isHelpArg(args[0]) {
+		printCommandHelp(stdout, "ixf docs patch", rows)
+		return 0
+	}
+	switch args[0] {
+	case "insert":
+		return runDocsPatchInsert(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "ERROR unsupported docs patch subcommand: %s\n", args[0])
+		printCommandHelp(stderr, "ixf docs patch", rows)
+		return 2
+	}
+}
+
+func runDocsPatchInsert(args []string, stdout io.Writer, stderr io.Writer) int {
+	if hasHelpArg(args) {
+		printDocsPatchInsertHelp(stdout)
+		return 0
+	}
+	parsed, err := parseDocsPatchInsertArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	payload, err := docspublish.PatchInsertMarkdown(docspublish.PatchInsertConfig{
+		MarkdownPath: parsed.markdown,
+		URL:          parsed.url,
+		CookiesPath:  parsed.cookiesPath,
+		SpaceAPI:     parsed.spaceAPI,
+		UnderHeading: parsed.underHeading,
+		Position:     parsed.position,
+		RequiredText: parsed.requiredText,
+		Apply:        parsed.apply,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	writeJSON(stdout, payload)
+	return 0
+}
+
 func printDocsReadHelp(w io.Writer) {
 	printUsageHelp(w, "ixf docs read <source>... [--out-dir DIR] [--print-manifest] [--expand-sheets]", [][2]string{
 		{"--out-dir DIR", "Write read artifacts under DIR instead of printing content."},
@@ -722,6 +776,19 @@ func printDocsUpdateHelp(w io.Writer) {
 		{"--allow-complex-replace", "Permit replacing body content when unsupported existing blocks are present."},
 		{"--dry-run", "Plan the update without writing remote content."},
 		{"--apply", "Replace the remote docx body."},
+	})
+}
+
+func printDocsPatchInsertHelp(w io.Writer) {
+	printUsageHelp(w, "ixf docs patch insert <fragment.md> --url URL --under-heading TEXT [--position section-end|after-heading] [--dry-run|--apply]", [][2]string{
+		{"--url URL", "Existing docx URL or wiki-backed docx URL to patch."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--under-heading TEXT", "Insert under the unique heading matching TEXT."},
+		{"--position VALUE", "Insert at section-end (default) or after-heading."},
+		{"--require TEXT", "Require TEXT to appear during post-write verification."},
+		{"--dry-run", "Plan the localized insert without writing remote content."},
+		{"--apply", "Apply the localized insert."},
 	})
 }
 
@@ -1122,6 +1189,18 @@ type docsUpdateArgs struct {
 	dryRun       bool
 }
 
+type docsPatchInsertArgs struct {
+	markdown     string
+	url          string
+	cookiesPath  string
+	spaceAPI     string
+	underHeading string
+	position     string
+	requiredText []string
+	apply        bool
+	dryRun       bool
+}
+
 func parseDocsReadArgs(args []string) (docsReadArgs, error) {
 	parsed := docsReadArgs{
 		cookiesPath: defaultCookies,
@@ -1313,6 +1392,80 @@ func parseDocsUpdateArgs(args []string) (docsUpdateArgs, error) {
 	}
 	if parsed.url == "" {
 		return parsed, fmt.Errorf("--url is required")
+	}
+	if parsed.dryRun && parsed.apply {
+		return parsed, fmt.Errorf("--dry-run and --apply are mutually exclusive")
+	}
+	return parsed, nil
+}
+
+func parseDocsPatchInsertArgs(args []string) (docsPatchInsertArgs, error) {
+	parsed := docsPatchInsertArgs{
+		cookiesPath: defaultCookies,
+		spaceAPI:    docslocal.DefaultSpaceAPI,
+		position:    "section-end",
+	}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--url":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.url = args[i]
+		case "--space-api":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.spaceAPI = args[i]
+		case "--cookies":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.cookiesPath = args[i]
+		case "--under-heading":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.underHeading = args[i]
+		case "--position":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.position = args[i]
+		case "--require":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.requiredText = append(parsed.requiredText, args[i])
+		case "--apply":
+			parsed.apply = true
+		case "--dry-run":
+			parsed.dryRun = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return parsed, fmt.Errorf("unsupported docs patch insert flag: %s", arg)
+			}
+			if parsed.markdown != "" {
+				return parsed, fmt.Errorf("patch insert requires exactly one Markdown file")
+			}
+			parsed.markdown = arg
+		}
+	}
+	if parsed.markdown == "" {
+		return parsed, fmt.Errorf("patch insert requires one Markdown file")
+	}
+	if parsed.url == "" {
+		return parsed, fmt.Errorf("--url is required")
+	}
+	if parsed.underHeading == "" {
+		return parsed, fmt.Errorf("--under-heading is required")
 	}
 	if parsed.dryRun && parsed.apply {
 		return parsed, fmt.Errorf("--dry-run and --apply are mutually exclusive")

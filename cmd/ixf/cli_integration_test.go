@@ -290,6 +290,39 @@ func TestCLIDocsUpdateDryRunPreflight(t *testing.T) {
 	}
 }
 
+func TestDocsPatchInsertDryRunCLI(t *testing.T) {
+	server := newDocsPatchInsertServer(t)
+	defer server.Close()
+	tmpDir := t.TempDir()
+	input := filepath.Join(tmpDir, "table.md")
+	if err := os.WriteFile(input, []byte("| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "patch", "insert", input,
+		"--url", server.URL+"/docx/page_1",
+		"--space-api", server.URL,
+		"--cookies", cookiesPath,
+		"--under-heading", "1.1 账号全集群初始化",
+		"--dry-run",
+	)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["operation"] != "docs_patch_insert" || payload["mode"] != "block_insert" ||
+		payload["destructive"] != false || payload["willWrite"] != false {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if payload["tableBlockType"] != "table" || payload["tableFallbackCount"] != float64(0) ||
+		payload["duplicateCandidate"] != false || payload["existingBlocksTouched"] != false {
+		t.Fatalf("metadata payload = %+v", payload)
+	}
+}
+
 func TestCLIDocsUpdateApplyReplacesExistingBody(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "replacement.md")
@@ -1354,6 +1387,67 @@ func writeCLICookieFixture(t *testing.T, path string) {
 	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func newDocsPatchInsertServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/docx/pages/client_vars":
+			if r.Method != http.MethodGet {
+				t.Fatalf("client_vars method = %s, want GET", r.Method)
+			}
+			assertHeader(t, r, "X-CSRFToken", "csrf-fixture")
+			assertCookie(t, r, "session", "session-fixture")
+			if got := r.URL.Query().Get("id"); got != "page_1" {
+				t.Fatalf("client_vars id = %q, want page_1", got)
+			}
+			writeTestJSON(t, w, map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"meta_map": map[string]any{"page_1": map[string]any{"editor_id": "member_fixture"}},
+					"block_map": map[string]any{
+						"page_1": map[string]any{
+							"version": 7,
+							"data": map[string]any{
+								"type":     "page",
+								"author":   "author_fixture",
+								"children": []any{"h1", "p1", "h2"},
+							},
+						},
+						"h1": map[string]any{
+							"version": 2,
+							"data": map[string]any{
+								"type":      "heading2",
+								"parent_id": "page_1",
+								"text":      attributedCLIText("1.1 账号全集群初始化"),
+							},
+						},
+						"p1": map[string]any{
+							"version": 1,
+							"data": map[string]any{
+								"type":      "text",
+								"parent_id": "page_1",
+								"text":      attributedCLIText("existing body"),
+							},
+						},
+						"h2": map[string]any{
+							"version": 2,
+							"data": map[string]any{
+								"type":      "heading2",
+								"parent_id": "page_1",
+								"text":      attributedCLIText("1.2 其他章节"),
+							},
+						},
+					},
+				},
+			})
+		case "/space/api/docx/blocks/user_change/":
+			t.Fatal("dry-run must not call user_change")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
 }
 
 func writeTestJSON(t *testing.T, w http.ResponseWriter, payload map[string]any) {

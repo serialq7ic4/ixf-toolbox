@@ -57,7 +57,7 @@ func TestDocsAndOKRHelpListSupportedSubcommands(t *testing.T) {
 		args     []string
 		expected []string
 	}{
-		{args: []string{"docs", "--help"}, expected: []string{"usage: ixf docs", "read", "publish", "update", "inspect"}},
+		{args: []string{"docs", "--help"}, expected: []string{"usage: ixf docs", "read", "publish", "update", "patch", "inspect"}},
 		{args: []string{"sheets", "--help"}, expected: []string{"usage: ixf sheets", "read", "update"}},
 		{args: []string{"okr", "--help"}, expected: []string{"usage: ixf okr", "read", "write"}},
 		{args: []string{"messenger", "--help"}, expected: []string{"usage: ixf messenger", "doctor", "open", "read", "send"}},
@@ -97,6 +97,10 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 			expected: []string{"usage: ixf docs update", "--url", "--dry-run", "--apply", "--allow-complex-replace"},
 		},
 		{
+			args:     []string{"docs", "patch", "insert", "--help"},
+			expected: []string{"usage: ixf docs patch insert", "--url", "--under-heading", "--position", "--dry-run", "--apply"},
+		},
+		{
 			args:     []string{"sheets", "read", "--help"},
 			expected: []string{"usage: ixf sheets read", "--cookies", "--space-api"},
 		},
@@ -134,6 +138,23 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 				t.Fatalf("run(%v) stdout missing %q:\n%s", test.args, expected, stdout.String())
 			}
 		}
+	}
+}
+
+func TestParseDocsPatchInsertArgs(t *testing.T) {
+	parsed, err := parseDocsPatchInsertArgs([]string{
+		"table.md",
+		"--url", "https://tenant.example.test/wiki/example",
+		"--under-heading", "1.1 账号全集群初始化",
+		"--position", "section-end",
+		"--dry-run",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.markdown != "table.md" || parsed.url != "https://tenant.example.test/wiki/example" ||
+		parsed.underHeading != "1.1 账号全集群初始化" || parsed.position != "section-end" || !parsed.dryRun {
+		t.Fatalf("parsed = %#v", parsed)
 	}
 }
 

@@ -187,6 +187,115 @@ func TestCLIDocsPublishDryRunAndApply(t *testing.T) {
 	}
 }
 
+func TestCLIDocsStructurePrintsSafeStructure(t *testing.T) {
+	const token = "secret_page_token_abcdef"
+	tmpDir := t.TempDir()
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+	var events []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/docx/pages/client_vars":
+			if r.Method != http.MethodGet {
+				t.Fatalf("client_vars method = %s, want GET", r.Method)
+			}
+			events = append(events, "client_vars")
+			assertHeader(t, r, "X-CSRFToken", "csrf-fixture")
+			assertCookie(t, r, "session", "session-fixture")
+			if got := r.URL.Query().Get("id"); got != token {
+				t.Fatalf("client_vars id = %q", got)
+			}
+			writeTestJSON(t, w, map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"block_map": map[string]any{
+						token: map[string]any{
+							"version": 3,
+							"data": map[string]any{
+								"type":     "page",
+								"children": []any{"secret_heading_parent_abcdef", "secret_text_body_abcdef", "secret_image_abcdef", "secret_heading_duplicate_abcdef"},
+								"text":     attributedCLIText("Structure Doc"),
+							},
+						},
+						"secret_heading_parent_abcdef": map[string]any{
+							"version": 1,
+							"data": map[string]any{
+								"type":      "heading2",
+								"parent_id": token,
+								"text":      attributedCLIText("目标章节"),
+							},
+						},
+						"secret_text_body_abcdef": map[string]any{
+							"version": 1,
+							"data": map[string]any{
+								"type":      "text",
+								"parent_id": token,
+								"text":      attributedCLIText("body text"),
+							},
+						},
+						"secret_image_abcdef": map[string]any{
+							"version": 1,
+							"data": map[string]any{
+								"type":      "image",
+								"parent_id": token,
+							},
+						},
+						"secret_heading_duplicate_abcdef": map[string]any{
+							"version": 1,
+							"data": map[string]any{
+								"type":      "heading2",
+								"parent_id": token,
+								"text":      attributedCLIText("目标章节"),
+							},
+						},
+					},
+				},
+			})
+		case "/space/api/docx/blocks/user_change/":
+			t.Fatal("structure command must not call user_change")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "structure", server.URL+"/docx/"+token+"?from=copy",
+		"--space-api", server.URL,
+		"--cookies", cookiesPath,
+		"--json",
+	)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["operation"] != "docs_structure" || payload["targetKind"] != "docx" || payload["title"] != "Structure Doc" {
+		t.Fatalf("structure payload = %+v", payload)
+	}
+	structure := payload["structure"].(map[string]any)
+	if structure["topLevelBlocks"] != float64(4) || structure["complexBlockCount"] != float64(1) {
+		t.Fatalf("structure summary = %+v", structure)
+	}
+	if got := asStringSlice(structure["complexBlockTypes"]); !reflect.DeepEqual(got, []string{"image"}) {
+		t.Fatalf("complexBlockTypes = %#v", got)
+	}
+	if got := asStringSlice(structure["duplicateHeadings"]); !reflect.DeepEqual(got, []string{"目标章节"}) {
+		t.Fatalf("duplicateHeadings = %#v", got)
+	}
+	headings := structure["headings"].([]any)
+	if len(headings) != 2 || headings[0].(map[string]any)["path"] != "目标章节" {
+		t.Fatalf("headings = %#v", headings)
+	}
+	for _, leaked := range []string{token, "secret_heading_parent_abcdef", "secret_image_abcdef"} {
+		if strings.Contains(stdout, leaked) {
+			t.Fatalf("structure output leaked raw id %q: %s", leaked, stdout)
+		}
+	}
+	if !reflect.DeepEqual(events, []string{"client_vars"}) {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
 func TestCLIDocsUpdateDryRunPreflight(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "replacement.md")
@@ -281,6 +390,10 @@ func TestCLIDocsUpdateDryRunPreflight(t *testing.T) {
 	if payload["supportedExistingContent"] != true || payload["complexBlockCount"] != float64(0) {
 		t.Fatalf("docs update complex block payload = %+v", payload)
 	}
+	structure := payload["structure"].(map[string]any)
+	if structure["topLevelBlocks"] != float64(2) || structure["complexBlockCount"] != float64(0) {
+		t.Fatalf("docs update structure payload = %+v", structure)
+	}
 	assertMapNumbers(t, payload["counts"], map[string]int{"text": 1, "heading2": 1, "bullet": 1, "table": 1})
 	if !reflect.DeepEqual(events, []string{"client_vars"}) {
 		t.Fatalf("events = %#v, want client_vars only", events)
@@ -320,6 +433,10 @@ func TestDocsPatchInsertDryRunCLI(t *testing.T) {
 	if payload["tableBlockType"] != "table" || payload["tableFallbackCount"] != float64(0) ||
 		payload["duplicateCandidate"] != false || payload["existingBlocksTouched"] != false {
 		t.Fatalf("metadata payload = %+v", payload)
+	}
+	structure := payload["structure"].(map[string]any)
+	if structure["topLevelBlocks"] != float64(3) || structure["headingCount"] != float64(2) {
+		t.Fatalf("patch insert structure payload = %+v", structure)
 	}
 }
 

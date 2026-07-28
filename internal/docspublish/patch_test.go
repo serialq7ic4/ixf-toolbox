@@ -135,6 +135,10 @@ func TestPatchReplaceSectionDryRunReportsBoundedDestructivePlan(t *testing.T) {
 		payload["outsideSectionBlocksTouched"] != false {
 		t.Fatalf("section metadata = %+v", payload)
 	}
+	structure := payload["structure"].(map[string]any)
+	if structure["topLevelBlocks"] != 4 || structure["headingCount"] != 2 {
+		t.Fatalf("section structure = %+v", structure)
+	}
 }
 
 func TestPatchReplaceSectionRejectsComplexSectionWithoutOverride(t *testing.T) {

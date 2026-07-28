@@ -420,6 +420,7 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		{"publish", "Create a new authorized docx document from Markdown."},
 		{"update", "Update an existing docx body from Markdown."},
 		{"patch", "Plan or apply localized docx/wiki block patches."},
+		{"structure", "Print safe docx/wiki structure preflight metadata."},
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "ERROR docs requires a subcommand.")
@@ -447,6 +448,8 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runDocsUpdate(args[1:], stdout, stderr)
 	case "patch":
 		return runDocsPatch(args[1:], stdout, stderr)
+	case "structure":
+		return runDocsStructure(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "ERROR unsupported docs subcommand: %s\n", args[0])
 		printCommandHelp(stderr, "ixf docs", rows)
@@ -502,6 +505,25 @@ func runDocsRead(args []string, stdout io.Writer, stderr io.Writer) int {
 			fmt.Fprintln(stdout)
 		}
 	}
+	return 0
+}
+
+func runDocsStructure(args []string, stdout io.Writer, stderr io.Writer) int {
+	if hasHelpArg(args) {
+		printDocsStructureHelp(stdout)
+		return 0
+	}
+	parsed, err := parseDocsStructureArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	payload, err := docspublish.Structure(parsed.source, parsed.cookiesPath, parsed.spaceAPI)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	writeJSON(stdout, payload)
 	return 0
 }
 
@@ -810,6 +832,14 @@ func printDocsReadHelp(w io.Writer) {
 		{"--cleanup", "Remove generated artifacts after reading; requires --out-dir."},
 		{"--expand-sheets", "Expand embedded sheet blocks into local TSV/Markdown artifacts when available."},
 		{"--download-images", "Download referenced images into the output directory."},
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+	})
+}
+
+func printDocsStructureHelp(w io.Writer) {
+	printUsageHelp(w, "ixf docs structure <doc-or-wiki-url> [--json]", [][2]string{
+		{"--json", "Print safe structure preflight metadata as JSON."},
 		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
 		{"--space-api URL", "Override the i讯飞 Space API base URL."},
 	})
@@ -1253,6 +1283,13 @@ type docsReadArgs struct {
 	expandSheets   bool
 }
 
+type docsStructureArgs struct {
+	source      string
+	cookiesPath string
+	spaceAPI    string
+	asJSON      bool
+}
+
 type docsPublishArgs struct {
 	markdown     string
 	baseURL      string
@@ -1355,6 +1392,44 @@ func parseDocsReadArgs(args []string) (docsReadArgs, error) {
 	}
 	if parsed.downloadImages && parsed.outDir == "" {
 		return parsed, fmt.Errorf("--download-images requires --out-dir")
+	}
+	return parsed, nil
+}
+
+func parseDocsStructureArgs(args []string) (docsStructureArgs, error) {
+	parsed := docsStructureArgs{
+		cookiesPath: defaultCookies,
+		spaceAPI:    docslocal.DefaultSpaceAPI,
+	}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--json":
+			parsed.asJSON = true
+		case "--cookies":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.cookiesPath = args[i]
+		case "--space-api":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.spaceAPI = args[i]
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return parsed, fmt.Errorf("unsupported docs structure flag: %s", arg)
+			}
+			if parsed.source != "" {
+				return parsed, fmt.Errorf("structure requires exactly one source URL")
+			}
+			parsed.source = arg
+		}
+	}
+	if parsed.source == "" {
+		return parsed, fmt.Errorf("structure requires one source URL")
 	}
 	return parsed, nil
 }

@@ -57,7 +57,7 @@ func TestDocsAndOKRHelpListSupportedSubcommands(t *testing.T) {
 		args     []string
 		expected []string
 	}{
-		{args: []string{"docs", "--help"}, expected: []string{"usage: ixf docs", "read", "publish", "update", "patch", "inspect"}},
+		{args: []string{"docs", "--help"}, expected: []string{"usage: ixf docs", "read", "publish", "update", "patch", "structure", "inspect"}},
 		{args: []string{"sheets", "--help"}, expected: []string{"usage: ixf sheets", "read", "update"}},
 		{args: []string{"okr", "--help"}, expected: []string{"usage: ixf okr", "read", "write"}},
 		{args: []string{"messenger", "--help"}, expected: []string{"usage: ixf messenger", "doctor", "open", "read", "send"}},
@@ -87,6 +87,10 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 		{
 			args:     []string{"docs", "read", "--help"},
 			expected: []string{"usage: ixf docs read", "--out-dir", "--print-manifest", "--expand-sheets", "--cookies"},
+		},
+		{
+			args:     []string{"docs", "structure", "--help"},
+			expected: []string{"usage: ixf docs structure", "--json", "--cookies", "--space-api"},
 		},
 		{
 			args:     []string{"docs", "publish", "--help"},

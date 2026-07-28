@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.21.0 - 2026-07-28
+
+- Added read-only `ixf docs structure` for safe docx/wiki structure preflight metadata.
+- Added structure summaries to remote docs read manifests and existing-docx write dry-run payloads.
+- Wrote per-document `.structure.json` artifacts during `ixf docs read --out-dir` for follow-up agent workflows.
+
 ## 3.20.0 - 2026-07-27
 
 - Added bounded `ixf docs patch replace-section` and `ixf docs patch delete-section` operations with section-only destructive safeguards.

@@ -13,6 +13,8 @@ Use `ixf docs patch replace-section` or `ixf docs patch delete-section` only for
 
 Use `ixf docs update` for whole-body existing docx updates. The supported mode is `replace_body`: it keeps the original URL, permissions, and location, but replaces the body blocks. It rejects complex existing content by default; use `--allow-complex-replace` only after explicit destructive approval.
 
+Existing-docx write dry-runs include a safe `structure` object with heading paths, section ranges, duplicate headings, and complex-block risk. Inspect it before choosing or applying a target; surface it to the user only when it affects ambiguity or write safety.
+
 This skill does not edit embedded or direct sheet cell data. For sheet cell
 update requests, do not use `ixf docs update`; route to `ixf sheets update`
 with dry-run first and `--apply` only after explicit approval.
@@ -37,7 +39,7 @@ Do not treat top-level `doctor.ok=false` alone as an authentication failure. Ins
    `ixf docs publish <file.md> --base-url https://tenant.example.test --apply`
 5. For localized insertion under a heading, create a fragment Markdown file and run patch dry-run first:
    `ixf docs patch insert <fragment.md> --url https://tenant.example.test/docx/example --under-heading "Target Heading" --dry-run`
-6. Review `duplicateCandidate:false`, `existingBlocksTouched:false`, `tableBlockType:"table"`, and `tableFallbackCount:0`. If `duplicateCandidate:true`, stop instead of applying.
+6. Review `structure`, `duplicateCandidate:false`, `existingBlocksTouched:false`, `tableBlockType:"table"`, and `tableFallbackCount:0`. If `duplicateCandidate:true`, stop instead of applying.
 7. Apply localized insertion only after explicit approval:
    `ixf docs patch insert <fragment.md> --url https://tenant.example.test/docx/example --under-heading "Target Heading" --require "critical content" --apply`
 8. After patch apply, inspect `verify.ok`, `verify.unchangedExistingBlocks`, and `verify.missingRequiredText`; do not claim success unless `verify.ok=true` and `verify.unchangedExistingBlocks=true`.
@@ -45,9 +47,9 @@ Do not treat top-level `doctor.ok=false` alone as an authentication failure. Ins
    `ixf docs patch replace-section <fragment.md> --url https://tenant.example.test/docx/example --under-heading "Target Heading" --dry-run`
 10. For confirmed one-section deletion, run section delete dry-run first:
    `ixf docs patch delete-section --url https://tenant.example.test/docx/example --under-heading "Target Heading" --dry-run`
-11. Review `destructive:true`, `complexBlockTypes`, `outsideSectionBlocksTouched:false`, and the deleted/planned top-level block counts. If complex blocks are present, apply only with explicit approval and `--allow-complex-section-replace`.
+11. Review `structure`, `destructive:true`, `complexBlockTypes`, `outsideSectionBlocksTouched:false`, and the deleted/planned top-level block counts. If complex blocks are present, apply only with explicit approval and `--allow-complex-section-replace`.
 12. After section replace/delete apply, inspect `verify.ok`, `verify.unchangedOutsideSectionBlocks`, and `verify.missingRequiredText`; do not claim success unless outside-section verification passes.
-13. For existing docx whole-body update requests, run update dry-run first:
+13. For existing docx whole-body update requests, run update dry-run first and inspect `structure` before applying:
    `ixf docs update <file.md> --url https://tenant.example.test/docx/example --dry-run`
 14. Apply existing docx whole-body updates only after explicit approval:
    `ixf docs update <file.md> --url https://tenant.example.test/docx/example --apply`

@@ -99,6 +99,7 @@ func PatchInsertMarkdown(config PatchInsertConfig) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	structure := graph.SafeSummary()
 	anchor, err := graph.FindHeadingByText(config.UnderHeading)
 	if err != nil {
 		return nil, err
@@ -136,6 +137,7 @@ func PatchInsertMarkdown(config PatchInsertConfig) (map[string]any, error) {
 		"insertFingerprint":     insertFingerprint,
 		"requiredTextChecks":    len(config.RequiredText),
 		"counts":                summarizeSpecs(specs),
+		"structure":             structure,
 	}
 	if !config.Apply {
 		return withTableFallbackMetadata(payload, specs), nil
@@ -233,6 +235,7 @@ func PatchSectionMarkdown(config PatchSectionConfig) (map[string]any, error) {
 		"outsideSectionBlocksTouched": false,
 		"requiredTextChecks":          len(config.RequiredText),
 		"counts":                      summarizeSpecs(specs),
+		"structure":                   loaded.graph.SafeSummary(),
 	}
 	if !config.Apply {
 		return withTableFallbackMetadata(payload, specs), nil

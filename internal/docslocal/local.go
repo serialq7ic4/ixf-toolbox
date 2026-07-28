@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/serialq7ic4/ixf-toolbox/internal/docx"
+	"github.com/serialq7ic4/ixf-toolbox/internal/docxgraph"
 )
 
 var (
@@ -28,14 +29,15 @@ var (
 const DefaultSpaceAPI = "https://internal-api-space.xfchat.iflytek.com"
 
 type Result struct {
-	Source   string           `json:"source"`
-	Kind     string           `json:"kind"`
-	Title    string           `json:"title"`
-	Token    string           `json:"token"`
-	Content  string           `json:"content"`
-	Counts   map[string]int   `json:"counts"`
-	Assets   []map[string]any `json:"assets"`
-	Warnings []string         `json:"warnings"`
+	Source    string           `json:"source"`
+	Kind      string           `json:"kind"`
+	Title     string           `json:"title"`
+	Token     string           `json:"token"`
+	Content   string           `json:"content"`
+	Counts    map[string]int   `json:"counts"`
+	Assets    []map[string]any `json:"assets"`
+	Warnings  []string         `json:"warnings"`
+	Structure map[string]any   `json:"structure,omitempty"`
 }
 
 type ReadOptions struct {
@@ -240,16 +242,23 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 	if session.expandSheets && len(sheetCache) > 0 {
 		conversion.Counts["sheet_expanded"] = len(sheetCache)
 	}
+	structure := map[string]any(nil)
+	if graph, err := docxgraph.Build(data, token); err == nil {
+		structure = graph.SafeSummary()
+	} else {
+		conversion.Warnings = append(conversion.Warnings, "structure preflight failed")
+	}
 	title := docxTitle(data, token)
 	return Result{
-		Source:   source,
-		Kind:     kind,
-		Title:    title,
-		Token:    token,
-		Content:  conversion.Markdown,
-		Counts:   conversion.Counts,
-		Assets:   conversion.Assets,
-		Warnings: conversion.Warnings,
+		Source:    source,
+		Kind:      kind,
+		Title:     title,
+		Token:     token,
+		Content:   conversion.Markdown,
+		Counts:    conversion.Counts,
+		Assets:    conversion.Assets,
+		Warnings:  conversion.Warnings,
+		Structure: structure,
 	}, nil
 }
 
@@ -564,7 +573,7 @@ func WriteOutputs(results []Result, outDir string) (map[string]any, error) {
 		if err := os.WriteFile(filePath, []byte(result.Content), 0o644); err != nil {
 			return nil, err
 		}
-		manifest[stem] = map[string]any{
+		entry := map[string]any{
 			"title":    result.Title,
 			"token":    result.Token,
 			"kind":     result.Kind,
@@ -574,6 +583,19 @@ func WriteOutputs(results []Result, outDir string) (map[string]any, error) {
 			"assets":   result.Assets,
 			"warnings": result.Warnings,
 		}
+		if result.Structure != nil {
+			structurePath := filepath.Join(root, fileStem+".structure.json")
+			structureContent, err := json.MarshalIndent(result.Structure, "", "  ")
+			if err != nil {
+				return nil, err
+			}
+			if err := os.WriteFile(structurePath, structureContent, 0o644); err != nil {
+				return nil, err
+			}
+			entry["structure"] = result.Structure
+			entry["structureFile"] = structurePath
+		}
+		manifest[stem] = entry
 	}
 	content, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -593,8 +615,9 @@ func CleanupOutputs(outDir string) error {
 		return fmt.Errorf("manifest not found: %s", manifestPath)
 	}
 	var manifest map[string]struct {
-		File   string `json:"file"`
-		Assets []struct {
+		File          string `json:"file"`
+		StructureFile string `json:"structureFile"`
+		Assets        []struct {
 			Path string `json:"path"`
 		} `json:"assets"`
 	}
@@ -604,6 +627,11 @@ func CleanupOutputs(outDir string) error {
 	for _, item := range manifest {
 		if item.File != "" {
 			if err := removeInside(root, item.File); err != nil {
+				return err
+			}
+		}
+		if item.StructureFile != "" {
+			if err := removeInside(root, item.StructureFile); err != nil {
 				return err
 			}
 		}

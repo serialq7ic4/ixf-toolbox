@@ -47,27 +47,27 @@
 
 如果你正在使用 Codex，可以直接对 Codex 说：
 
-> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.14.2_darwin_arm64`，macOS Intel 用 `ixf_3.14.2_darwin_amd64`，Windows 用 `ixf_3.14.2_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
+> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.21.0_darwin_arm64`，macOS Intel 用 `ixf_3.21.0_darwin_amd64`，Windows 用 `ixf_3.21.0_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.14.2/ixf_3.14.2_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.21.0/ixf_3.21.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-macOS Intel 将文件名换成 `ixf_3.14.2_darwin_amd64`。
+macOS Intel 将文件名换成 `ixf_3.21.0_darwin_amd64`。
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.14.2/ixf_3.14.2_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.21.0/ixf_3.21.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -121,6 +121,7 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf docs outline <file.md>` | 按标题和原子块生成动态阅读目录 |
 | `ixf docs chunk <file.md> --index <n>` | 输出指定动态分块 |
 | `ixf docs inspect <source>` | 输出安全路由摘要，不读取正文、不打印完整 token |
+| `ixf docs structure <doc-or-wiki-url> --json` | 输出安全文档结构 preflight，包括标题路径、章节范围和复杂块风险 |
 | `ixf docs cleanup <out-dir>` | 删除读取流程生成的文件和图片产物 |
 | `ixf docs publish <file.md>` | 将 Markdown 发布为新的授权 docx 文档，不覆盖已有 docx |
 | `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run` | 规划在指定标题下非破坏性插入片段 |
@@ -147,7 +148,7 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 
 ### Runtime 状态
 
-v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；v3.0 起 Python runtime/package 实现已删除；v3.1 起测试和发布流程也不再依赖 Python；v3.3 起 Messenger 进入 Go-native 分阶段上线；v3.4 起支持显式 --apply 打开并验证目标会话；v3.5 起支持只读读取未读或最近会话；v3.6 起支持确认后的消息发送，并要求 fresh-session 复核；v3.7 起补齐 Messenger GA 运行手册和可执行诊断提示；v3.8 起补齐 agent routing 诊断和 Messenger 稳定边界元数据；v3.9 起支持已有 docx 正文替换的 dry-run/preflight；v3.10 起支持确认后的已有 docx 正文替换写入；v3.11 起补齐复杂块显式覆盖开关和更新 runbook；v3.13 起提供独立 `ixf sheets read` 和 `ixf sheets update --dry-run` 命令面；v3.14 起支持 API-only `ixf sheets update --apply` 写入和回读校验；v3.16 起引入 docx block graph 基础；v3.17 起支持 `ixf docs patch insert --dry-run`；v3.18 起支持确认后的 API-only 标题下块插入和未改动块校验；v3.20 起支持 API-only 的有界章节替换/删除，并校验章节外 blocks 未变化。
+v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；v3.0 起 Python runtime/package 实现已删除；v3.1 起测试和发布流程也不再依赖 Python；v3.3 起 Messenger 进入 Go-native 分阶段上线；v3.4 起支持显式 --apply 打开并验证目标会话；v3.5 起支持只读读取未读或最近会话；v3.6 起支持确认后的消息发送，并要求 fresh-session 复核；v3.7 起补齐 Messenger GA 运行手册和可执行诊断提示；v3.8 起补齐 agent routing 诊断和 Messenger 稳定边界元数据；v3.9 起支持已有 docx 正文替换的 dry-run/preflight；v3.10 起支持确认后的已有 docx 正文替换写入；v3.11 起补齐复杂块显式覆盖开关和更新 runbook；v3.13 起提供独立 `ixf sheets read` 和 `ixf sheets update --dry-run` 命令面；v3.14 起支持 API-only `ixf sheets update --apply` 写入和回读校验；v3.16 起引入 docx block graph 基础；v3.17 起支持 `ixf docs patch insert --dry-run`；v3.18 起支持确认后的 API-only 标题下块插入和未改动块校验；v3.20 起支持 API-only 的有界章节替换/删除，并校验章节外 blocks 未变化；v3.21 起读写前置结构分析会输出安全 heading/section/complex-block 摘要，`ixf docs read --out-dir` 会写出 `.structure.json` 产物。
 
 Agent 路由契约见 [`docs/agent-routing.md`](docs/agent-routing.md)。Messenger 详细运行手册见 [`docs/messenger.md`](docs/messenger.md)，覆盖 Chrome/Chromium-only discovery、cloned profile 隔离、读取副作用和发送成功判定。
 
@@ -214,7 +215,7 @@ ixf docs read \
   --print-manifest
 ```
 
-生成的 Markdown、TSV、图片和 manifest 都是本地文件。如果源文档敏感，这些产物也应按敏感数据处理。
+生成的 Markdown、TSV、图片、manifest 和 `.structure.json` 都是本地文件。如果源文档敏感，这些产物也应按敏感数据处理。远端 docx/wiki 读取会在 manifest 中附带安全结构摘要，便于 agent 在总结或写入前识别标题路径、章节范围、重复标题和复杂块风险。
 
 常用读取参数：
 

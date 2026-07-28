@@ -82,6 +82,46 @@ func TestWriteOutputsUsesSourceStemsAndManifestWithoutTrailingNewline(t *testing
 	}
 }
 
+func TestWriteOutputsWritesStructureArtifactsForRemoteDocs(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "out")
+	results := []Result{{
+		Source:  "https://tenant.example.test/docx/example",
+		Kind:    "docx",
+		Title:   "Remote Doc",
+		Token:   "doxSecretToken",
+		Content: "# Remote Doc\n",
+		Counts:  map[string]int{"page": 1},
+		Structure: map[string]any{
+			"topLevelBlocks":    1,
+			"complexBlockCount": 0,
+		},
+	}}
+
+	manifest, err := WriteOutputs(results, outDir)
+	if err != nil {
+		t.Fatalf("WriteOutputs returned error: %v", err)
+	}
+	entry := manifest["docx_1"].(map[string]any)
+	structureFile, ok := entry["structureFile"].(string)
+	if !ok || structureFile == "" {
+		t.Fatalf("manifest entry missing structureFile: %#v", entry)
+	}
+	if entry["structure"] == nil {
+		t.Fatalf("manifest entry missing inline structure: %#v", entry)
+	}
+	content, err := os.ReadFile(structureFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var structure map[string]any
+	if err := json.Unmarshal(content, &structure); err != nil {
+		t.Fatal(err)
+	}
+	if structure["topLevelBlocks"] != float64(1) {
+		t.Fatalf("structure artifact = %#v", structure)
+	}
+}
+
 func TestCleanupOutputsRemovesOnlyGeneratedManifestPaths(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "out")
 	asset := filepath.Join(outDir, "assets", "docx_1", "image-001.png")

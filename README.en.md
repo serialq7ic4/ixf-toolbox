@@ -47,27 +47,27 @@ The recommended path is to let the agent you are already using install Toolbox. 
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.14.2_darwin_arm64`, macOS Intel: `ixf_3.14.2_darwin_amd64`, Windows: `ixf_3.14.2_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.21.0_darwin_arm64`, macOS Intel: `ixf_3.21.0_darwin_amd64`, Windows: `ixf_3.21.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.14.2/ixf_3.14.2_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.21.0/ixf_3.21.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_3.14.2_darwin_amd64` instead.
+For macOS Intel, use `ixf_3.21.0_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.14.2/ixf_3.14.2_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.21.0/ixf_3.21.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -121,6 +121,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf docs outline <file.md>` | Build heading-aware dynamic reading metadata |
 | `ixf docs chunk <file.md> --index <n>` | Print one dynamic Markdown chunk |
 | `ixf docs inspect <source>` | Print a safe routing summary without reading content or printing full tokens |
+| `ixf docs structure <doc-or-wiki-url> --json` | Print safe document structure preflight metadata, including heading paths, section ranges, and complex-block risk |
 | `ixf docs cleanup <out-dir>` | Remove generated read artifacts |
 | `ixf docs publish <file.md>` | Publish Markdown as a new authorized docx document; does not overwrite existing docx files |
 | `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run` | Plan a non-destructive block insertion under a heading |
@@ -147,7 +148,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Runtime Status
 
-Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations. Starting with v3.6, it can send approved messages and requires fresh-session verification before reporting success. Starting with v3.7, Messenger has a GA runbook and actionable diagnostic remediation. Starting with v3.8, agent routing diagnostics and Messenger stability metadata are exposed through doctor commands. Starting with v3.9, existing-docx body replacement dry-run/preflight is available. Starting with v3.10, approved existing-docx body replacement writes are available. Starting with v3.11, complex-block explicit override and the update runbook are available. Starting with v3.13, dedicated `ixf sheets read` and `ixf sheets update --dry-run` command surfaces are available. Starting with v3.14, API-only `ixf sheets update --apply` writes cells and verifies by readback. Starting with v3.16, the docx block graph foundation is available. Starting with v3.17, `ixf docs patch insert --dry-run` is available. Starting with v3.18, approved API-only insert-under-heading writes verify unchanged existing blocks. Starting with v3.20, API-only bounded section replace/delete verifies outside-section blocks remain unchanged.
+Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations. Starting with v3.6, it can send approved messages and requires fresh-session verification before reporting success. Starting with v3.7, Messenger has a GA runbook and actionable diagnostic remediation. Starting with v3.8, agent routing diagnostics and Messenger stability metadata are exposed through doctor commands. Starting with v3.9, existing-docx body replacement dry-run/preflight is available. Starting with v3.10, approved existing-docx body replacement writes are available. Starting with v3.11, complex-block explicit override and the update runbook are available. Starting with v3.13, dedicated `ixf sheets read` and `ixf sheets update --dry-run` command surfaces are available. Starting with v3.14, API-only `ixf sheets update --apply` writes cells and verifies by readback. Starting with v3.16, the docx block graph foundation is available. Starting with v3.17, `ixf docs patch insert --dry-run` is available. Starting with v3.18, approved API-only insert-under-heading writes verify unchanged existing blocks. Starting with v3.20, API-only bounded section replace/delete verifies outside-section blocks remain unchanged. Starting with v3.21, read/write preflight exposes safe heading, section, and complex-block structure summaries, and `ixf docs read --out-dir` writes `.structure.json` artifacts.
 
 See [`docs/agent-routing.md`](docs/agent-routing.md) for the agent routing contract. See [`docs/messenger.md`](docs/messenger.md) for Messenger operations, including Chrome/Chromium-only discovery, cloned profile isolation, read side effects, and send success criteria.
 
@@ -180,7 +181,7 @@ ixf docs read \
   --print-manifest
 ```
 
-Generated Markdown, TSV, images, and manifests are local artifacts and should be treated as sensitive when the source is sensitive.
+Generated Markdown, TSV, images, manifests, and `.structure.json` files are local artifacts and should be treated as sensitive when the source is sensitive. Remote docx/wiki reads include safe structure summaries in the manifest so agents can inspect heading paths, section ranges, duplicate headings, and complex-block risk before summarizing or writing.
 
 ## Manual Write Flow
 

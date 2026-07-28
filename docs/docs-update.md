@@ -4,6 +4,13 @@
 Markdown. It uses `replace_body` mode: the original document URL, permissions,
 and location stay unchanged, while the body blocks are replaced.
 
+Before any existing-docx write, inspect the safe structure preflight. `ixf docs
+structure <doc-or-wiki-url> --json` exposes it directly, and every
+`ixf docs update` / `ixf docs patch` dry-run includes a `structure` object with
+heading paths, section ranges, duplicate heading diagnostics, and complex-block
+risk. Agents should use this metadata before choosing a write surface or target
+heading.
+
 Do not use `ixf docs update` for localized insertion. For requests like "insert
 this table under heading 1.1" or "append this paragraph to a section", use
 `ixf docs patch insert` instead:
@@ -56,6 +63,7 @@ The dry-run reads the target document state and reports:
 - `destructive:true`
 - current and planned top-level block counts
 - complex blocks detected in the existing body
+- `structure` metadata for headings, sections, duplicates, and complex-block risk
 - `tableCount`, `tableBlockType`, and `tableFallbackCount`; Markdown tables are
   written as native docx table blocks when possible
 

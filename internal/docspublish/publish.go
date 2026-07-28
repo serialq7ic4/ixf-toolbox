@@ -104,9 +104,13 @@ func UpdateMarkdown(config UpdateConfig) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	structure, err := safeStructureSummary(state, target.Token)
+	if err != nil {
+		return nil, err
+	}
 	complexTypes := sortedKeys(summary.ComplexTypes)
 	if config.Apply {
-		return applyUpdateMarkdown(config, target, title, specs, state, summary, complexTypes, session)
+		return applyUpdateMarkdown(config, target, title, specs, state, summary, complexTypes, structure, session)
 	}
 	return withTableFallbackMetadata(map[string]any{
 		"ok":                       true,
@@ -125,6 +129,7 @@ func UpdateMarkdown(config UpdateConfig) (map[string]any, error) {
 		"complexBlockTypes":        complexTypes,
 		"allowComplexReplace":      config.AllowComplex,
 		"requiredTextChecks":       len(config.RequiredText),
+		"structure":                structure,
 	}, specs), nil
 }
 
@@ -136,6 +141,7 @@ func applyUpdateMarkdown(
 	state map[string]any,
 	summary documentSummary,
 	complexTypes []string,
+	structure map[string]any,
 	session *publishSession,
 ) (map[string]any, error) {
 	if len(complexTypes) > 0 && !config.AllowComplex {
@@ -175,6 +181,7 @@ func applyUpdateMarkdown(
 		"complexBlockTypes":        complexTypes,
 		"allowComplexReplace":      config.AllowComplex,
 		"requiredTextChecks":       len(config.RequiredText),
+		"structure":                structure,
 		"verify":                   verify,
 		"url":                      target.Referer,
 	}, specs), nil

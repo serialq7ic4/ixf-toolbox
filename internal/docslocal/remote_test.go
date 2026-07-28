@@ -96,6 +96,9 @@ func TestReadSourcesWithOptionsReadsRemoteDocxClientVars(t *testing.T) {
 		t.Fatalf("content = %q", result.Content)
 	}
 	assertResultCounts(t, result.Counts, map[string]int{"page": 1, "text": 2})
+	if result.Structure == nil || result.Structure["topLevelBlocks"] != 2 {
+		t.Fatalf("structure summary = %#v", result.Structure)
+	}
 	if len(requested) != 2 || requested[1] != "/space/api/docx/pages/client_vars?id=page_1&open_type=1&mode=4&cursor=next-cursor" {
 		t.Fatalf("requested URLs = %#v", requested)
 	}

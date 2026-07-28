@@ -49,15 +49,18 @@ Use the smallest docs write surface that matches the request:
 - Confirmed deletion of one heading section: `ixf docs patch delete-section --url <doc-or-wiki-url> --under-heading <heading> --dry-run`.
 - Whole-body replacement: `ixf docs update <file.md> --url <docx-url> --dry-run`.
 
+For docx/wiki read or write work, structure preflight is part of the normal workflow. `ixf docs read --out-dir` writes a safe structure summary into the manifest and a `.structure.json` artifact. Existing-docx write dry-runs include a `structure` object with heading paths, section ranges, duplicate headings, and complex-block risk. Agents should inspect that metadata silently and surface it only when it affects target selection, ambiguity, or write safety.
+
 Localized insert requests include prompts such as "insert this table under
 heading", "add this block to section 1.1", or "append this content below this
 chapter". Route those to `ixf docs patch insert`; do not use `ixf docs update`
 for localized insertion because `docs update` is `replace_body` and will replace
 the whole body. Before applying patch insert, show `duplicateCandidate`,
-`existingBlocksTouched`, `tableBlockType`, and `tableFallbackCount`. After apply,
-require `verify.ok=true` and `verify.unchangedExistingBlocks=true`.
+`existingBlocksTouched`, `tableBlockType`, `tableFallbackCount`, and any relevant
+`structure` ambiguity or complex-block risk. After apply, require
+`verify.ok=true` and `verify.unchangedExistingBlocks=true`.
 
-Section replace/delete requests include prompts such as "replace this section" or "delete this section". Route those to `ixf docs patch replace-section` or `ixf docs patch delete-section`, not `ixf docs update`, when the requested scope is one heading section. These operations are bounded destructive edits: dry-run first, show `complexBlockTypes` and `outsideSectionBlocksTouched`, require explicit approval before `--apply`, and require `verify.unchangedOutsideSectionBlocks=true` after apply. Do not use section replace/delete for simple insertion. If the target section contains complex blocks, use `--allow-complex-section-replace` only after explicit destructive approval.
+Section replace/delete requests include prompts such as "replace this section" or "delete this section". Route those to `ixf docs patch replace-section` or `ixf docs patch delete-section`, not `ixf docs update`, when the requested scope is one heading section. These operations are bounded destructive edits: dry-run first, inspect `structure`, show `complexBlockTypes` and `outsideSectionBlocksTouched`, require explicit approval before `--apply`, and require `verify.unchangedOutsideSectionBlocks=true` after apply. Do not use section replace/delete for simple insertion. If the target section contains complex blocks, use `--allow-complex-section-replace` only after explicit destructive approval.
 
 ## Sheets Boundary
 

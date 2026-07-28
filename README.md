@@ -125,6 +125,8 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf docs publish <file.md>` | 将 Markdown 发布为新的授权 docx 文档，不覆盖已有 docx |
 | `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run` | 规划在指定标题下非破坏性插入片段 |
 | `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --apply` | 插入确认后的片段 blocks，不替换已有正文 |
+| `ixf docs patch replace-section <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run` | 规划替换单个标题章节，默认拒绝复杂块 |
+| `ixf docs patch delete-section --url <doc-or-wiki-url> --under-heading <heading> --dry-run` | 规划删除单个标题章节，默认拒绝复杂块 |
 | `ixf docs update <file.md> --url <docx-url> --dry-run` | 规划替换已有 docx 正文，不执行写入 |
 | `ixf docs update <file.md> --url <docx-url> --apply` | 替换已有 docx 正文，默认拒绝复杂块；确认后可加 `--allow-complex-replace` |
 | `ixf okr read <url>` | 读取授权 OKR 页面并输出 Markdown |
@@ -145,7 +147,7 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 
 ### Runtime 状态
 
-v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；v3.0 起 Python runtime/package 实现已删除；v3.1 起测试和发布流程也不再依赖 Python；v3.3 起 Messenger 进入 Go-native 分阶段上线；v3.4 起支持显式 --apply 打开并验证目标会话；v3.5 起支持只读读取未读或最近会话；v3.6 起支持确认后的消息发送，并要求 fresh-session 复核；v3.7 起补齐 Messenger GA 运行手册和可执行诊断提示；v3.8 起补齐 agent routing 诊断和 Messenger 稳定边界元数据；v3.9 起支持已有 docx 正文替换的 dry-run/preflight；v3.10 起支持确认后的已有 docx 正文替换写入；v3.11 起补齐复杂块显式覆盖开关和更新 runbook；v3.13 起提供独立 `ixf sheets read` 和 `ixf sheets update --dry-run` 命令面；v3.14 起支持 API-only `ixf sheets update --apply` 写入和回读校验；v3.16 起引入 docx block graph 基础；v3.17 起支持 `ixf docs patch insert --dry-run`；v3.18 起支持确认后的 API-only 标题下块插入和未改动块校验。
+v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；v3.0 起 Python runtime/package 实现已删除；v3.1 起测试和发布流程也不再依赖 Python；v3.3 起 Messenger 进入 Go-native 分阶段上线；v3.4 起支持显式 --apply 打开并验证目标会话；v3.5 起支持只读读取未读或最近会话；v3.6 起支持确认后的消息发送，并要求 fresh-session 复核；v3.7 起补齐 Messenger GA 运行手册和可执行诊断提示；v3.8 起补齐 agent routing 诊断和 Messenger 稳定边界元数据；v3.9 起支持已有 docx 正文替换的 dry-run/preflight；v3.10 起支持确认后的已有 docx 正文替换写入；v3.11 起补齐复杂块显式覆盖开关和更新 runbook；v3.13 起提供独立 `ixf sheets read` 和 `ixf sheets update --dry-run` 命令面；v3.14 起支持 API-only `ixf sheets update --apply` 写入和回读校验；v3.16 起引入 docx block graph 基础；v3.17 起支持 `ixf docs patch insert --dry-run`；v3.18 起支持确认后的 API-only 标题下块插入和未改动块校验；v3.20 起支持 API-only 的有界章节替换/删除，并校验章节外 blocks 未变化。
 
 Agent 路由契约见 [`docs/agent-routing.md`](docs/agent-routing.md)。Messenger 详细运行手册见 [`docs/messenger.md`](docs/messenger.md)，覆盖 Chrome/Chromium-only discovery、cloned profile 隔离、读取副作用和发送成功判定。
 
@@ -271,6 +273,28 @@ ixf docs patch insert fragment.md \
 ```
 
 应用后检查 `verify.ok=true` 和 `verify.unchangedExistingBlocks=true`。如果 `duplicateCandidate=true`，停止，不要重复插入。
+
+### 替换或删除单个章节
+
+当需求是“替换这个章节内容”或“删除这个章节”时，使用 `ixf docs patch replace-section` / `ixf docs patch delete-section`。这两个命令只修改目标标题 section 的 root child 引用，并在 apply 后校验 `verify.unchangedOutsideSectionBlocks=true`。简单新增内容仍应使用 `ixf docs patch insert`，不要为了插入而替换章节。
+
+```bash
+ixf docs patch replace-section section.md \
+  --url https://tenant.example.test/wiki/example \
+  --under-heading "1.1 账号全集群初始化" \
+  --cookies /tmp/ixf_cookies.json \
+  --dry-run
+```
+
+```bash
+ixf docs patch delete-section \
+  --url https://tenant.example.test/wiki/example \
+  --under-heading "废弃章节" \
+  --cookies /tmp/ixf_cookies.json \
+  --dry-run
+```
+
+如果目标章节包含图片、内嵌表格、高亮块等复杂内容，默认拒绝。只有在明确接受替换/删除这些复杂内容后，才可加 `--allow-complex-section-replace` 并显式 `--apply`。
 
 ### 更新已有 docx
 
@@ -425,6 +449,7 @@ Linux 不支持桌面会话导出，因为 i讯飞没有 Linux 桌面客户端�
 - 远程读取错误不会回显原始 API payload。
 - 远程写入默认 dry-run，必须显式使用 `--apply`。
 - `ixf sheets update --apply` 只支持确认后的 TSV 单元格写入；不要用 `ixf docs update` 修改 sheet 内容。
+- `ixf docs patch replace-section` 和 `ixf docs patch delete-section` 是有界破坏性操作；简单新增内容必须优先使用 `ixf docs patch insert`。
 - Messenger 当前支持诊断、dry-run 打开规划、显式 --apply 目标验证、只读会话读取，以及确认后的消息发送；发送成功必须通过 fresh-session 复核。Messenger 自动化只自动发现 Chrome/Chromium，并始终使用 cloned profile。
 - 删除 OKR 多余内容需要额外显式使用 `--prune`。
 - 生成的 Markdown、TSV、图片、manifest 和 OKR JSON 可能包含私有内容。

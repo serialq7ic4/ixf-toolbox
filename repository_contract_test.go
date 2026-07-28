@@ -244,6 +244,9 @@ func TestDocsWriterSkillRoutesLocalizedInsertToPatch(t *testing.T) {
 			"do not use `ixf docs update` for localized insertion",
 			"duplicateCandidate",
 			"verify.unchangedExistingBlocks",
+			"ixf docs patch replace-section",
+			"ixf docs patch delete-section",
+			"verify.unchangedOutsideSectionBlocks",
 		} {
 			if !strings.Contains(writer, expected) {
 				t.Fatalf("%s missing localized insert routing %q:\n%s", writerPath, expected, writer)

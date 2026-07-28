@@ -692,6 +692,8 @@ func runDocsUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 func runDocsPatch(args []string, stdout io.Writer, stderr io.Writer) int {
 	rows := [][2]string{
 		{"insert", "Insert Markdown blocks under a heading without replacing the body."},
+		{"replace-section", "Replace one heading section with Markdown blocks."},
+		{"delete-section", "Delete one heading section."},
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "ERROR docs patch requires a subcommand.")
@@ -705,6 +707,10 @@ func runDocsPatch(args []string, stdout io.Writer, stderr io.Writer) int {
 	switch args[0] {
 	case "insert":
 		return runDocsPatchInsert(args[1:], stdout, stderr)
+	case "replace-section":
+		return runDocsPatchReplaceSection(args[1:], stdout, stderr)
+	case "delete-section":
+		return runDocsPatchDeleteSection(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "ERROR unsupported docs patch subcommand: %s\n", args[0])
 		printCommandHelp(stderr, "ixf docs patch", rows)
@@ -731,6 +737,63 @@ func runDocsPatchInsert(args []string, stdout io.Writer, stderr io.Writer) int {
 		Position:     parsed.position,
 		RequiredText: parsed.requiredText,
 		Apply:        parsed.apply,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	writeJSON(stdout, payload)
+	return 0
+}
+
+func runDocsPatchReplaceSection(args []string, stdout io.Writer, stderr io.Writer) int {
+	if hasHelpArg(args) {
+		printDocsPatchReplaceSectionHelp(stdout)
+		return 0
+	}
+	parsed, err := parseDocsPatchSectionArgs(args, false)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	payload, err := docspublish.PatchSectionMarkdown(docspublish.PatchSectionConfig{
+		MarkdownPath: parsed.markdown,
+		URL:          parsed.url,
+		CookiesPath:  parsed.cookiesPath,
+		SpaceAPI:     parsed.spaceAPI,
+		UnderHeading: parsed.underHeading,
+		RequiredText: parsed.requiredText,
+		AllowComplex: parsed.allowComplex,
+		Apply:        parsed.apply,
+		DeleteOnly:   false,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	writeJSON(stdout, payload)
+	return 0
+}
+
+func runDocsPatchDeleteSection(args []string, stdout io.Writer, stderr io.Writer) int {
+	if hasHelpArg(args) {
+		printDocsPatchDeleteSectionHelp(stdout)
+		return 0
+	}
+	parsed, err := parseDocsPatchSectionArgs(args, true)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	payload, err := docspublish.PatchSectionMarkdown(docspublish.PatchSectionConfig{
+		URL:          parsed.url,
+		CookiesPath:  parsed.cookiesPath,
+		SpaceAPI:     parsed.spaceAPI,
+		UnderHeading: parsed.underHeading,
+		RequiredText: parsed.requiredText,
+		AllowComplex: parsed.allowComplex,
+		Apply:        parsed.apply,
+		DeleteOnly:   true,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
@@ -789,6 +852,32 @@ func printDocsPatchInsertHelp(w io.Writer) {
 		{"--require TEXT", "Require TEXT to appear during post-write verification."},
 		{"--dry-run", "Plan the localized insert without writing remote content."},
 		{"--apply", "Apply the localized insert."},
+	})
+}
+
+func printDocsPatchReplaceSectionHelp(w io.Writer) {
+	printUsageHelp(w, "ixf docs patch replace-section <fragment.md> --url URL --under-heading TEXT [--dry-run|--apply]", [][2]string{
+		{"--url URL", "Existing docx URL or wiki-backed docx URL to patch."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--under-heading TEXT", "Replace the unique section heading matching TEXT."},
+		{"--require TEXT", "Require TEXT to appear during post-write verification."},
+		{"--allow-complex-section-replace", "Permit replacing a section containing unsupported rich blocks."},
+		{"--dry-run", "Plan the bounded section replace without writing remote content."},
+		{"--apply", "Apply the bounded section replace."},
+	})
+}
+
+func printDocsPatchDeleteSectionHelp(w io.Writer) {
+	printUsageHelp(w, "ixf docs patch delete-section --url URL --under-heading TEXT [--dry-run|--apply]", [][2]string{
+		{"--url URL", "Existing docx URL or wiki-backed docx URL to patch."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--under-heading TEXT", "Delete the unique section heading matching TEXT."},
+		{"--require TEXT", "Require TEXT to appear during post-write verification."},
+		{"--allow-complex-section-replace", "Permit deleting a section containing unsupported rich blocks."},
+		{"--dry-run", "Plan the bounded section delete without writing remote content."},
+		{"--apply", "Apply the bounded section delete."},
 	})
 }
 
@@ -1201,6 +1290,19 @@ type docsPatchInsertArgs struct {
 	dryRun       bool
 }
 
+type docsPatchSectionArgs struct {
+	markdown     string
+	url          string
+	cookiesPath  string
+	spaceAPI     string
+	underHeading string
+	requiredText []string
+	allowComplex bool
+	apply        bool
+	dryRun       bool
+	deleteOnly   bool
+}
+
 func parseDocsReadArgs(args []string) (docsReadArgs, error) {
 	parsed := docsReadArgs{
 		cookiesPath: defaultCookies,
@@ -1460,6 +1562,82 @@ func parseDocsPatchInsertArgs(args []string) (docsPatchInsertArgs, error) {
 	}
 	if parsed.markdown == "" {
 		return parsed, fmt.Errorf("patch insert requires one Markdown file")
+	}
+	if parsed.url == "" {
+		return parsed, fmt.Errorf("--url is required")
+	}
+	if parsed.underHeading == "" {
+		return parsed, fmt.Errorf("--under-heading is required")
+	}
+	if parsed.dryRun && parsed.apply {
+		return parsed, fmt.Errorf("--dry-run and --apply are mutually exclusive")
+	}
+	return parsed, nil
+}
+
+func parseDocsPatchSectionArgs(args []string, deleteOnly bool) (docsPatchSectionArgs, error) {
+	parsed := docsPatchSectionArgs{
+		cookiesPath: defaultCookies,
+		spaceAPI:    docslocal.DefaultSpaceAPI,
+		deleteOnly:  deleteOnly,
+	}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--url":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.url = args[i]
+		case "--space-api":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.spaceAPI = args[i]
+		case "--cookies":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.cookiesPath = args[i]
+		case "--under-heading":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.underHeading = args[i]
+		case "--require":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.requiredText = append(parsed.requiredText, args[i])
+		case "--allow-complex-section-replace":
+			parsed.allowComplex = true
+		case "--apply":
+			parsed.apply = true
+		case "--dry-run":
+			parsed.dryRun = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				if deleteOnly {
+					return parsed, fmt.Errorf("unsupported docs patch delete-section flag: %s", arg)
+				}
+				return parsed, fmt.Errorf("unsupported docs patch replace-section flag: %s", arg)
+			}
+			if deleteOnly {
+				return parsed, fmt.Errorf("patch delete-section does not accept a Markdown file")
+			}
+			if parsed.markdown != "" {
+				return parsed, fmt.Errorf("patch replace-section requires exactly one Markdown file")
+			}
+			parsed.markdown = arg
+		}
+	}
+	if !deleteOnly && parsed.markdown == "" {
+		return parsed, fmt.Errorf("patch replace-section requires one Markdown file")
 	}
 	if parsed.url == "" {
 		return parsed, fmt.Errorf("--url is required")

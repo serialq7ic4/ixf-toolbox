@@ -101,6 +101,14 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 			expected: []string{"usage: ixf docs patch insert", "--url", "--under-heading", "--position", "--dry-run", "--apply"},
 		},
 		{
+			args:     []string{"docs", "patch", "replace-section", "--help"},
+			expected: []string{"usage: ixf docs patch replace-section", "--url", "--under-heading", "--allow-complex-section-replace", "--dry-run", "--apply"},
+		},
+		{
+			args:     []string{"docs", "patch", "delete-section", "--help"},
+			expected: []string{"usage: ixf docs patch delete-section", "--url", "--under-heading", "--allow-complex-section-replace", "--dry-run", "--apply"},
+		},
+		{
 			args:     []string{"sheets", "read", "--help"},
 			expected: []string{"usage: ixf sheets read", "--cookies", "--space-api"},
 		},
@@ -155,6 +163,36 @@ func TestParseDocsPatchInsertArgs(t *testing.T) {
 	if parsed.markdown != "table.md" || parsed.url != "https://tenant.example.test/wiki/example" ||
 		parsed.underHeading != "1.1 账号全集群初始化" || parsed.position != "section-end" || !parsed.dryRun {
 		t.Fatalf("parsed = %#v", parsed)
+	}
+}
+
+func TestParseDocsPatchSectionArgs(t *testing.T) {
+	replacement, err := parseDocsPatchSectionArgs([]string{
+		"section.md",
+		"--url", "https://tenant.example.test/docx/doxExample",
+		"--under-heading", "1.1 Target",
+		"--allow-complex-section-replace",
+		"--dry-run",
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replacement.markdown != "section.md" || replacement.url != "https://tenant.example.test/docx/doxExample" ||
+		replacement.underHeading != "1.1 Target" || !replacement.allowComplex || !replacement.dryRun || replacement.deleteOnly {
+		t.Fatalf("replacement = %#v", replacement)
+	}
+
+	deletion, err := parseDocsPatchSectionArgs([]string{
+		"--url", "https://tenant.example.test/wiki/example",
+		"--under-heading", "Obsolete",
+		"--apply",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deletion.markdown != "" || deletion.url != "https://tenant.example.test/wiki/example" ||
+		deletion.underHeading != "Obsolete" || !deletion.apply || !deletion.deleteOnly {
+		t.Fatalf("deletion = %#v", deletion)
 	}
 }
 

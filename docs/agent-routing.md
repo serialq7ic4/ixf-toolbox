@@ -45,6 +45,8 @@ Use the smallest docs write surface that matches the request:
 
 - New document: `ixf docs publish <file.md> --base-url <tenant> --dry-run`.
 - Localized insertion or append under an existing heading: `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run`.
+- Confirmed replacement of one heading section: `ixf docs patch replace-section <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run`.
+- Confirmed deletion of one heading section: `ixf docs patch delete-section --url <doc-or-wiki-url> --under-heading <heading> --dry-run`.
 - Whole-body replacement: `ixf docs update <file.md> --url <docx-url> --dry-run`.
 
 Localized insert requests include prompts such as "insert this table under
@@ -54,6 +56,8 @@ for localized insertion because `docs update` is `replace_body` and will replace
 the whole body. Before applying patch insert, show `duplicateCandidate`,
 `existingBlocksTouched`, `tableBlockType`, and `tableFallbackCount`. After apply,
 require `verify.ok=true` and `verify.unchangedExistingBlocks=true`.
+
+Section replace/delete requests include prompts such as "replace this section" or "delete this section". Route those to `ixf docs patch replace-section` or `ixf docs patch delete-section`, not `ixf docs update`, when the requested scope is one heading section. These operations are bounded destructive edits: dry-run first, show `complexBlockTypes` and `outsideSectionBlocksTouched`, require explicit approval before `--apply`, and require `verify.unchangedOutsideSectionBlocks=true` after apply. Do not use section replace/delete for simple insertion. If the target section contains complex blocks, use `--allow-complex-section-replace` only after explicit destructive approval.
 
 ## Sheets Boundary
 

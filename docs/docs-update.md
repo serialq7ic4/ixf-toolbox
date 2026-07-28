@@ -20,6 +20,24 @@ Patch insert reports `duplicateCandidate`, `existingBlocksTouched`,
 `tableBlockType`, and `tableFallbackCount`. Apply only after confirmation, then
 inspect `verify.ok` and `verify.unchangedExistingBlocks`.
 
+For confirmed one-section replacement or deletion, use bounded section patching instead of whole-body update:
+
+```bash
+ixf docs patch replace-section section.md \
+  --url https://tenant.example.test/wiki/example \
+  --under-heading "Target section" \
+  --cookies /tmp/ixf_cookies.json \
+  --dry-run
+
+ixf docs patch delete-section \
+  --url https://tenant.example.test/wiki/example \
+  --under-heading "Obsolete section" \
+  --cookies /tmp/ixf_cookies.json \
+  --dry-run
+```
+
+Section replace/delete operations are destructive only inside the located heading section. They reject complex section content by default; `--allow-complex-section-replace` requires explicit destructive approval. After apply, inspect `verify.unchangedOutsideSectionBlocks`. Do not use section replace/delete for simple insertion.
+
 ## Safety Boundary
 
 Always dry-run first:

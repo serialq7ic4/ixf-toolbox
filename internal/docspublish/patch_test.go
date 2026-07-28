@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/serialq7ic4/ixf-toolbox/internal/docxgraph"
 )
 
 func TestParseMarkdownFragmentAcceptsTableWithoutTitle(t *testing.T) {
@@ -83,6 +85,214 @@ func TestBuildPatchInsertChangeMapOnlyAddsNewBlocksAndRootLinks(t *testing.T) {
 	if !strings.Contains(text, `"li":"new_table"`) || !strings.Contains(text, `"li":"new_text"`) {
 		t.Fatalf("missing root insert ops: %s", text)
 	}
+}
+
+func TestReplaceSectionChangeMapTouchesOnlySectionChildren(t *testing.T) {
+	graph := replaceSectionGraphFixture(t)
+	heading, err := graph.FindHeadingByText("Replace Me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := graph.SectionRange(heading)
+	changeMap := buildReplaceSectionChangeMap("page_1", map[string]any{"version": 3}, section, []string{"new_1"}, []blockEntry{
+		{ID: "new_1", Data: map[string]any{"type": "text", "parent_id": "page_1"}},
+	})
+	raw, err := json.Marshal(changeMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if strings.Contains(text, "outside_before") || strings.Contains(text, "outside_after") {
+		t.Fatalf("outside section was touched: %s", text)
+	}
+	if !strings.Contains(text, `"ld":"replace_heading"`) || !strings.Contains(text, `"ld":"replace_body"`) ||
+		!strings.Contains(text, `"li":"new_1"`) {
+		t.Fatalf("section replacement ops missing expected ids: %s", text)
+	}
+}
+
+func TestPatchReplaceSectionDryRunReportsBoundedDestructivePlan(t *testing.T) {
+	server := patchSectionFixtureServer(t, false)
+	defer server.Close()
+	markdownPath := writeTempMarkdown(t, "## Replacement\n\nNew body with Alpha.\n")
+
+	payload, err := PatchSectionMarkdown(PatchSectionConfig{
+		MarkdownPath: markdownPath,
+		URL:          server.URL + "/docx/page_1",
+		SpaceAPI:     server.URL,
+		CookiesPath:  writePatchCookieFixture(t),
+		UnderHeading: "Replace Me",
+		Apply:        false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload["operation"] != "docs_patch_replace_section" || payload["mode"] != "section_replace" ||
+		payload["destructive"] != true || payload["willWrite"] != false {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if payload["deletedTopLevelBlocks"] != 2 || payload["plannedTopLevelBlocks"] != 2 ||
+		payload["outsideSectionBlocksTouched"] != false {
+		t.Fatalf("section metadata = %+v", payload)
+	}
+}
+
+func TestPatchReplaceSectionRejectsComplexSectionWithoutOverride(t *testing.T) {
+	server := patchSectionFixtureServer(t, true)
+	defer server.Close()
+	markdownPath := writeTempMarkdown(t, "## Replacement\n\nNew body.\n")
+
+	_, err := PatchSectionMarkdown(PatchSectionConfig{
+		MarkdownPath: markdownPath,
+		URL:          server.URL + "/docx/page_1",
+		SpaceAPI:     server.URL,
+		CookiesPath:  writePatchCookieFixture(t),
+		UnderHeading: "Replace Me",
+		Apply:        false,
+	})
+	if err == nil || !strings.Contains(err.Error(), "complex section content") {
+		t.Fatalf("err = %v, want complex section rejection", err)
+	}
+}
+
+func replaceSectionGraphFixture(t *testing.T) docxgraph.Graph {
+	t.Helper()
+	graph, err := docxgraph.Build(map[string]any{
+		"block_map": map[string]any{
+			"page_1": map[string]any{
+				"version": 3,
+				"data": map[string]any{
+					"type":     "page",
+					"children": []any{"outside_before", "replace_heading", "replace_body", "outside_after"},
+				},
+			},
+			"outside_before": map[string]any{
+				"version": 1,
+				"data": map[string]any{
+					"type":      "text",
+					"parent_id": "page_1",
+					"text":      attributedCLIText("before"),
+				},
+			},
+			"replace_heading": map[string]any{
+				"version": 1,
+				"data": map[string]any{
+					"type":      "heading2",
+					"parent_id": "page_1",
+					"text":      attributedCLIText("Replace Me"),
+				},
+			},
+			"replace_body": map[string]any{
+				"version": 1,
+				"data": map[string]any{
+					"type":      "text",
+					"parent_id": "page_1",
+					"text":      attributedCLIText("old section"),
+				},
+			},
+			"outside_after": map[string]any{
+				"version": 1,
+				"data": map[string]any{
+					"type":      "heading2",
+					"parent_id": "page_1",
+					"text":      attributedCLIText("Next"),
+				},
+			},
+		},
+	}, "page_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return graph
+}
+
+func patchSectionFixtureServer(t *testing.T, complex bool) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/docx/pages/client_vars":
+			if r.Method != http.MethodGet {
+				t.Fatalf("client_vars method = %s, want GET", r.Method)
+			}
+			if got := r.URL.Query().Get("id"); got != "page_1" {
+				t.Fatalf("client_vars id = %q, want page_1", got)
+			}
+			assertHeader(t, r, "X-CSRFToken", "csrf-fixture")
+			assertCookie(t, r, "session", "session-fixture")
+			children := []any{"outside_before", "replace_heading", "replace_body", "outside_after"}
+			blockMap := map[string]any{
+				"page_1": map[string]any{
+					"version": 7,
+					"data": map[string]any{
+						"type":     "page",
+						"author":   "author_fixture",
+						"children": children,
+					},
+				},
+				"outside_before": map[string]any{
+					"version": 1,
+					"data": map[string]any{
+						"type":      "callout",
+						"parent_id": "page_1",
+						"children":  []any{"outside_before_text"},
+					},
+				},
+				"outside_before_text": map[string]any{
+					"version": 1,
+					"data": map[string]any{
+						"type":      "text",
+						"parent_id": "outside_before",
+						"text":      attributedCLIText("outside rich block"),
+					},
+				},
+				"replace_heading": map[string]any{
+					"version": 1,
+					"data": map[string]any{
+						"type":      "heading2",
+						"parent_id": "page_1",
+						"text":      attributedCLIText("Replace Me"),
+					},
+				},
+				"replace_body": map[string]any{
+					"version": 1,
+					"data": map[string]any{
+						"type":      "text",
+						"parent_id": "page_1",
+						"text":      attributedCLIText("old section"),
+					},
+				},
+				"outside_after": map[string]any{
+					"version": 1,
+					"data": map[string]any{
+						"type":      "heading2",
+						"parent_id": "page_1",
+						"text":      attributedCLIText("Next"),
+					},
+				},
+			}
+			if complex {
+				blockMap["replace_body"].(map[string]any)["data"].(map[string]any)["children"] = []any{"complex_image"}
+				blockMap["complex_image"] = map[string]any{
+					"version": 1,
+					"data": map[string]any{
+						"type":      "image",
+						"parent_id": "replace_body",
+					},
+				}
+			}
+			writeTestJSON(t, w, map[string]any{
+				"code": 0,
+				"data": map[string]any{
+					"meta_map":  map[string]any{"page_1": map[string]any{"editor_id": "member_fixture"}},
+					"block_map": blockMap,
+				},
+			})
+		case "/space/api/docx/blocks/user_change/":
+			t.Fatal("dry-run must not call user_change")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
 }
 
 func patchInsertFixtureServer(t *testing.T) *httptest.Server {

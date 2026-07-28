@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.20.0 - 2026-07-27
+
+- Added bounded `ixf docs patch replace-section` and `ixf docs patch delete-section` operations with section-only destructive safeguards.
+- Added verification that outside-section blocks remain unchanged and complex section content requires an explicit override.
+
 ## 3.19.0 - 2026-07-27
 
 - Updated README, routing docs, and installed skills so localized document insert requests use `ixf docs patch insert` instead of destructive `ixf docs update`.

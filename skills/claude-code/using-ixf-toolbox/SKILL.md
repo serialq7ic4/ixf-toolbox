@@ -16,8 +16,9 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 - Use `docs/agent-routing.md`, `AGENTS.md`, and current `skills/*/*/SKILL.md` files as authoritative current guidance.
 - Do not route from historical implementation notes, old changelog entries, or `docs/superpowers/` plans.
 - Use `ixf-docs-reader` for authorized document, wiki, docx, cloud-doc, embedded sheet, mindnote, image artifact, local Markdown reading, and direct sheets link reads through `ixf sheets read`.
-- Use `ixf-docs-writer` for approved Markdown publishing as a new docx document, localized insert under heading workflows, or existing-docx update; existing-docx update can mean whole-body replacement through `ixf docs update`.
+- Use `ixf-docs-writer` for approved Markdown publishing as a new docx document, localized insert under heading workflows, bounded one-section replace/delete workflows, or existing-docx update; existing-docx update can mean whole-body replacement through `ixf docs update`.
 - For localized document insertion or append-under-heading requests, route to `ixf docs patch insert` through `ixf-docs-writer`; do not route these to `ixf docs update`.
+- For confirmed one-section replacement or deletion requests, route to `ixf docs patch replace-section` or `ixf docs patch delete-section` through `ixf-docs-writer`; do not use those commands for simple insertion.
 - For sheet cell update requests, use `ixf sheets update` directly: dry-run first, then `--apply` only after explicit approval and readback verification.
 - Use `ixf-okr-reader` for authorized OKR reading, summary, ownership, mention, or alignment analysis.
 - Use `ixf-okr-writer` for approved Objective and Key Result creation or modification.
@@ -32,9 +33,10 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 4. For writes, confirm the exact target and content, then follow the relevant writer skill or sheet CLI dry-run-first workflow.
 5. For direct sheets link reads, prefer `ixf sheets read`; for embedded sheet reads inside docx, use `ixf docs read --expand-sheets`.
 6. For localized docs insert requests, use `ixf docs patch insert --dry-run`, show `duplicateCandidate` and `existingBlocksTouched`, then use `--apply` only after approval.
-7. For sheets update requests, do not use `ixf docs update`; run `ixf sheets update --dry-run`, show the plan, then use `--apply` only after approval.
-8. If local authentication or installed routing looks unclear, run `ixf doctor --json` and inspect `agentRouting`.
-9. If local authentication looks missing, run or suggest `ixf cookies export --provider auto`.
+7. For one-section replace/delete requests, use `ixf docs patch replace-section` or `ixf docs patch delete-section --dry-run`, show complex/outside-section safety metadata, then use `--apply` only after approval.
+8. For sheets update requests, do not use `ixf docs update`; run `ixf sheets update --dry-run`, show the plan, then use `--apply` only after approval.
+9. If local authentication or installed routing looks unclear, run `ixf doctor --json` and inspect `agentRouting`.
+10. If local authentication looks missing, run or suggest `ixf cookies export --provider auto`.
 
 ## Safety
 

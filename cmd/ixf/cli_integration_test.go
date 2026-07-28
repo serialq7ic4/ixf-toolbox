@@ -383,6 +383,127 @@ func TestDocsPatchInsertApplyRefusesDuplicate(t *testing.T) {
 	}
 }
 
+func TestDocsPatchReplaceSectionDryRunCLI(t *testing.T) {
+	server := newDocsPatchSectionServer(t, false)
+	defer server.Close()
+	tmpDir := t.TempDir()
+	input := filepath.Join(tmpDir, "section.md")
+	if err := os.WriteFile(input, []byte("## Replacement\n\nAlpha replacement body.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "patch", "replace-section", input,
+		"--url", server.URL+"/docx/page_1",
+		"--space-api", server.URL,
+		"--cookies", cookiesPath,
+		"--under-heading", "Replace Me",
+		"--dry-run",
+	)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["operation"] != "docs_patch_replace_section" || payload["mode"] != "section_replace" ||
+		payload["destructive"] != true || payload["willWrite"] != false {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if payload["deletedTopLevelBlocks"] != float64(2) || payload["plannedTopLevelBlocks"] != float64(2) ||
+		payload["outsideSectionBlocksTouched"] != false {
+		t.Fatalf("section payload = %+v", payload)
+	}
+	if server.WriteCount() != 0 {
+		t.Fatalf("dry-run wrote %d times", server.WriteCount())
+	}
+}
+
+func TestDocsPatchReplaceSectionApplyPreservesOutsideHighlightBlock(t *testing.T) {
+	server := newDocsPatchSectionServer(t, false)
+	defer server.Close()
+	tmpDir := t.TempDir()
+	input := filepath.Join(tmpDir, "section.md")
+	if err := os.WriteFile(input, []byte("## Replacement\n\nAlpha replacement body.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "patch", "replace-section", input,
+		"--url", server.URL+"/docx/page_1",
+		"--space-api", server.URL,
+		"--cookies", cookiesPath,
+		"--under-heading", "Replace Me",
+		"--require", "Alpha replacement body.",
+		"--apply",
+	)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	verify := payload["verify"].(map[string]any)
+	if verify["ok"] != true || verify["unchangedOutsideSectionBlocks"] != true {
+		t.Fatalf("verify = %+v", verify)
+	}
+	if payload["outsideSectionBlocksTouched"] != false || server.WriteCount() != 1 {
+		t.Fatalf("payload=%+v writes=%d", payload, server.WriteCount())
+	}
+}
+
+func TestDocsPatchDeleteSectionDryRunCLI(t *testing.T) {
+	server := newDocsPatchSectionServer(t, false)
+	defer server.Close()
+	tmpDir := t.TempDir()
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "patch", "delete-section",
+		"--url", server.URL+"/docx/page_1",
+		"--space-api", server.URL,
+		"--cookies", cookiesPath,
+		"--under-heading", "Replace Me",
+		"--dry-run",
+	)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["operation"] != "docs_patch_delete_section" || payload["mode"] != "section_delete" ||
+		payload["deletedTopLevelBlocks"] != float64(2) || payload["plannedTopLevelBlocks"] != float64(0) {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestDocsPatchReplaceSectionRejectsComplexWithoutOverrideCLI(t *testing.T) {
+	server := newDocsPatchSectionServer(t, true)
+	defer server.Close()
+	tmpDir := t.TempDir()
+	input := filepath.Join(tmpDir, "section.md")
+	if err := os.WriteFile(input, []byte("## Replacement\n\nAlpha replacement body.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "patch", "replace-section", input,
+		"--url", server.URL+"/docx/page_1",
+		"--space-api", server.URL,
+		"--cookies", cookiesPath,
+		"--under-heading", "Replace Me",
+		"--dry-run",
+	)
+	if code != 2 || !strings.Contains(stderr, "complex section content") {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	if server.WriteCount() != 0 {
+		t.Fatalf("complex dry-run wrote %d times", server.WriteCount())
+	}
+}
+
 func TestCLIDocsUpdateApplyReplacesExistingBody(t *testing.T) {
 	tmpDir := t.TempDir()
 	source := filepath.Join(tmpDir, "replacement.md")
@@ -1447,6 +1568,150 @@ func writeCLICookieFixture(t *testing.T, path string) {
 	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+type docsPatchSectionServer struct {
+	*httptest.Server
+	t          *testing.T
+	writeCount int
+	topIDs     []string
+	entries    map[string]any
+	complex    bool
+}
+
+func newDocsPatchSectionServer(t *testing.T, complex bool) *docsPatchSectionServer {
+	t.Helper()
+	server := &docsPatchSectionServer{t: t, entries: map[string]any{}, complex: complex}
+	server.Server = httptest.NewServer(http.HandlerFunc(server.handle))
+	return server
+}
+
+func (server *docsPatchSectionServer) WriteCount() int {
+	return server.writeCount
+}
+
+func (server *docsPatchSectionServer) handle(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/space/api/docx/pages/client_vars":
+		if r.Method != http.MethodGet {
+			server.t.Fatalf("client_vars method = %s, want GET", r.Method)
+		}
+		assertHeader(server.t, r, "X-CSRFToken", "csrf-fixture")
+		assertCookie(server.t, r, "session", "session-fixture")
+		if got := r.URL.Query().Get("id"); got != "page_1" {
+			server.t.Fatalf("client_vars id = %q, want page_1", got)
+		}
+		writeTestJSON(server.t, w, map[string]any{
+			"code": 0,
+			"data": map[string]any{
+				"meta_map":  map[string]any{"page_1": map[string]any{"editor_id": "member_fixture"}},
+				"block_map": docsPatchSectionBlockMap(server.complex, server.writeCount > 0, server.topIDs, server.entries),
+			},
+		})
+	case "/space/api/docx/blocks/user_change/":
+		if r.Method != http.MethodPost {
+			server.t.Fatalf("user_change method = %s, want POST", r.Method)
+		}
+		assertHeader(server.t, r, "X-CSRFToken", "csrf-fixture")
+		assertCookie(server.t, r, "session", "session-fixture")
+		server.writeCount++
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			server.t.Fatal(err)
+		}
+		if payload["member_id"] != "member_fixture" || payload["page_id"] != "page_1" {
+			server.t.Fatalf("write identifiers = %+v", payload)
+		}
+		raw, err := json.Marshal(payload["change_map"])
+		if err != nil {
+			server.t.Fatal(err)
+		}
+		text := string(raw)
+		for _, forbidden := range []string{"outside_highlight", "outside_heading"} {
+			if strings.Contains(text, forbidden) {
+				server.t.Fatalf("section patch touched outside block %s: %s", forbidden, text)
+			}
+		}
+		server.topIDs, server.entries = extractPatchInsertChangeMap(server.t, payload["change_map"])
+		writeTestJSON(server.t, w, map[string]any{"code": 0, "data": map[string]any{}})
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func docsPatchSectionBlockMap(complex bool, applied bool, topIDs []string, entries map[string]any) map[string]any {
+	children := []any{"outside_highlight"}
+	if !applied {
+		children = append(children, "replace_heading", "replace_body")
+	}
+	for _, id := range topIDs {
+		children = append(children, id)
+	}
+	children = append(children, "outside_heading")
+	blockMap := map[string]any{
+		"page_1": map[string]any{
+			"version": 7 + len(topIDs),
+			"data": map[string]any{
+				"type":     "page",
+				"author":   "author_fixture",
+				"children": children,
+			},
+		},
+		"outside_highlight": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":      "high_light",
+				"parent_id": "page_1",
+				"children":  []any{"outside_highlight_text"},
+			},
+		},
+		"outside_highlight_text": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":      "text",
+				"parent_id": "outside_highlight",
+				"text":      attributedCLIText("outside rich block"),
+			},
+		},
+		"replace_heading": map[string]any{
+			"version": 2,
+			"data": map[string]any{
+				"type":      "heading2",
+				"parent_id": "page_1",
+				"text":      attributedCLIText("Replace Me"),
+			},
+		},
+		"replace_body": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":      "text",
+				"parent_id": "page_1",
+				"text":      attributedCLIText("old section body"),
+			},
+		},
+		"outside_heading": map[string]any{
+			"version": 2,
+			"data": map[string]any{
+				"type":      "heading2",
+				"parent_id": "page_1",
+				"text":      attributedCLIText("Next"),
+			},
+		},
+	}
+	if complex {
+		blockMap["replace_body"].(map[string]any)["data"].(map[string]any)["children"] = []any{"replace_image"}
+		blockMap["replace_image"] = map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":      "image",
+				"parent_id": "replace_body",
+			},
+		}
+	}
+	for id, data := range entries {
+		blockMap[id] = map[string]any{"version": 1, "data": data}
+	}
+	return blockMap
 }
 
 func newDocsPatchInsertServer(t *testing.T) *httptest.Server {

@@ -25,15 +25,17 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 
 ## Publish Readiness
 
-When a user asks to publish or整理到 i讯飞文档, produce a publishable Markdown file and continue to `ixf docs publish --dry-run` whenever a tenant/base URL can be inferred. When possible, derive the tenant base URL from the user's i讯飞 link or explicitly provided destination. If no base URL or parent location is available, ask only for the destination; do not stop at a local-only draft.
+When a user asks to publish or整理到 i讯飞文档, produce a publishable Markdown file and continue to `ixf docs publish --dry-run` whenever a tenant/base URL can be inferred or a default is configured. When possible, derive the tenant base URL from the user's i讯飞 link or explicitly provided destination. If no prompt URL exists, run `ixf doctor --json` and inspect `.docs.defaultBaseURL.configured`; when true, run `ixf docs publish <file.md> --dry-run` without `--base-url` and review `baseURLSource` plus `targetHost`. If no base URL, default, or parent location is available, ask only for the destination; do not stop at a local-only draft.
 
 Do not treat top-level `doctor.ok=false` alone as an authentication failure. Inspect `.cookies.ok` and `.capabilities.docsPublish` from `ixf doctor --json`; if cookies are missing, run or ask for `ixf cookies export --provider auto`, then retry the dry-run.
 
 ## Workflow
 
-1. For new docx publishing, confirm the Markdown file and destination URL or parent location.
+1. For new docx publishing, confirm the Markdown file and destination URL, default publish base URL, or parent location.
 2. Run a publish dry run first:
    `ixf docs publish <file.md> --base-url https://tenant.example.test --dry-run`
+   or, when `.docs.defaultBaseURL.configured=true`:
+   `ixf docs publish <file.md> --dry-run`
 3. Review the planned title, create-only target, and required text checks with the user.
 4. Apply only after explicit approval:
    `ixf docs publish <file.md> --base-url https://tenant.example.test --apply`

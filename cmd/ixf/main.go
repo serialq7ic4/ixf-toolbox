@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +28,8 @@ import (
 )
 
 const defaultCookies = "/tmp/ixunfei_profile_explorer_cookies.json"
+const docsDefaultBaseURLEnv = "IXF_DOCS_DEFAULT_BASE_URL"
+const globalDefaultBaseURLEnv = "IXF_DEFAULT_BASE_URL"
 
 var version = ixftoolbox.DefaultVersion
 
@@ -680,6 +683,10 @@ func runDocsPublish(args []string, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
 		return 2
 	}
+	payload["baseURLSource"] = parsed.baseURLSource
+	if host := hostFromURL(parsed.baseURL); host != "" {
+		payload["targetHost"] = host
+	}
 	writeJSON(stdout, payload)
 	return 0
 }
@@ -846,8 +853,8 @@ func printDocsStructureHelp(w io.Writer) {
 }
 
 func printDocsPublishHelp(w io.Writer) {
-	printUsageHelp(w, "ixf docs publish <markdown.md> --base-url URL [--dry-run|--apply]", [][2]string{
-		{"--base-url URL", "Target tenant base URL, for example https://tenant.example.test."},
+	printUsageHelp(w, "ixf docs publish <markdown.md> [--base-url URL] [--dry-run|--apply]", [][2]string{
+		{"--base-url URL", "Target tenant base URL; optional when IXF_DOCS_DEFAULT_BASE_URL or docs.defaultBaseURL is configured."},
 		{"--space-api URL", "Override the i讯飞 Space API base URL."},
 		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
 		{"--member-id ID", "Override the authenticated document member ID."},
@@ -1291,17 +1298,24 @@ type docsStructureArgs struct {
 }
 
 type docsPublishArgs struct {
-	markdown     string
-	baseURL      string
-	cookiesPath  string
-	spaceAPI     string
-	memberID     string
-	parentToken  string
-	title        string
-	titleSuffix  string
-	requiredText []string
-	apply        bool
-	dryRun       bool
+	markdown      string
+	baseURL       string
+	baseURLSource string
+	cookiesPath   string
+	spaceAPI      string
+	memberID      string
+	parentToken   string
+	title         string
+	titleSuffix   string
+	requiredText  []string
+	apply         bool
+	dryRun        bool
+}
+
+type toolboxConfig struct {
+	Docs struct {
+		DefaultBaseURL string `json:"defaultBaseURL"`
+	} `json:"docs"`
 }
 
 type docsUpdateArgs struct {
@@ -1448,6 +1462,7 @@ func parseDocsPublishArgs(args []string) (docsPublishArgs, error) {
 				return parsed, fmt.Errorf("%s requires a value", arg)
 			}
 			parsed.baseURL = args[i]
+			parsed.baseURLSource = "flag"
 		case "--space-api":
 			i++
 			if i >= len(args) {
@@ -1508,7 +1523,15 @@ func parseDocsPublishArgs(args []string) (docsPublishArgs, error) {
 		return parsed, fmt.Errorf("publish requires one Markdown file")
 	}
 	if parsed.baseURL == "" {
-		return parsed, fmt.Errorf("--base-url is required")
+		value, source, err := resolveDocsDefaultBaseURL()
+		if err != nil {
+			return parsed, err
+		}
+		parsed.baseURL = value
+		parsed.baseURLSource = source
+	}
+	if parsed.baseURL == "" {
+		return parsed, fmt.Errorf("--base-url is required; set %s or docs.defaultBaseURL in %s to use a default", docsDefaultBaseURLEnv, docsConfigPath())
 	}
 	if parsed.dryRun {
 		parsed.apply = false
@@ -2138,6 +2161,7 @@ func collectDiagnostics(cookiesPath string) map[string]any {
 		},
 		"skills":         skills,
 		"cookies":        cookies,
+		"docs":           docsDiagnostics(),
 		"legacyCommands": legacyCommands,
 		"agentRouting":   agentRoutingStatus(),
 	}
@@ -2309,6 +2333,18 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 			boolFromMap(cookies, "hasLgwCsrf"),
 		)
 	}
+	if docs, ok := payload["docs"].(map[string]any); ok {
+		if target, ok := docs["defaultBaseURL"].(map[string]any); ok {
+			fmt.Fprintf(
+				w,
+				"docs_default_base_url configured=%t source=%s host=%s config=%s\n",
+				boolFromMap(target, "configured"),
+				target["source"],
+				target["host"],
+				target["configPath"],
+			)
+		}
+	}
 	if routing, ok := payload["agentRouting"].(map[string]any); ok {
 		fmt.Fprintf(
 			w,
@@ -2441,6 +2477,66 @@ func contains(values []string, target string) bool {
 func pathExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func resolveDocsDefaultBaseURL() (string, string, error) {
+	if value := strings.TrimSpace(os.Getenv(docsDefaultBaseURLEnv)); value != "" {
+		return value, "env:" + docsDefaultBaseURLEnv, nil
+	}
+	if value := strings.TrimSpace(os.Getenv(globalDefaultBaseURLEnv)); value != "" {
+		return value, "env:" + globalDefaultBaseURLEnv, nil
+	}
+	configPath := docsConfigPath()
+	content, err := os.ReadFile(configPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("read docs default base URL config: %w", err)
+	}
+	var config toolboxConfig
+	if err := json.Unmarshal(content, &config); err != nil {
+		return "", "", fmt.Errorf("parse docs default base URL config: %w", err)
+	}
+	if value := strings.TrimSpace(config.Docs.DefaultBaseURL); value != "" {
+		return value, "config:docs.defaultBaseURL", nil
+	}
+	return "", "", nil
+}
+
+func docsDiagnostics() map[string]any {
+	value, source, err := resolveDocsDefaultBaseURL()
+	defaultBaseURL := map[string]any{
+		"configured": false,
+		"source":     "",
+		"host":       "",
+		"configPath": docsConfigPath(),
+	}
+	if err != nil {
+		defaultBaseURL["error"] = fmt.Sprintf("%T: %v", err, err)
+		return map[string]any{"defaultBaseURL": defaultBaseURL}
+	}
+	if value != "" {
+		defaultBaseURL["configured"] = true
+		defaultBaseURL["source"] = source
+		defaultBaseURL["host"] = hostFromURL(value)
+	}
+	return map[string]any{"defaultBaseURL": defaultBaseURL}
+}
+
+func docsConfigPath() string {
+	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
+		return filepath.Join(expandUser(xdg), "ixf-toolbox", "config.json")
+	}
+	return filepath.Join(homeDir(), ".config", "ixf-toolbox", "config.json")
+}
+
+func hostFromURL(value string) string {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
 }
 
 func getenvDefault(name string, fallback string) string {

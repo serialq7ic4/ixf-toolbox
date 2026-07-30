@@ -94,7 +94,7 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 		},
 		{
 			args:     []string{"docs", "publish", "--help"},
-			expected: []string{"usage: ixf docs publish", "--base-url", "--dry-run", "--apply"},
+			expected: []string{"usage: ixf docs publish", "--base-url", "IXF_DOCS_DEFAULT_BASE_URL", "--dry-run", "--apply"},
 		},
 		{
 			args:     []string{"docs", "update", "--help"},
@@ -150,6 +150,85 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 				t.Fatalf("run(%v) stdout missing %q:\n%s", test.args, expected, stdout.String())
 			}
 		}
+	}
+}
+
+func TestDocsPublishUsesDefaultBaseURLFromEnvironment(t *testing.T) {
+	home := t.TempDir()
+	source := filepath.Join(home, "note.md")
+	if err := os.WriteFile(source, []byte("# Default Target\n\nBody.\n"), 0o644); err != nil {
+		t.Fatalf("write markdown: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("IXF_DOCS_DEFAULT_BASE_URL", "https://tenant.example.test")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"docs", "publish", source, "--dry-run"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("docs publish exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode publish dry-run json: %v\n%s", err, stdout.String())
+	}
+	if payload["baseURLSource"] != "env:IXF_DOCS_DEFAULT_BASE_URL" {
+		t.Fatalf("baseURLSource = %v, want env source; payload=%+v", payload["baseURLSource"], payload)
+	}
+	if payload["targetHost"] != "tenant.example.test" {
+		t.Fatalf("targetHost = %v, want tenant.example.test; payload=%+v", payload["targetHost"], payload)
+	}
+}
+
+func TestDocsPublishUsesDefaultBaseURLFromConfig(t *testing.T) {
+	home := t.TempDir()
+	source := filepath.Join(home, "note.md")
+	if err := os.WriteFile(source, []byte("# Config Target\n\nBody.\n"), 0o644); err != nil {
+		t.Fatalf("write markdown: %v", err)
+	}
+	configDir := filepath.Join(home, ".config", "ixf-toolbox")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	configPath := filepath.Join(configDir, "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"docs":{"defaultBaseURL":"https://configured.example.test"}}`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("IXF_DOCS_DEFAULT_BASE_URL", "")
+	t.Setenv("IXF_DEFAULT_BASE_URL", "")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"docs", "publish", source, "--dry-run"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("docs publish exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode publish dry-run json: %v\n%s", err, stdout.String())
+	}
+	if payload["baseURLSource"] != "config:docs.defaultBaseURL" {
+		t.Fatalf("baseURLSource = %v, want config source; payload=%+v", payload["baseURLSource"], payload)
+	}
+	if payload["targetHost"] != "configured.example.test" {
+		t.Fatalf("targetHost = %v, want configured.example.test; payload=%+v", payload["targetHost"], payload)
+	}
+}
+
+func TestDocsPublishExplicitBaseURLOverridesDefault(t *testing.T) {
+	t.Setenv("IXF_DOCS_DEFAULT_BASE_URL", "https://default.example.test")
+
+	parsed, err := parseDocsPublishArgs([]string{"note.md", "--base-url", "https://explicit.example.test"})
+	if err != nil {
+		t.Fatalf("parse docs publish args: %v", err)
+	}
+	if parsed.baseURL != "https://explicit.example.test" || parsed.baseURLSource != "flag" {
+		t.Fatalf("parsed baseURL=%q source=%q, want explicit flag", parsed.baseURL, parsed.baseURLSource)
 	}
 }
 
@@ -705,6 +784,11 @@ func TestCollectDiagnosticsReportsGoRuntimeSkillsCookiesAndNoSecrets(t *testing.
 	if cookies["cookieCount"] != 2 || cookies["hasCsrf"] != true {
 		t.Fatalf("cookies diagnostics = %+v, want count=2 csrf=true", cookies)
 	}
+	docs := payload["docs"].(map[string]any)
+	defaultBaseURL := docs["defaultBaseURL"].(map[string]any)
+	if defaultBaseURL["configured"] != false || defaultBaseURL["configPath"] == "" {
+		t.Fatalf("docs default base URL diagnostics = %+v", defaultBaseURL)
+	}
 }
 
 func TestCollectDiagnosticsReportsAgentRoutingContract(t *testing.T) {
@@ -926,6 +1010,9 @@ func TestDoctorCommandJSONAndTextUseGoDiagnostics(t *testing.T) {
 	}
 	if !strings.Contains(textOut.String(), "native docsRead=true") {
 		t.Fatalf("doctor text missing native capabilities:\n%s", textOut.String())
+	}
+	if !strings.Contains(textOut.String(), "docs_default_base_url configured=false") {
+		t.Fatalf("doctor text missing docs default base URL diagnostics:\n%s", textOut.String())
 	}
 }
 

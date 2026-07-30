@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.22.0 - 2026-07-30
+
+- Added default docs publish base URL support through `IXF_DOCS_DEFAULT_BASE_URL`, `IXF_DEFAULT_BASE_URL`, or `docs.defaultBaseURL` in the local Toolbox config.
+- Changed `ixf docs publish` so dry-runs can proceed without `--base-url` when a default target is configured, and report `baseURLSource` plus `targetHost`.
+- Added `ixf doctor` docs default-base diagnostics and updated agent guidance so natural publish requests no longer stop at local-only Markdown drafts when a safe default exists.
+
 ## 3.21.0 - 2026-07-28
 
 - Added read-only `ixf docs structure` for safe docx/wiki structure preflight metadata.

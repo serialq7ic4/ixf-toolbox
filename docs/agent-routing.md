@@ -28,22 +28,24 @@ correct domain skill.
 4. For writes, confirm the exact target and content.
 5. Use dry-run-first workflows before any remote mutation or message send.
 6. Run `ixf doctor --json` when the installed routing or local auth state is unclear; `ixf doctor --json` exposes `agentRouting` for machine-readable verification.
-7. For docs publish readiness, inspect `cookies.ok` and `capabilities.docsPublish`; do not treat top-level `doctor.ok=false` alone as an auth failure.
+7. For docs publish readiness, inspect `cookies.ok`, `capabilities.docsPublish`, and `docs.defaultBaseURL`; do not treat top-level `doctor.ok=false` alone as an auth failure.
 
 ## Docs Publish Boundary
 
 When the user asks to publish or整理内容到 i讯飞文档, create the Markdown source
 and proceed to `ixf docs publish --dry-run` if a tenant/base URL is available
-from the prompt or prior i讯飞 link context. If no destination can be inferred,
-ask only for the target base URL or parent location. Do not stop with a
-local-only Markdown draft after a publish request unless authentication and
-cookie export remediation have been attempted or explicitly blocked.
+from the prompt, prior i讯飞 link context, `IXF_DOCS_DEFAULT_BASE_URL`, or
+`docs.defaultBaseURL` in the local Toolbox config. If no destination can be
+inferred and no default is configured, ask only for the target base URL or
+parent location. Do not stop with a local-only Markdown draft after a publish
+request unless authentication, default-target discovery, and cookie export
+remediation have been attempted or explicitly blocked.
 
 ## Docs Write Boundary
 
 Use the smallest docs write surface that matches the request:
 
-- New document: `ixf docs publish <file.md> --base-url <tenant> --dry-run`.
+- New document: `ixf docs publish <file.md> --base-url <tenant> --dry-run`, or omit `--base-url` when `ixf doctor --json` reports `docs.defaultBaseURL.configured=true`.
 - Localized insertion or append under an existing heading: `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run`.
 - Confirmed replacement of one heading section: `ixf docs patch replace-section <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run`.
 - Confirmed deletion of one heading section: `ixf docs patch delete-section --url <doc-or-wiki-url> --under-heading <heading> --dry-run`.

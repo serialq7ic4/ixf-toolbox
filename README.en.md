@@ -148,7 +148,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Runtime Status
 
-Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations. Starting with v3.6, it can send approved messages and requires fresh-session verification before reporting success. Starting with v3.7, Messenger has a GA runbook and actionable diagnostic remediation. Starting with v3.8, agent routing diagnostics and Messenger stability metadata are exposed through doctor commands. Starting with v3.9, existing-docx body replacement dry-run/preflight is available. Starting with v3.10, approved existing-docx body replacement writes are available. Starting with v3.11, complex-block explicit override and the update runbook are available. Starting with v3.13, dedicated `ixf sheets read` and `ixf sheets update --dry-run` command surfaces are available. Starting with v3.14, API-only `ixf sheets update --apply` writes cells and verifies by readback. Starting with v3.16, the docx block graph foundation is available. Starting with v3.17, `ixf docs patch insert --dry-run` is available. Starting with v3.18, approved API-only insert-under-heading writes verify unchanged existing blocks. Starting with v3.20, API-only bounded section replace/delete verifies outside-section blocks remain unchanged. Starting with v3.21, read/write preflight exposes safe heading, section, and complex-block structure summaries, and `ixf docs read --out-dir` writes `.structure.json` artifacts.
+Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations. Starting with v3.6, it can send approved messages and requires fresh-session verification before reporting success. Starting with v3.7, Messenger has a GA runbook and actionable diagnostic remediation. Starting with v3.8, agent routing diagnostics and Messenger stability metadata are exposed through doctor commands. Starting with v3.9, existing-docx body replacement dry-run/preflight is available. Starting with v3.10, approved existing-docx body replacement writes are available. Starting with v3.11, complex-block explicit override and the update runbook are available. Starting with v3.13, dedicated `ixf sheets read` and `ixf sheets update --dry-run` command surfaces are available. Starting with v3.14, API-only `ixf sheets update --apply` writes cells and verifies by readback. Starting with v3.16, the docx block graph foundation is available. Starting with v3.17, `ixf docs patch insert --dry-run` is available. Starting with v3.18, approved API-only insert-under-heading writes verify unchanged existing blocks. Starting with v3.20, API-only bounded section replace/delete verifies outside-section blocks remain unchanged. Starting with v3.21, read/write preflight exposes safe heading, section, and complex-block structure summaries, and `ixf docs read --out-dir` writes `.structure.json` artifacts. Starting with v3.22, docs publishing can use a configured default tenant so natural publish requests do not stop at local-only drafts when `--base-url` is omitted.
 
 See [`docs/agent-routing.md`](docs/agent-routing.md) for the agent routing contract. See [`docs/messenger.md`](docs/messenger.md) for Messenger operations, including Chrome/Chromium-only discovery, cloned profile isolation, read side effects, and send success criteria.
 
@@ -189,12 +189,28 @@ Write commands default to dry-run. Real remote mutation requires explicit `--app
 
 Publish Markdown as a new docx:
 
+If your tenant is stable, configure a default publish base URL first. Agents can
+then run publish dry-runs for natural "publish to i讯飞 docs" requests even when
+the prompt does not include an explicit URL:
+
+```bash
+export IXF_DOCS_DEFAULT_BASE_URL=https://tenant.example.test
+```
+
+Or write `~/.config/ixf-toolbox/config.json`:
+
+```json
+{"docs":{"defaultBaseURL":"https://tenant.example.test"}}
+```
+
+`ixf doctor --json` reports `docs.defaultBaseURL.configured/source/host` without
+printing cookies or tokens.
+
 ```bash
 ixf docs publish notes/review.md \
   --base-url https://tenant.example.test
 
 ixf docs publish notes/review.md \
-  --base-url https://tenant.example.test \
   --cookies /tmp/ixf_cookies.json \
   --apply
 ```

@@ -2,10 +2,14 @@ package docspublish
 
 import (
 	"bytes"
+	"encoding/xml"
 	"fmt"
+	"image/png"
 	"io"
+	"math"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +35,8 @@ type renderedImage struct {
 	Name     string
 	MimeType string
 	Size     int64
+	Width    int
+	Height   int
 }
 
 type imageBinding struct {
@@ -117,12 +123,110 @@ func renderMermaid(text string, ordinal int, format string, dir string) (rendere
 	if info.Size() == 0 {
 		return renderedImage{}, fmt.Errorf("mmdc %s output empty", format)
 	}
+	width, height, err := renderedImageDimensions(outputPath, format)
+	if err != nil {
+		return renderedImage{}, err
+	}
 	return renderedImage{
 		Path:     outputPath,
 		Name:     name,
 		MimeType: mimeTypeForRenderedFormat(format),
 		Size:     info.Size(),
+		Width:    width,
+		Height:   height,
 	}, nil
+}
+
+func renderedImageDimensions(path string, format string) (int, int, error) {
+	switch format {
+	case "png":
+		file, err := os.Open(path)
+		if err != nil {
+			return 0, 0, err
+		}
+		defer file.Close()
+		config, err := png.DecodeConfig(file)
+		if err != nil {
+			return 0, 0, fmt.Errorf("mmdc png dimensions unavailable: %w", err)
+		}
+		if config.Width <= 0 || config.Height <= 0 {
+			return 0, 0, fmt.Errorf("mmdc png dimensions invalid")
+		}
+		return config.Width, config.Height, nil
+	case "svg":
+		return svgDimensions(path)
+	default:
+		return 0, 0, fmt.Errorf("mmdc %s dimensions unsupported", format)
+	}
+}
+
+func svgDimensions(path string) (int, int, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer file.Close()
+	decoder := xml.NewDecoder(file)
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return 0, 0, fmt.Errorf("mmdc svg dimensions unavailable: %w", err)
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok || start.Name.Local != "svg" {
+			continue
+		}
+		attrs := map[string]string{}
+		for _, attr := range start.Attr {
+			attrs[attr.Name.Local] = attr.Value
+		}
+		if width, height := dimensionPair(attrs["width"], attrs["height"]); width > 0 && height > 0 {
+			return width, height, nil
+		}
+		if width, height := viewBoxDimensions(attrs["viewBox"]); width > 0 && height > 0 {
+			return width, height, nil
+		}
+		break
+	}
+	return 0, 0, fmt.Errorf("mmdc svg dimensions unavailable")
+}
+
+func dimensionPair(widthValue string, heightValue string) (int, int) {
+	width := parseDimension(widthValue)
+	height := parseDimension(heightValue)
+	if width <= 0 || height <= 0 {
+		return 0, 0
+	}
+	return width, height
+}
+
+func viewBoxDimensions(value string) (int, int) {
+	fields := strings.Fields(strings.ReplaceAll(strings.TrimSpace(value), ",", " "))
+	if len(fields) != 4 {
+		return 0, 0
+	}
+	width, widthErr := strconv.ParseFloat(fields[2], 64)
+	height, heightErr := strconv.ParseFloat(fields[3], 64)
+	if widthErr != nil || heightErr != nil || width <= 0 || height <= 0 {
+		return 0, 0
+	}
+	return int(math.Round(width)), int(math.Round(height))
+}
+
+func parseDimension(value string) int {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.HasSuffix(value, "%") {
+		return 0
+	}
+	value = strings.TrimSuffix(value, "px")
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil || parsed <= 0 {
+		return 0
+	}
+	return int(math.Round(parsed))
 }
 
 func mimeTypeForRenderedFormat(format string) string {
@@ -172,9 +276,47 @@ func (session *publishSession) attachGeneratedImages(pageID string, memberID str
 	}
 	changeMap := buildImageBindingChangeMap(blockMap, bindings)
 	if err := session.writeBlocks(pageID, memberID, changeMap, referer); err != nil {
-		return len(bindings), err
+		return len(bindings), fmt.Errorf("generated image binding write failed: %w", err)
 	}
 	return len(bindings), nil
+}
+
+func prepareGeneratedImagePlaceholders(entries []blockEntry) (int, error) {
+	imageEntries := generatedImageEntries(entries)
+	if len(imageEntries) == 0 {
+		return 0, nil
+	}
+	tempDir, err := os.MkdirTemp("", "ixf-mermaid-*")
+	if err != nil {
+		return 0, err
+	}
+	defer os.RemoveAll(tempDir)
+
+	prepared := 0
+	for _, entry := range imageEntries {
+		image, err := renderMermaidPlaceholderImage(entry, tempDir)
+		if err != nil {
+			return prepared, err
+		}
+		entry.Data["image"] = imagePlaceholderData(image)
+		prepared++
+	}
+	return prepared, nil
+}
+
+func renderMermaidPlaceholderImage(entry blockEntry, tempDir string) (renderedImage, error) {
+	if entry.Image == nil || entry.Image.Kind != "mermaid" {
+		return renderedImage{}, fmt.Errorf("unsupported generated image source")
+	}
+	svg, svgErr := renderMermaid(entry.Image.Text, entry.Image.Ordinal, mermaidPreferredFormat, tempDir)
+	if svgErr == nil {
+		return svg, nil
+	}
+	png, pngErr := renderMermaid(entry.Image.Text, entry.Image.Ordinal, mermaidFallbackFormat, tempDir)
+	if pngErr != nil {
+		return renderedImage{}, fmt.Errorf("mermaid render failed: svg=%v; png=%v", svgErr, pngErr)
+	}
+	return png, nil
 }
 
 func (session *publishSession) prepareGeneratedImageBlocks(pageID string, referer string, entries []blockEntry) (int, error) {
@@ -266,19 +408,6 @@ func (session *publishSession) uploadImage(pageID string, blockID string, image 
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	fields := map[string]string{
-		"file_name":        image.Name,
-		"parent_type":      "docx_image",
-		"parent_node":      blockID,
-		"mount_point":      "docx_image",
-		"mount_node_token": pageID,
-		"size":             strconv.FormatInt(image.Size, 10),
-	}
-	for key, value := range fields {
-		if err := writer.WriteField(key, value); err != nil {
-			return "", err
-		}
-	}
 	part, err := writer.CreateFormFile("file", image.Name)
 	if err != nil {
 		return "", err
@@ -290,7 +419,15 @@ func (session *publishSession) uploadImage(pageID string, blockID string, image 
 		return "", err
 	}
 
-	request, err := http.NewRequest(http.MethodPost, session.baseURL+"/space/api/box/stream/upload/all/", body)
+	query := url.Values{
+		"name":                     {image.Name},
+		"size":                     {strconv.FormatInt(image.Size, 10)},
+		"mount_node_token":         {blockID},
+		"mount_point":              {"docx_image"},
+		"push_open_history_record": {"0"},
+	}
+	requestURL := session.baseURL + "/space/api/box/stream/upload/all/?" + query.Encode()
+	request, err := http.NewRequest(http.MethodPost, requestURL, body)
 	if err != nil {
 		return "", err
 	}
@@ -335,6 +472,11 @@ func buildImageBindingChangeMap(blockMap map[string]any, bindings []imageBinding
 	changeMap := map[string]any{}
 	for _, binding := range bindings {
 		entry := asMap(blockMap[binding.BlockID])
+		data := dataForBlock(entry)
+		action := map[string]any{"oi": imageDataForBinding(binding)}
+		if oldImage := asMap(data["image"]); len(oldImage) > 0 {
+			action["od"] = oldImage
+		}
 		changeMap[binding.BlockID] = map[string]any{
 			"id":      binding.BlockID,
 			"version": asInt(entry["version"]),
@@ -342,7 +484,7 @@ func buildImageBindingChangeMap(blockMap map[string]any, bindings []imageBinding
 				"ops": []map[string]any{
 					{
 						"p":      []any{"image"},
-						"action": map[string]any{"oi": imageDataForBinding(binding)},
+						"action": action,
 					},
 				},
 			},
@@ -352,10 +494,20 @@ func buildImageBindingChangeMap(blockMap map[string]any, bindings []imageBinding
 }
 
 func imageDataForBinding(binding imageBinding) map[string]any {
+	data := imagePlaceholderData(binding.Image)
+	data["token"] = binding.Token
+	return data
+}
+
+func imagePlaceholderData(image renderedImage) map[string]any {
 	return map[string]any{
-		"token":    binding.Token,
-		"name":     binding.Image.Name,
-		"mimeType": binding.Image.MimeType,
-		"size":     binding.Image.Size,
+		"name":     image.Name,
+		"mimeType": image.MimeType,
+		"size":     image.Size,
+		"width":    image.Width,
+		"height":   image.Height,
+		"src":      "",
+		"scale":    1,
+		"align":    "center",
 	}
 }

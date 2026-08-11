@@ -30,6 +30,27 @@ func TestParseMarkdownConvertsMermaidFencesToImageSpecs(t *testing.T) {
 	}
 }
 
+func TestBuildBlocksCreatesMermaidImageSkeleton(t *testing.T) {
+	_, specs, err := ParseMarkdown("# Title\n\n```mermaid\nflowchart LR\n  A --> B\n```\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	topIDs, entries := buildBlocks(specs, "doxrzPage", newBlockFactory("author_fixture"))
+	if len(topIDs) != 1 || len(entries) != 1 {
+		t.Fatalf("blocks top=%#v entries=%#v, want one image block", topIDs, entries)
+	}
+	image := entries[0].Data
+	if image["type"] != "image" || image["parent_id"] != "doxrzPage" || image["author"] != "author_fixture" {
+		t.Fatalf("image skeleton = %#v", image)
+	}
+	if len(asSlice(image["children"])) != 0 {
+		t.Fatalf("image children = %#v, want empty slice", image["children"])
+	}
+	if _, ok := image["image"]; ok {
+		t.Fatalf("image skeleton contains bound image before upload: %#v", image)
+	}
+}
+
 func TestMarkdownTablesBuildNativeTableBlocks(t *testing.T) {
 	_, specs, err := ParseMarkdown("# Title\n\n| 告警 | 阈值 |\n|---|---|\n| P0 | 立即处理 |\n| P1 | 尽快处理 |\n")
 	if err != nil {
@@ -214,12 +235,19 @@ func TestPublishMarkdownApplyCreatesMermaidImageWithUploadedImageData(t *testing
 
 	var events []string
 	wroteBlocks := false
+	boundImage := false
+	wroteImagePlaceholder := false
 	textBlockID := ""
 	imageBlockID := ""
+	placeholderImage := map[string]any{}
 	uploadedName := ""
-	uploadedParentType := ""
 	uploadedMountPoint := ""
-	uploadedParentNode := ""
+	uploadedMountNodeToken := ""
+	uploadedMountNodePoint := ""
+	uploadedObjType := ""
+	uploadedAsync := ""
+	uploadedSize := ""
+	uploadedFormMetadata := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/space/api/explorer/v2/create/object/":
@@ -264,13 +292,24 @@ func TestPublishMarkdownApplyCreatesMermaidImageWithUploadedImageData(t *testing
 							"type":      "image",
 							"parent_id": "doxrzCreatedPage",
 							"author":    "author_fixture",
-							"image": map[string]any{
-								"token":    "boxr-svg-token",
-								"mimeType": "image/svg+xml",
-								"name":     "mermaid-001.svg",
-							},
 						},
 					},
+				}
+				if len(placeholderImage) > 0 {
+					asMap(asMap(blockMap[imageBlockID])["data"])["image"] = placeholderImage
+				}
+				if boundImage {
+					asMap(asMap(blockMap[imageBlockID])["data"])["image"] = map[string]any{
+						"token":    "boxr-svg-token",
+						"mimeType": "image/svg+xml",
+						"name":     "mermaid-001.svg",
+						"width":    640,
+						"height":   360,
+						"size":     1234,
+						"src":      "",
+						"scale":    1,
+						"align":    "center",
+					}
 				}
 			}
 			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"block_map": blockMap}})
@@ -301,20 +340,62 @@ func TestPublishMarkdownApplyCreatesMermaidImageWithUploadedImageData(t *testing
 						case "image":
 							imageBlockID = blockID
 							image := asMap(inserted["image"])
-							if image["token"] != "boxr-svg-token" || image["mimeType"] != "image/svg+xml" || image["name"] != "mermaid-001.svg" {
+							if len(image) == 0 {
+								continue
+							}
+							if image["token"] != nil || image["mimeType"] != "image/svg+xml" || image["name"] != "mermaid-001.svg" || asInt(image["width"]) != 640 || asInt(image["height"]) != 360 || asInt(image["scale"]) != 1 || image["src"] != "" || image["align"] != "center" {
 								writeTestJSON(t, w, map[string]any{
 									"code": 4000020,
 									"msg":  "schema mismatch",
 								})
 								return
 							}
+							wroteImagePlaceholder = true
+							placeholderImage = image
 						}
 					}
 				}
 				if textBlockID == "" || imageBlockID == "" {
 					t.Fatalf("could not discover created text/image block IDs: %s", text)
 				}
+				if !wroteImagePlaceholder {
+					t.Fatalf("first image write did not include placeholder metadata: %s", text)
+				}
 				wroteBlocks = true
+				returnOKJSON(t, w)
+				return
+			}
+			if strings.Contains(text, `"p":["image"]`) {
+				if imageBlockID == "" || uploadedMountNodeToken != imageBlockID {
+					writeTestJSON(t, w, map[string]any{
+						"code": 4000030,
+						"msg":  "relation mismatch",
+					})
+					return
+				}
+				change := asMap(payload["change_map"])[imageBlockID]
+				ops := asSlice(asMap(asMap(change)["payload"])["ops"])
+				if len(ops) != 1 {
+					t.Fatalf("image binding ops = %#v, want one replace op", ops)
+				}
+				action := asMap(asMap(ops[0])["action"])
+				oldImage := asMap(action["od"])
+				newImage := asMap(action["oi"])
+				if oldImage["token"] != nil || oldImage["mimeType"] != "image/svg+xml" || oldImage["name"] != "mermaid-001.svg" || asInt(oldImage["width"]) != 640 || asInt(oldImage["height"]) != 360 {
+					writeTestJSON(t, w, map[string]any{
+						"code": 4000030,
+						"msg":  "relation mismatch",
+					})
+					return
+				}
+				if newImage["token"] != "boxr-svg-token" || newImage["mimeType"] != "image/svg+xml" || newImage["name"] != "mermaid-001.svg" || asInt(newImage["width"]) != 640 || asInt(newImage["height"]) != 360 {
+					writeTestJSON(t, w, map[string]any{
+						"code": 4000020,
+						"msg":  "schema mismatch",
+					})
+					return
+				}
+				boundImage = true
 				returnOKJSON(t, w)
 				return
 			}
@@ -324,10 +405,26 @@ func TestPublishMarkdownApplyCreatesMermaidImageWithUploadedImageData(t *testing
 			if err := r.ParseMultipartForm(10 << 20); err != nil {
 				t.Fatal(err)
 			}
-			uploadedName = r.FormValue("file_name")
-			uploadedParentType = r.FormValue("parent_type")
-			uploadedMountPoint = r.FormValue("mount_point")
-			uploadedParentNode = r.FormValue("parent_node")
+			query := r.URL.Query()
+			uploadedName = query.Get("name")
+			uploadedMountPoint = query.Get("mount_point")
+			uploadedMountNodeToken = query.Get("mount_node_token")
+			uploadedMountNodePoint = query.Get("mount_node_point")
+			uploadedObjType = query.Get("obj_type")
+			uploadedAsync = query.Get("is_asynchronous")
+			uploadedSize = query.Get("size")
+			for _, key := range []string{"file_name", "parent_type", "parent_node", "mount_point", "mount_node_token", "size"} {
+				if _, ok := r.MultipartForm.Value[key]; ok {
+					uploadedFormMetadata = true
+				}
+			}
+			if uploadedName == "" || uploadedMountPoint == "" || uploadedMountNodeToken == "" || uploadedMountNodePoint != "" || uploadedObjType != "" || uploadedAsync != "" || uploadedSize == "" || uploadedFormMetadata {
+				writeTestJSON(t, w, map[string]any{
+					"code": 4000020,
+					"msg":  "upload metadata must match direct upload params",
+				})
+				return
+			}
 			file, _, err := r.FormFile("file")
 			if err != nil {
 				t.Fatal(err)
@@ -366,13 +463,16 @@ func TestPublishMarkdownApplyCreatesMermaidImageWithUploadedImageData(t *testing
 	if counts["image"] != 1 {
 		t.Fatalf("verify counts = %+v, want image=1", counts)
 	}
-	if uploadedName != "mermaid-001.svg" || uploadedParentType != "docx_image" || uploadedMountPoint != "docx_image" {
-		t.Fatalf("upload form name=%q parent_type=%q mount_point=%q", uploadedName, uploadedParentType, uploadedMountPoint)
+	if uploadedName != "mermaid-001.svg" || uploadedMountPoint != "docx_image" || uploadedMountNodeToken != imageBlockID || uploadedMountNodePoint != "" || uploadedObjType != "" || uploadedAsync != "" || uploadedSize == "" {
+		t.Fatalf("upload query name=%q mount_point=%q mount_node_token=%q mount_node_point=%q imageBlockID=%q obj_type=%q async=%q size=%q", uploadedName, uploadedMountPoint, uploadedMountNodeToken, uploadedMountNodePoint, imageBlockID, uploadedObjType, uploadedAsync, uploadedSize)
 	}
-	if uploadedParentNode == "" || uploadedParentNode != imageBlockID {
-		t.Fatalf("upload parent_node=%q imageBlockID=%q", uploadedParentNode, imageBlockID)
+	if uploadedFormMetadata {
+		t.Fatal("upload metadata was sent as multipart form fields; want query params only")
 	}
-	expectedEvents := []string{"create", "client_vars", "upload", "write", "client_vars"}
+	if !wroteImagePlaceholder || !boundImage {
+		t.Fatalf("placeholder=%v boundImage=%v, want both stages", wroteImagePlaceholder, boundImage)
+	}
+	expectedEvents := []string{"create", "client_vars", "write", "client_vars", "upload", "write", "client_vars"}
 	if strings.Join(events, ",") != strings.Join(expectedEvents, ",") {
 		t.Fatalf("events = %#v, want %#v", events, expectedEvents)
 	}
@@ -396,7 +496,14 @@ func TestMermaidImageUploadFallsBackToPNGWhenSVGRenderFails(t *testing.T) {
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
 			t.Fatal(err)
 		}
-		uploadedName = r.FormValue("file_name")
+		uploadedName = r.URL.Query().Get("name")
+		if uploadedName == "" {
+			writeTestJSON(t, w, map[string]any{
+				"code": 4000020,
+				"msg":  "upload metadata must be query params",
+			})
+			return
+		}
 		file, _, err := r.FormFile("file")
 		if err != nil {
 			t.Fatal(err)
@@ -428,7 +535,7 @@ func TestMermaidImageUploadFallsBackToPNGWhenSVGRenderFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if binding.Token != "boxr-png-token" || binding.Image.MimeType != "image/png" || binding.Image.Name != "mermaid-001.png" {
+	if binding.Token != "boxr-png-token" || binding.Image.MimeType != "image/png" || binding.Image.Name != "mermaid-001.png" || binding.Image.Width != 1 || binding.Image.Height != 1 {
 		t.Fatalf("binding = %+v, want png fallback token", binding)
 	}
 	if uploadedName != "mermaid-001.png" || !strings.HasPrefix(uploadedBody, "\x89PNG") {
@@ -467,6 +574,10 @@ func TestPublishMarkdownDryRunCountsMarkdownTables(t *testing.T) {
 
 func writeMMDCRendererFixture(t *testing.T, dir string) {
 	t.Helper()
+	pngPath := filepath.Join(dir, "fixture.png")
+	if err := os.WriteFile(pngPath, testPNG1x1(), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(dir, "mmdc")
 	script := `#!/bin/sh
 set -eu
@@ -478,8 +589,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$out" in
-  *.svg) printf '<svg xmlns="http://www.w3.org/2000/svg"><text>fixture</text></svg>' > "$out" ;;
-  *.png) printf '\211PNG\r\n\032\nfixture' > "$out" ;;
+  *.svg) printf '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360"><text>fixture</text></svg>' > "$out" ;;
+  *.png) cp ` + shellQuote(pngPath) + ` "$out" ;;
   *) exit 2 ;;
 esac
 `
@@ -490,6 +601,10 @@ esac
 
 func writeFailingSVGMMDCRendererFixture(t *testing.T, dir string) {
 	t.Helper()
+	pngPath := filepath.Join(dir, "fixture.png")
+	if err := os.WriteFile(pngPath, testPNG1x1(), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(dir, "mmdc")
 	script := `#!/bin/sh
 set -eu
@@ -502,13 +617,31 @@ while [ "$#" -gt 0 ]; do
 done
 case "$out" in
   *.svg) echo "svg unsupported" >&2; exit 42 ;;
-  *.png) printf '\211PNG\r\n\032\nfixture' > "$out" ;;
+  *.png) cp ` + shellQuote(pngPath) + ` "$out" ;;
   *) exit 2 ;;
 esac
 `
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func testPNG1x1() []byte {
+	return []byte{
+		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+		0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+		0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+		0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41,
+		0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+		0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
+		0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+		0x42, 0x60, 0x82,
+	}
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func returnOKJSON(t *testing.T, w http.ResponseWriter) {

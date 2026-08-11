@@ -165,12 +165,15 @@ func applyUpdateMarkdown(
 	}
 	rootChildren := asSlice(rootData["children"])
 	topIDs, entries := buildBlocks(specs, target.Token, newBlockFactory(memberID))
-	attachedImageCount, err := session.prepareGeneratedImageBlocks(target.Token, target.Referer, entries)
-	if err != nil {
+	if _, err := prepareGeneratedImagePlaceholders(entries); err != nil {
 		return nil, err
 	}
 	changeMap := buildReplaceBodyChangeMap(target.Token, root, rootChildren, topIDs, entries)
 	if err := session.writeBlocks(target.Token, memberID, changeMap, target.Referer); err != nil {
+		return nil, err
+	}
+	attachedImageCount, err := session.attachGeneratedImages(target.Token, memberID, target.Referer, entries)
+	if err != nil {
 		return nil, err
 	}
 	verify, err := session.verify(target.Token, target.Referer, config.RequiredText, countSpecsByKind(specs, "image"))
@@ -229,8 +232,7 @@ func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, co
 	rootChildren := asSlice(rootData["children"])
 	rootVersion := asInt(root["version"])
 	topIDs, entries := buildBlocks(specs, pageID, newBlockFactory(author))
-	attachedImageCount, err := session.prepareGeneratedImageBlocks(pageID, finalURL, entries)
-	if err != nil {
+	if _, err := prepareGeneratedImagePlaceholders(entries); err != nil {
 		return nil, err
 	}
 	changeMap := map[string]any{
@@ -257,6 +259,10 @@ func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, co
 		}
 	}
 	if err := session.writeBlocks(pageID, memberID, changeMap, finalURL); err != nil {
+		return nil, err
+	}
+	attachedImageCount, err := session.attachGeneratedImages(pageID, memberID, finalURL, entries)
+	if err != nil {
 		return nil, err
 	}
 	verify, err := session.verify(pageID, finalURL, config.RequiredText, countSpecsByKind(specs, "image"))
@@ -817,6 +823,7 @@ func (factory *blockFactory) imageBlock(parentID string) map[string]any {
 	return map[string]any{
 		"type":      "image",
 		"parent_id": parentID,
+		"children":  []any{},
 		"comments":  []any{},
 		"revisions": []any{},
 		"locked":    false,

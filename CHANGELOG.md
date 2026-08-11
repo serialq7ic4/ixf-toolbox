@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.23.0 - 2026-08-11
+
+- Added Mermaid image publishing for `ixf docs publish`, `ixf docs update`, and docs patch workflows, including `mermaid` fenced code and exported `Plain` blocks whose first content line is a Mermaid diagram.
+- Rendered Mermaid diagrams with external Mermaid CLI `mmdc`, preferring SVG and falling back to PNG while reporting dry-run renderer and planned image metadata.
+- Fixed remote docx image upload binding by creating image placeholders first, uploading generated assets to `docx_image`, and attaching tokens to the image blocks.
+
 ## 3.22.0 - 2026-07-30
 
 - Added default docs publish base URL support through `IXF_DOCS_DEFAULT_BASE_URL`, `IXF_DEFAULT_BASE_URL`, or `docs.defaultBaseURL` in the local Toolbox config.

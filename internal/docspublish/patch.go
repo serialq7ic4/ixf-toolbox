@@ -151,12 +151,12 @@ func PatchInsertMarkdown(config PatchInsertConfig) (map[string]any, error) {
 		return nil, fmt.Errorf("duplicate insert candidate under heading %q", config.UnderHeading)
 	}
 	root := asMap(asMap(state["block_map"])[target.Token])
-	changeMap := buildPatchInsertChangeMap(target.Token, root, insertIndex, topIDs, entries)
-	if err := session.writeBlocks(target.Token, memberID, changeMap, target.Referer); err != nil {
+	attachedImageCount, err := session.prepareGeneratedImageBlocks(target.Token, target.Referer, entries)
+	if err != nil {
 		return nil, err
 	}
-	attachedImageCount, err := session.attachGeneratedImages(target.Token, memberID, target.Referer, entries)
-	if err != nil {
+	changeMap := buildPatchInsertChangeMap(target.Token, root, insertIndex, topIDs, entries)
+	if err := session.writeBlocks(target.Token, memberID, changeMap, target.Referer); err != nil {
 		return nil, err
 	}
 	verify, err := session.verify(target.Token, target.Referer, patchVerifyRequiredText(specs, config.RequiredText), countSpecsByKind(specs, "image"))
@@ -256,21 +256,19 @@ func PatchSectionMarkdown(config PatchSectionConfig) (map[string]any, error) {
 		return withTableFallbackMetadata(payload, specs), nil
 	}
 	var changeMap map[string]any
+	attachedImageCount := 0
 	if config.DeleteOnly {
 		changeMap = buildDeleteSectionChangeMap(loaded.target.Token, loaded.root, section)
 	} else {
+		var attachErr error
+		attachedImageCount, attachErr = loaded.session.prepareGeneratedImageBlocks(loaded.target.Token, loaded.target.Referer, entries)
+		if attachErr != nil {
+			return nil, attachErr
+		}
 		changeMap = buildReplaceSectionChangeMap(loaded.target.Token, loaded.root, section, topIDs, entries)
 	}
 	if err := loaded.session.writeBlocks(loaded.target.Token, loaded.memberID, changeMap, loaded.target.Referer); err != nil {
 		return nil, err
-	}
-	attachedImageCount := 0
-	if !config.DeleteOnly {
-		var attachErr error
-		attachedImageCount, attachErr = loaded.session.attachGeneratedImages(loaded.target.Token, loaded.memberID, loaded.target.Referer, entries)
-		if attachErr != nil {
-			return nil, attachErr
-		}
 	}
 	required := patchVerifyRequiredText(specs, config.RequiredText)
 	verify, err := loaded.session.verify(loaded.target.Token, loaded.target.Referer, required, countSpecsByKind(specs, "image"))

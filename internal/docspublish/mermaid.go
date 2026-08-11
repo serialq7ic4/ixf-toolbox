@@ -177,6 +177,29 @@ func (session *publishSession) attachGeneratedImages(pageID string, memberID str
 	return len(bindings), nil
 }
 
+func (session *publishSession) prepareGeneratedImageBlocks(pageID string, referer string, entries []blockEntry) (int, error) {
+	imageEntries := generatedImageEntries(entries)
+	if len(imageEntries) == 0 {
+		return 0, nil
+	}
+	tempDir, err := os.MkdirTemp("", "ixf-mermaid-*")
+	if err != nil {
+		return 0, err
+	}
+	defer os.RemoveAll(tempDir)
+
+	prepared := 0
+	for _, entry := range imageEntries {
+		binding, err := session.renderUploadMermaidImage(pageID, entry, referer, tempDir)
+		if err != nil {
+			return prepared, err
+		}
+		entry.Data["image"] = imageDataForBinding(binding)
+		prepared++
+	}
+	return prepared, nil
+}
+
 func imageEntryIDs(entries []blockEntry) []string {
 	ids := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -312,12 +335,6 @@ func buildImageBindingChangeMap(blockMap map[string]any, bindings []imageBinding
 	changeMap := map[string]any{}
 	for _, binding := range bindings {
 		entry := asMap(blockMap[binding.BlockID])
-		imageData := map[string]any{
-			"token":    binding.Token,
-			"name":     binding.Image.Name,
-			"mimeType": binding.Image.MimeType,
-			"size":     binding.Image.Size,
-		}
 		changeMap[binding.BlockID] = map[string]any{
 			"id":      binding.BlockID,
 			"version": asInt(entry["version"]),
@@ -325,11 +342,20 @@ func buildImageBindingChangeMap(blockMap map[string]any, bindings []imageBinding
 				"ops": []map[string]any{
 					{
 						"p":      []any{"image"},
-						"action": map[string]any{"oi": imageData},
+						"action": map[string]any{"oi": imageDataForBinding(binding)},
 					},
 				},
 			},
 		}
 	}
 	return changeMap
+}
+
+func imageDataForBinding(binding imageBinding) map[string]any {
+	return map[string]any{
+		"token":    binding.Token,
+		"name":     binding.Image.Name,
+		"mimeType": binding.Image.MimeType,
+		"size":     binding.Image.Size,
+	}
 }

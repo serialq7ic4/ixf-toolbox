@@ -193,7 +193,7 @@ func TestPublishMarkdownApplyRequiresMermaidRendererBeforeRemoteWrite(t *testing
 	}
 }
 
-func TestPublishMarkdownApplyUploadsAndBindsMermaidImage(t *testing.T) {
+func TestPublishMarkdownApplyCreatesMermaidImageWithUploadedImageData(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is POSIX-only")
 	}
@@ -214,12 +214,12 @@ func TestPublishMarkdownApplyUploadsAndBindsMermaidImage(t *testing.T) {
 
 	var events []string
 	wroteBlocks := false
-	boundImage := false
 	textBlockID := ""
 	imageBlockID := ""
 	uploadedName := ""
 	uploadedParentType := ""
 	uploadedMountPoint := ""
+	uploadedParentNode := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/space/api/explorer/v2/create/object/":
@@ -264,15 +264,13 @@ func TestPublishMarkdownApplyUploadsAndBindsMermaidImage(t *testing.T) {
 							"type":      "image",
 							"parent_id": "doxrzCreatedPage",
 							"author":    "author_fixture",
+							"image": map[string]any{
+								"token":    "boxr-svg-token",
+								"mimeType": "image/svg+xml",
+								"name":     "mermaid-001.svg",
+							},
 						},
 					},
-				}
-			}
-			if boundImage {
-				blockMap[imageBlockID].(map[string]any)["data"].(map[string]any)["image"] = map[string]any{
-					"token":    "boxr-svg-token",
-					"mimeType": "image/svg+xml",
-					"name":     "mermaid-001.svg",
 				}
 			}
 			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"block_map": blockMap}})
@@ -302,6 +300,14 @@ func TestPublishMarkdownApplyUploadsAndBindsMermaidImage(t *testing.T) {
 							textBlockID = blockID
 						case "image":
 							imageBlockID = blockID
+							image := asMap(inserted["image"])
+							if image["token"] != "boxr-svg-token" || image["mimeType"] != "image/svg+xml" || image["name"] != "mermaid-001.svg" {
+								writeTestJSON(t, w, map[string]any{
+									"code": 4000020,
+									"msg":  "schema mismatch",
+								})
+								return
+							}
 						}
 					}
 				}
@@ -309,11 +315,6 @@ func TestPublishMarkdownApplyUploadsAndBindsMermaidImage(t *testing.T) {
 					t.Fatalf("could not discover created text/image block IDs: %s", text)
 				}
 				wroteBlocks = true
-				returnOKJSON(t, w)
-				return
-			}
-			if strings.Contains(text, "boxr-svg-token") && strings.Contains(text, "image/svg+xml") {
-				boundImage = true
 				returnOKJSON(t, w)
 				return
 			}
@@ -326,6 +327,7 @@ func TestPublishMarkdownApplyUploadsAndBindsMermaidImage(t *testing.T) {
 			uploadedName = r.FormValue("file_name")
 			uploadedParentType = r.FormValue("parent_type")
 			uploadedMountPoint = r.FormValue("mount_point")
+			uploadedParentNode = r.FormValue("parent_node")
 			file, _, err := r.FormFile("file")
 			if err != nil {
 				t.Fatal(err)
@@ -367,7 +369,10 @@ func TestPublishMarkdownApplyUploadsAndBindsMermaidImage(t *testing.T) {
 	if uploadedName != "mermaid-001.svg" || uploadedParentType != "docx_image" || uploadedMountPoint != "docx_image" {
 		t.Fatalf("upload form name=%q parent_type=%q mount_point=%q", uploadedName, uploadedParentType, uploadedMountPoint)
 	}
-	expectedEvents := []string{"create", "client_vars", "write", "client_vars", "upload", "write", "client_vars"}
+	if uploadedParentNode == "" || uploadedParentNode != imageBlockID {
+		t.Fatalf("upload parent_node=%q imageBlockID=%q", uploadedParentNode, imageBlockID)
+	}
+	expectedEvents := []string{"create", "client_vars", "upload", "write", "client_vars"}
 	if strings.Join(events, ",") != strings.Join(expectedEvents, ",") {
 		t.Fatalf("events = %#v, want %#v", events, expectedEvents)
 	}

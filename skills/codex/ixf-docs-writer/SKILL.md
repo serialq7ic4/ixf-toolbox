@@ -29,6 +29,8 @@ When a user asks to publish or整理到 i讯飞文档, produce a publishable Mar
 
 Do not treat top-level `doctor.ok=false` alone as an authentication failure. Inspect `.cookies.ok` and `.capabilities.docsPublish` from `ixf doctor --json`; if cookies are missing, run or ask for `ixf cookies export --provider auto`, then retry the dry-run.
 
+Markdown Mermaid blocks publish/update/patch as image blocks, not code blocks. This includes `` ```mermaid `` fenced code and exported `` ```Plain `` blocks whose first non-empty content line starts with Mermaid diagram keywords such as `flowchart`, `sequenceDiagram`, or `erDiagram`. Dry-runs expose `mermaidImageCount`, `plannedImageCount`, `mermaidRendererAvailable`, `mermaidPreferredFormat`, and `mermaidFallbackFormat`. Apply requires external Mermaid CLI `mmdc` on `PATH`; SVG is preferred and PNG is the fallback. If `mermaidImageCount>0` and `mermaidRendererAvailable=false`, do not apply until `mmdc` is installed.
+
 ## Workflow
 
 1. For new docx publishing, confirm the Markdown file and destination URL, default publish base URL, or parent location.
@@ -36,12 +38,12 @@ Do not treat top-level `doctor.ok=false` alone as an authentication failure. Ins
    `ixf docs publish <file.md> --base-url https://tenant.example.test --dry-run`
    or, when `.docs.defaultBaseURL.configured=true`:
    `ixf docs publish <file.md> --dry-run`
-3. Review the planned title, create-only target, and required text checks with the user.
+3. Review the planned title, create-only target, Mermaid image metadata, and required text checks with the user.
 4. Apply only after explicit approval:
    `ixf docs publish <file.md> --base-url https://tenant.example.test --apply`
 5. For localized insertion under a heading, create a fragment Markdown file and run patch dry-run first:
    `ixf docs patch insert <fragment.md> --url https://tenant.example.test/docx/example --under-heading "Target Heading" --dry-run`
-6. Review `structure`, `duplicateCandidate:false`, `existingBlocksTouched:false`, `tableBlockType:"table"`, and `tableFallbackCount:0`. If `duplicateCandidate:true`, stop instead of applying.
+6. Review `structure`, `duplicateCandidate:false`, `existingBlocksTouched:false`, `tableBlockType:"table"`, `tableFallbackCount:0`, and Mermaid image metadata. If `duplicateCandidate:true`, stop instead of applying.
 7. Apply localized insertion only after explicit approval:
    `ixf docs patch insert <fragment.md> --url https://tenant.example.test/docx/example --under-heading "Target Heading" --require "critical content" --apply`
 8. After patch apply, inspect `verify.ok`, `verify.unchangedExistingBlocks`, and `verify.missingRequiredText`; do not claim success unless `verify.ok=true` and `verify.unchangedExistingBlocks=true`.

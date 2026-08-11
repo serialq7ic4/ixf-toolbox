@@ -22,6 +22,7 @@ func parseMarkdownBody(lines []string, start int) ([]Spec, error) {
 			continue
 		}
 		if strings.HasPrefix(line, "```") {
+			info := strings.TrimSpace(strings.TrimPrefix(line, "```"))
 			buffer := []string{}
 			index++
 			for index < len(lines) && !strings.HasPrefix(lines[index], "```") {
@@ -31,7 +32,12 @@ func parseMarkdownBody(lines []string, start int) ([]Spec, error) {
 			if index < len(lines) {
 				index++
 			}
-			specs = append(specs, Spec{Kind: "code", Text: strings.Join(buffer, "\n")})
+			text := strings.Join(buffer, "\n")
+			if isMermaidFence(info, text) {
+				specs = append(specs, Spec{Kind: "image", SourceKind: "mermaid", Text: text})
+				continue
+			}
+			specs = append(specs, Spec{Kind: "code", Text: text})
 			continue
 		}
 		if isTableStart(lines, index) {

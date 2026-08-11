@@ -206,6 +206,16 @@ Or write `~/.config/ixf-toolbox/config.json`:
 `ixf doctor --json` reports `docs.defaultBaseURL.configured/source/host` without
 printing cookies or tokens.
 
+Markdown `` ```mermaid `` fenced code, plus exported `` ```Plain `` blocks whose
+first non-empty content line starts with Mermaid diagram keywords such as
+`flowchart`, `sequenceDiagram`, or `erDiagram`, are written as docx image blocks
+for `publish`, `update`, and `patch` instead of code blocks. Dry-runs report
+`mermaidImageCount`, `plannedImageCount`, `mermaidRendererAvailable`,
+`mermaidPreferredFormat`, and `mermaidFallbackFormat`. Real `--apply` requires
+Mermaid CLI `mmdc` on `PATH`; the writer renders/uploads SVG first and falls
+back to PNG if SVG rendering or upload fails. Missing `mmdc` fails clearly
+before remote writes start.
+
 ```bash
 ixf docs publish notes/review.md \
   --base-url https://tenant.example.test

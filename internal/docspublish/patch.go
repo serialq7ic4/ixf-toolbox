@@ -66,6 +66,11 @@ func PatchInsertMarkdown(config PatchInsertConfig) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if config.Apply {
+		if err := requireMermaidRendererForApply(specs); err != nil {
+			return nil, err
+		}
+	}
 	position, err := normalizePatchInsertPosition(config.Position)
 	if err != nil {
 		return nil, err
@@ -150,7 +155,11 @@ func PatchInsertMarkdown(config PatchInsertConfig) (map[string]any, error) {
 	if err := session.writeBlocks(target.Token, memberID, changeMap, target.Referer); err != nil {
 		return nil, err
 	}
-	verify, err := session.verify(target.Token, target.Referer, patchVerifyRequiredText(specs, config.RequiredText))
+	attachedImageCount, err := session.attachGeneratedImages(target.Token, memberID, target.Referer, entries)
+	if err != nil {
+		return nil, err
+	}
+	verify, err := session.verify(target.Token, target.Referer, patchVerifyRequiredText(specs, config.RequiredText), countSpecsByKind(specs, "image"))
 	if err != nil {
 		return nil, err
 	}
@@ -172,6 +181,7 @@ func PatchInsertMarkdown(config PatchInsertConfig) (map[string]any, error) {
 	payload["willWrite"] = true
 	payload["insertedTopLevelBlocks"] = len(topIDs)
 	payload["insertedBlockCount"] = len(entries)
+	payload["attachedImageCount"] = attachedImageCount
 	payload["verify"] = verify
 	return withTableFallbackMetadata(payload, specs), nil
 }
@@ -187,6 +197,11 @@ func PatchSectionMarkdown(config PatchSectionConfig) (map[string]any, error) {
 		specs, parseErr = ParseMarkdownFragment(string(content))
 		if parseErr != nil {
 			return nil, parseErr
+		}
+	}
+	if config.Apply && !config.DeleteOnly {
+		if err := requireMermaidRendererForApply(specs); err != nil {
+			return nil, err
 		}
 	}
 	loaded, err := loadPatchState(config.URL, config.CookiesPath, config.SpaceAPI)
@@ -249,8 +264,16 @@ func PatchSectionMarkdown(config PatchSectionConfig) (map[string]any, error) {
 	if err := loaded.session.writeBlocks(loaded.target.Token, loaded.memberID, changeMap, loaded.target.Referer); err != nil {
 		return nil, err
 	}
+	attachedImageCount := 0
+	if !config.DeleteOnly {
+		var attachErr error
+		attachedImageCount, attachErr = loaded.session.attachGeneratedImages(loaded.target.Token, loaded.memberID, loaded.target.Referer, entries)
+		if attachErr != nil {
+			return nil, attachErr
+		}
+	}
 	required := patchVerifyRequiredText(specs, config.RequiredText)
-	verify, err := loaded.session.verify(loaded.target.Token, loaded.target.Referer, required)
+	verify, err := loaded.session.verify(loaded.target.Token, loaded.target.Referer, required, countSpecsByKind(specs, "image"))
 	if err != nil {
 		return nil, err
 	}
@@ -272,6 +295,7 @@ func PatchSectionMarkdown(config PatchSectionConfig) (map[string]any, error) {
 	payload["willWrite"] = true
 	payload["replacementTopLevelBlocks"] = len(topIDs)
 	payload["replacementBlockEntries"] = len(entries)
+	payload["attachedImageCount"] = attachedImageCount
 	payload["verify"] = verify
 	return withTableFallbackMetadata(payload, specs), nil
 }
@@ -409,6 +433,9 @@ func patchVerifyRequiredText(specs []Spec, requiredText []string) []string {
 					add(cell)
 				}
 			}
+			continue
+		}
+		if spec.Kind == "image" {
 			continue
 		}
 		add(spec.Text)

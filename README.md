@@ -250,6 +250,8 @@ export IXF_DOCS_DEFAULT_BASE_URL=https://tenant.example.test
 
 `ixf doctor --json` 会通过 `docs.defaultBaseURL.configured/source/host` 暴露当前默认发布地址状态，不打印 cookie 或 token。
 
+Markdown 中的 `` ```mermaid `` fenced code，以及 `` ```Plain `` 但首个非空内容行以 `flowchart`、`sequenceDiagram`、`erDiagram` 等 Mermaid 图类型开头的块，会在 `publish`、`update` 和 `patch` 写入时生成 docx 图片块，不再发布为代码块。dry-run 会输出 `mermaidImageCount`、`plannedImageCount`、`mermaidRendererAvailable`、`mermaidPreferredFormat` 和 `mermaidFallbackFormat`；实际 `--apply` 需要本机 `PATH` 中存在 Mermaid CLI `mmdc`，默认先渲染/上传 SVG，SVG 渲染或上传失败时回退 PNG。缺少 `mmdc` 会在远端写入前明确报错。
+
 ```bash
 ixf docs publish notes/review.md \
   --base-url https://tenant.example.test

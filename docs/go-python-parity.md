@@ -25,6 +25,11 @@ installs and for the agent skills installed by `ixf setup skills`.
 | `update self` | Owned | Plans or applies local binary/package replacement with explicit `--apply`. |
 | `update skills` | Owned | Refreshes installed local skill wrappers. |
 
+Markdown Mermaid image publishing remains in the Go CLI path. The Go runtime
+detects Mermaid fences, creates docx image blocks, and invokes external Mermaid
+CLI `mmdc` for SVG-first/PNG-fallback rendering during confirmed `--apply`
+writes; it does not use a Python renderer or fallback.
+
 ## Test Harness
 
 The repository test harness is Go-only:

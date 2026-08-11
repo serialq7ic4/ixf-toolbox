@@ -41,9 +41,10 @@ type UpdateConfig struct {
 }
 
 type Spec struct {
-	Kind string
-	Text string
-	Rows [][]string
+	Kind       string
+	SourceKind string
+	Text       string
+	Rows       [][]string
 }
 
 func PublishMarkdown(config Config) (map[string]any, error) {
@@ -65,6 +66,9 @@ func PublishMarkdown(config Config) (map[string]any, error) {
 	}
 	counts := summarizeSpecs(specs)
 	if config.Apply {
+		if err := requireMermaidRendererForApply(specs); err != nil {
+			return nil, err
+		}
 		return ApplyMarkdown(config, baseURL, title, specs, counts)
 	}
 	return withTableFallbackMetadata(map[string]any{
@@ -84,6 +88,11 @@ func UpdateMarkdown(config UpdateConfig) (map[string]any, error) {
 	title, specs, err := ParseMarkdown(string(content))
 	if err != nil {
 		return nil, err
+	}
+	if config.Apply {
+		if err := requireMermaidRendererForApply(specs); err != nil {
+			return nil, err
+		}
 	}
 	target, err := parseDocxTarget(config.URL)
 	if err != nil {
@@ -160,7 +169,11 @@ func applyUpdateMarkdown(
 	if err := session.writeBlocks(target.Token, memberID, changeMap, target.Referer); err != nil {
 		return nil, err
 	}
-	verify, err := session.verify(target.Token, target.Referer, config.RequiredText)
+	attachedImageCount, err := session.attachGeneratedImages(target.Token, memberID, target.Referer, entries)
+	if err != nil {
+		return nil, err
+	}
+	verify, err := session.verify(target.Token, target.Referer, config.RequiredText, countSpecsByKind(specs, "image"))
 	if err != nil {
 		return nil, err
 	}
@@ -181,6 +194,7 @@ func applyUpdateMarkdown(
 		"complexBlockTypes":        complexTypes,
 		"allowComplexReplace":      config.AllowComplex,
 		"requiredTextChecks":       len(config.RequiredText),
+		"attachedImageCount":       attachedImageCount,
 		"structure":                structure,
 		"verify":                   verify,
 		"url":                      target.Referer,
@@ -241,18 +255,23 @@ func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, co
 	if err := session.writeBlocks(pageID, memberID, changeMap, finalURL); err != nil {
 		return nil, err
 	}
-	verify, err := session.verify(pageID, finalURL, config.RequiredText)
+	attachedImageCount, err := session.attachGeneratedImages(pageID, memberID, finalURL, entries)
+	if err != nil {
+		return nil, err
+	}
+	verify, err := session.verify(pageID, finalURL, config.RequiredText, countSpecsByKind(specs, "image"))
 	if err != nil {
 		return nil, err
 	}
 	return withTableFallbackMetadata(map[string]any{
-		"ok":        asBool(verify["ok"]),
-		"dryRun":    false,
-		"operation": "create_docx",
-		"title":     title,
-		"counts":    counts,
-		"verify":    verify,
-		"url":       finalURL,
+		"ok":                 asBool(verify["ok"]),
+		"dryRun":             false,
+		"operation":          "create_docx",
+		"title":              title,
+		"counts":             counts,
+		"attachedImageCount": attachedImageCount,
+		"verify":             verify,
+		"url":                finalURL,
 	}, specs), nil
 }
 
@@ -340,6 +359,12 @@ func withTableFallbackMetadata(payload map[string]any, specs []Spec) map[string]
 	payload["tableFallbackCount"] = 0
 	payload["tableBlockType"] = "table"
 	payload["tableCount"] = countSpecsByKind(specs, "table")
+	payload["mermaidImageCount"] = countSpecsBySourceKind(specs, "image", "mermaid")
+	payload["plannedImageCount"] = countSpecsByKind(specs, "image")
+	payload["mermaidRenderer"] = mermaidRendererName
+	payload["mermaidRendererAvailable"] = mermaidRendererAvailable()
+	payload["mermaidPreferredFormat"] = mermaidPreferredFormat
+	payload["mermaidFallbackFormat"] = mermaidFallbackFormat
 	return payload
 }
 
@@ -347,6 +372,16 @@ func countSpecsByKind(specs []Spec, kind string) int {
 	count := 0
 	for _, spec := range specs {
 		if spec.Kind == kind {
+			count++
+		}
+	}
+	return count
+}
+
+func countSpecsBySourceKind(specs []Spec, kind string, sourceKind string) int {
+	count := 0
+	for _, spec := range specs {
+		if spec.Kind == kind && spec.SourceKind == sourceKind {
 			count++
 		}
 	}
@@ -369,8 +404,9 @@ type publishSession struct {
 }
 
 type blockEntry struct {
-	ID   string
-	Data map[string]any
+	ID    string
+	Data  map[string]any
+	Image *imageSource
 }
 
 func newPublishSession(config Config, baseURL string) (*publishSession, error) {
@@ -495,8 +531,8 @@ func (session *publishSession) writeBlocks(pageID string, memberID string, chang
 	return nil
 }
 
-func (session *publishSession) verify(pageID string, referer string, requiredText []string) (map[string]any, error) {
-	last := map[string]any{"ok": false, "counts": map[string]int{}, "textChars": 0}
+func (session *publishSession) verify(pageID string, referer string, requiredText []string, expectedImageCount int) (map[string]any, error) {
+	last := map[string]any{"ok": false, "counts": map[string]int{}, "textChars": 0, "expectedImageCount": expectedImageCount, "imageCount": 0, "missingImageCount": expectedImageCount}
 	for attempt := 0; attempt < 8; attempt++ {
 		if attempt > 0 {
 			time.Sleep(100 * time.Millisecond)
@@ -545,13 +581,21 @@ func (session *publishSession) verify(pageID string, referer string, requiredTex
 				}
 			}
 		}
-		ok := len(missingRequiredText) == 0 && emptyCalloutCount == 0 && codeTextOK
+		imageCount := counts["image"]
+		missingImageCount := 0
+		if imageCount < expectedImageCount {
+			missingImageCount = expectedImageCount - imageCount
+		}
+		ok := len(missingRequiredText) == 0 && emptyCalloutCount == 0 && codeTextOK && missingImageCount == 0
 		last = map[string]any{
 			"ok":                  ok,
 			"counts":              counts,
 			"textChars":           len(allText),
 			"missingRequiredText": missingRequiredText,
 			"emptyCalloutCount":   emptyCalloutCount,
+			"expectedImageCount":  expectedImageCount,
+			"imageCount":          imageCount,
+			"missingImageCount":   missingImageCount,
 		}
 		if ok {
 			return last, nil
@@ -769,6 +813,18 @@ func (factory *blockFactory) tableCellBlock(tableID string, textID string) map[s
 	}
 }
 
+func (factory *blockFactory) imageBlock(parentID string) map[string]any {
+	return map[string]any{
+		"type":      "image",
+		"parent_id": parentID,
+		"comments":  []any{},
+		"revisions": []any{},
+		"locked":    false,
+		"hidden":    false,
+		"author":    factory.author,
+	}
+}
+
 func normalizeTableRows(rows [][]string) [][]string {
 	width := 0
 	for _, row := range rows {
@@ -791,6 +847,7 @@ func normalizeTableRows(rows [][]string) [][]string {
 func buildBlocks(specs []Spec, pageID string, factory *blockFactory) ([]string, []blockEntry) {
 	topIDs := []string{}
 	entries := []blockEntry{}
+	imageOrdinal := 0
 	for _, spec := range specs {
 		switch spec.Kind {
 		case "quote":
@@ -805,6 +862,19 @@ func buildBlocks(specs []Spec, pageID string, factory *blockFactory) ([]string, 
 			newEntries, topID := factory.tableBlocks(pageID, spec.Rows)
 			topIDs = append(topIDs, topID)
 			entries = append(entries, newEntries...)
+		case "image":
+			imageOrdinal++
+			blockID := factory.blockID()
+			topIDs = append(topIDs, blockID)
+			entries = append(entries, blockEntry{
+				ID:   blockID,
+				Data: factory.imageBlock(pageID),
+				Image: &imageSource{
+					Kind:    spec.SourceKind,
+					Text:    spec.Text,
+					Ordinal: imageOrdinal,
+				},
+			})
 		default:
 			blockID := factory.blockID()
 			topIDs = append(topIDs, blockID)

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.24.0 - 2026-08-13
+
+- Added root `ixf doctor --json` dependency diagnostics under `dependencies.mermaid`, `dependencies.messenger`, and `dependencies.update` for full-function readiness checks.
+- Added `ixf setup deps` dry-run/apply support for optional Mermaid rendering dependencies, with explicit npm/npx commands and no silent desktop environment changes.
+- Documented the full dependency matrix, including Go-only core runtime, cookie export platform dependencies, Mermaid CLI/Puppeteer, Messenger Chrome/Chromium, and GitHub Release access.
+
 ## 3.23.1 - 2026-08-13
 
 - Added a real Mermaid CLI render probe to docs publish/update/patch dry-runs, reporting `mermaidRendererReady`, renderer errors, and remediation when `mmdc` exists but cannot render.

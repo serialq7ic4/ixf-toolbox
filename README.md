@@ -47,27 +47,27 @@
 
 如果你正在使用 Codex，可以直接对 Codex 说：
 
-> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.21.0_darwin_arm64`，macOS Intel 用 `ixf_3.21.0_darwin_amd64`，Windows 用 `ixf_3.21.0_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
+> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.24.0_darwin_arm64`，macOS Intel 用 `ixf_3.24.0_darwin_amd64`，Windows 用 `ixf_3.24.0_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.21.0/ixf_3.21.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.24.0/ixf_3.24.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-macOS Intel 将文件名换成 `ixf_3.21.0_darwin_amd64`。
+macOS Intel 将文件名换成 `ixf_3.24.0_darwin_amd64`。
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.21.0/ixf_3.21.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.24.0/ixf_3.24.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -140,15 +140,17 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --dry-run --json` | 规划发送消息，不启动浏览器、不回显完整消息正文 |
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --apply --json` | 发送确认消息，并通过 fresh-session 复核后报告成功 |
 | `ixf cookies export` | 从本机桌面端会话导出 cookie |
-| `ixf doctor --json` | 检查运行环境、skill 和 cookie 元数据，不打印 cookie 值 |
+| `ixf doctor --json` | 检查运行环境、skill、cookie 和全功能依赖元数据，不打印 cookie 值 |
 | `ixf setup skills --runtimes auto --json` | 安装 Codex / Claude Code skill |
+| `ixf setup deps --json` | dry-run 检查可自动安装的可选依赖命令 |
+| `ixf setup deps --apply --json` | 显式安装 Mermaid CLI / Puppeteer 浏览器依赖，不改 Messenger 桌面环境 |
 | `ixf update check --json` | 检查最新 GitHub Release |
 | `ixf update self --json` | 规划或执行 Toolbox 自升级 |
 | `ixf update skills --runtimes auto --json` | 刷新本地 skill wrapper |
 
 ### Runtime 状态
 
-v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；v3.0 起 Python runtime/package 实现已删除；v3.1 起测试和发布流程也不再依赖 Python；v3.3 起 Messenger 进入 Go-native 分阶段上线；v3.4 起支持显式 --apply 打开并验证目标会话；v3.5 起支持只读读取未读或最近会话；v3.6 起支持确认后的消息发送，并要求 fresh-session 复核；v3.7 起补齐 Messenger GA 运行手册和可执行诊断提示；v3.8 起补齐 agent routing 诊断和 Messenger 稳定边界元数据；v3.9 起支持已有 docx 正文替换的 dry-run/preflight；v3.10 起支持确认后的已有 docx 正文替换写入；v3.11 起补齐复杂块显式覆盖开关和更新 runbook；v3.13 起提供独立 `ixf sheets read` 和 `ixf sheets update --dry-run` 命令面；v3.14 起支持 API-only `ixf sheets update --apply` 写入和回读校验；v3.16 起引入 docx block graph 基础；v3.17 起支持 `ixf docs patch insert --dry-run`；v3.18 起支持确认后的 API-only 标题下块插入和未改动块校验；v3.20 起支持 API-only 的有界章节替换/删除，并校验章节外 blocks 未变化；v3.21 起读写前置结构分析会输出安全 heading/section/complex-block 摘要，`ixf docs read --out-dir` 会写出 `.structure.json` 产物；v3.22 起支持默认 docs 发布租户，避免自然语言“发到 i讯飞文档”请求因缺少 `--base-url` 停在本地草稿；v3.23 起支持 Mermaid 图以图片块发布；v3.23.1 起 dry-run 和 apply 会验证 `mmdc` 可实际渲染，提前暴露 Puppeteer 浏览器依赖问题。
+v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；v3.0 起 Python runtime/package 实现已删除；v3.1 起测试和发布流程也不再依赖 Python；v3.3 起 Messenger 进入 Go-native 分阶段上线；v3.4 起支持显式 --apply 打开并验证目标会话；v3.5 起支持只读读取未读或最近会话；v3.6 起支持确认后的消息发送，并要求 fresh-session 复核；v3.7 起补齐 Messenger GA 运行手册和可执行诊断提示；v3.8 起补齐 agent routing 诊断和 Messenger 稳定边界元数据；v3.9 起支持已有 docx 正文替换的 dry-run/preflight；v3.10 起支持确认后的已有 docx 正文替换写入；v3.11 起补齐复杂块显式覆盖开关和更新 runbook；v3.13 起提供独立 `ixf sheets read` 和 `ixf sheets update --dry-run` 命令面；v3.14 起支持 API-only `ixf sheets update --apply` 写入和回读校验；v3.16 起引入 docx block graph 基础；v3.17 起支持 `ixf docs patch insert --dry-run`；v3.18 起支持确认后的 API-only 标题下块插入和未改动块校验；v3.20 起支持 API-only 的有界章节替换/删除，并校验章节外 blocks 未变化；v3.21 起读写前置结构分析会输出安全 heading/section/complex-block 摘要，`ixf docs read --out-dir` 会写出 `.structure.json` 产物；v3.22 起支持默认 docs 发布租户，避免自然语言“发到 i讯飞文档”请求因缺少 `--base-url` 停在本地草稿；v3.23 起支持 Mermaid 图以图片块发布；v3.23.1 起 dry-run 和 apply 会验证 `mmdc` 可实际渲染，提前暴露 Puppeteer 浏览器依赖问题；v3.24 起 root doctor 输出完整依赖摘要，并提供 `ixf setup deps` 显式安装 Mermaid 渲染依赖。
 
 Agent 路由契约见 [`docs/agent-routing.md`](docs/agent-routing.md)。Messenger 详细运行手册见 [`docs/messenger.md`](docs/messenger.md)，覆盖 Chrome/Chromium-only discovery、cloned profile 隔离、读取副作用和发送成功判定。
 
@@ -177,6 +179,42 @@ ixf update self --apply --json
 ```bash
 ixf update skills --runtimes auto --json
 ```
+
+## 依赖检查与安装
+
+`ixf` 本体是单个 Go 二进制，不需要 Python、`ixfdoc` 或 `ixfwrite`。完整功能还依赖本机授权环境和少量可选外部工具：
+
+| 依赖项 | 用途 | 检查位置 | 自动安装 |
+|---|---|---|---|
+| i讯飞/LarkShell 桌面端登录态 | 私有 docs / sheets / OKR / Messenger 授权访问 | `ixf doctor --json` 的 `cookies`，以及 `dependencies.messenger.cookies` | 否；需用户登录桌面端后运行 `ixf cookies export` |
+| macOS Keychain / Windows DPAPI | 解密本机 LarkShell Chromium cookie | `ixf cookies export` 和 `ixf doctor --json` | 否；属于系统授权能力 |
+| Mermaid CLI `mmdc` | 将 Markdown Mermaid 图渲染为 SVG/PNG 图片块 | `dependencies.mermaid.available/ready`，以及 docs dry-run 的 `mermaidRendererReady` | 是；`ixf setup deps --apply --json` 可安装 |
+| Puppeteer `chrome-headless-shell` | `mmdc` 内部 headless browser 渲染环境 | `dependencies.mermaid.ready/error/remediation` | 是；`ixf setup deps --apply --json` 会运行 Puppeteer browser 安装命令 |
+| Chrome 或 Chromium | Messenger 浏览器自动化 | `dependencies.messenger.browser` 或 `ixf messenger doctor --json` | 否；只提示安装或通过 `--browser-path` / `IXF_MESSENGER_BROWSER_PATH` 指定 |
+| LarkShell `profile_explorer` | Messenger cloned profile 自动化 | `dependencies.messenger.profile` 或 `ixf messenger doctor --json` | 否；需要桌面端已登录并存在 profile |
+| GitHub Release 访问 | `ixf update check/self` 和 release 安装 | `dependencies.update` | 否；网络或代理由用户环境提供 |
+
+检查完整依赖摘要：
+
+```bash
+ixf doctor --json
+```
+
+`doctor` 的顶层 `ok` 仍只表示基础运行环境是否可用；全功能依赖是否齐全看 `dependencies.ok`。这样没有 Mermaid 或 Messenger 环境时，基础 docs/OKR/sheets 能力不会被误判为不可用。
+
+查看可自动安装的依赖计划：
+
+```bash
+ixf setup deps --json
+```
+
+确认后安装 Mermaid 渲染工具链：
+
+```bash
+ixf setup deps --apply --json
+```
+
+`setup deps --apply` 只会尝试安装 Mermaid CLI / Puppeteer browser 这类可脚本化依赖；不会静默安装 Chrome、修改 LarkShell 登录态、写系统代理，或改动 Messenger 桌面环境。
 
 ## 手动读取流程
 

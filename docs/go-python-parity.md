@@ -21,6 +21,7 @@ installs and for the agent skills installed by `ixf setup skills`.
 | `cookies export` | Owned | Exports local desktop-session cookies on macOS and CI-covered Windows providers. |
 | `doctor` | Owned | Reports runtime, skill, and cookie metadata without printing cookie values. |
 | `setup skills` | Owned | Installs Codex and Claude Code skill wrappers that call the local `ixf` binary. |
+| `setup deps` | Owned | Dry-runs or explicitly installs optional Mermaid rendering dependencies; desktop/browser login dependencies remain diagnostic-only. |
 | `update check` | Owned | Checks the latest GitHub Release without mutating local files. |
 | `update self` | Owned | Plans or applies local binary/package replacement with explicit `--apply`. |
 | `update skills` | Owned | Refreshes installed local skill wrappers. |

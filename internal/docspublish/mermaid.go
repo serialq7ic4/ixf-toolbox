@@ -105,6 +105,29 @@ func requireMermaidRendererForApply(specs []Spec) error {
 	return fmt.Errorf("mermaid renderer %q is not ready: %s; %s", mermaidRendererName, status.Error, status.Remediation)
 }
 
+// MermaidDependencyStatus returns a secret-safe readiness summary for external
+// Mermaid rendering dependencies used by docs publish/update/patch flows.
+func MermaidDependencyStatus() map[string]any {
+	status := mermaidRendererStatus(true)
+	payload := map[string]any{
+		"ok":              status.Ready,
+		"renderer":        mermaidRendererName,
+		"available":       status.Available,
+		"ready":           status.Ready,
+		"installable":     true,
+		"requiredFor":     "docs mermaid image rendering",
+		"preferredFormat": mermaidPreferredFormat,
+		"fallbackFormat":  mermaidFallbackFormat,
+	}
+	if status.Error != "" {
+		payload["error"] = status.Error
+	}
+	if status.Remediation != "" {
+		payload["remediation"] = status.Remediation
+	}
+	return payload
+}
+
 func mermaidRendererStatus(probe bool) mermaidRendererReadiness {
 	status := mermaidRendererReadiness{}
 	rendererPath, err := exec.LookPath(mermaidRendererName)

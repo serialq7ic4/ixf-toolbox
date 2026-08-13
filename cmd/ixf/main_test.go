@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	ixfupdate "github.com/serialq7ic4/ixf-toolbox/internal/update"
 )
 
 func TestVersionCommandPrintsUnifiedCLIName(t *testing.T) {
@@ -732,6 +734,7 @@ func TestInstallSkillsWritesEmbeddedCodexSkillsAndPreservesExistingWithoutForce(
 }
 
 func TestCollectDiagnosticsReportsGoRuntimeSkillsCookiesAndNoSecrets(t *testing.T) {
+	stubDependencyRelease(t, version)
 	home := t.TempDir()
 	cookiesPath := filepath.Join(home, "cookies.json")
 	if err := os.WriteFile(
@@ -789,9 +792,29 @@ func TestCollectDiagnosticsReportsGoRuntimeSkillsCookiesAndNoSecrets(t *testing.
 	if defaultBaseURL["configured"] != false || defaultBaseURL["configPath"] == "" {
 		t.Fatalf("docs default base URL diagnostics = %+v", defaultBaseURL)
 	}
+	dependencies := payload["dependencies"].(map[string]any)
+	if dependencies["ok"] != false {
+		t.Fatalf("dependencies ok = %#v, want false because optional full-function deps are absent", dependencies["ok"])
+	}
+	mermaid := dependencies["mermaid"].(map[string]any)
+	if mermaid["ok"] != false || mermaid["available"] != false || mermaid["installable"] != true {
+		t.Fatalf("mermaid dependency = %+v, want missing but installable", mermaid)
+	}
+	if mermaid["renderer"] != "mmdc" || mermaid["requiredFor"] != "docs mermaid image rendering" {
+		t.Fatalf("mermaid dependency metadata = %+v", mermaid)
+	}
+	messengerDep := dependencies["messenger"].(map[string]any)
+	if messengerDep["ok"] != false {
+		t.Fatalf("messenger dependency = %+v, want false in empty temp home", messengerDep)
+	}
+	updateDep := dependencies["update"].(map[string]any)
+	if updateDep["ok"] != true || updateDep["currentVersion"] != version || updateDep["latestVersion"] != version || updateDep["updateAvailable"] != false {
+		t.Fatalf("update dependency = %+v, want reachable current release", updateDep)
+	}
 }
 
 func TestCollectDiagnosticsReportsAgentRoutingContract(t *testing.T) {
+	stubDependencyRelease(t, version)
 	payload := collectDiagnostics(filepath.Join(t.TempDir(), "missing-cookies.json"))
 
 	routing, ok := payload["agentRouting"].(map[string]any)
@@ -827,6 +850,7 @@ func TestCollectDiagnosticsReportsAgentRoutingContract(t *testing.T) {
 }
 
 func TestCollectDiagnosticsReportsLegacyCommandShimsAsIgnored(t *testing.T) {
+	stubDependencyRelease(t, version)
 	home := t.TempDir()
 	bin := filepath.Join(home, "bin")
 	cookiesPath := filepath.Join(home, "cookies.json")
@@ -887,6 +911,7 @@ func writeLegacyCommandShim(bin string, name string) error {
 }
 
 func TestCollectDiagnosticsMarksMissingAndInvalidCookieFilesUnhealthy(t *testing.T) {
+	stubDependencyRelease(t, version)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("IXF_TOOLBOX_CODEX_SKILLS_DIR", filepath.Join(home, "codex-skills"))
@@ -954,6 +979,20 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 			"backgroundRouting":      true,
 			"defaultAmbiguousIntent": "read-only",
 		},
+		"dependencies": map[string]any{
+			"ok": false,
+			"mermaid": map[string]any{
+				"ok":        false,
+				"available": false,
+				"ready":     false,
+			},
+			"messenger": map[string]any{
+				"ok": false,
+			},
+			"update": map[string]any{
+				"ok": true,
+			},
+		},
 	}
 	var stdout bytes.Buffer
 
@@ -966,6 +1005,7 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 		"native docsRead=true docsPublish=true sheetsRead=true sheetsUpdateDryRun=true sheetsUpdateApply=true okrRead=true okrWrite=true cookiesExport=true messengerDoctor=true messengerOpenPlan=true messengerOpenApply=true messengerReadPlan=true messengerReadApply=true messengerSendPlan=true messengerSendApply=true",
 		"skill codex ok=true",
 		"cookies ok count=1 csrf=true lgw_csrf=false",
+		"dependencies ok=false mermaid=false messenger=false update=true",
 		"agent_routing go_only=true background=true default=read-only",
 	} {
 		if !strings.Contains(text, expected) {
@@ -978,6 +1018,7 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 }
 
 func TestDoctorCommandJSONAndTextUseGoDiagnostics(t *testing.T) {
+	stubDependencyRelease(t, version)
 	home := t.TempDir()
 	cookiesPath := filepath.Join(home, "cookies.json")
 	if err := os.WriteFile(cookiesPath, []byte(`[{"name":"_csrf_token","value":"dummy-csrf"}]`), 0o644); err != nil {
@@ -1002,6 +1043,9 @@ func TestDoctorCommandJSONAndTextUseGoDiagnostics(t *testing.T) {
 	if payload["runtime"] != "go" || payload["version"] != version {
 		t.Fatalf("doctor json payload = %+v", payload)
 	}
+	if _, ok := payload["dependencies"].(map[string]any); !ok {
+		t.Fatalf("doctor json missing dependencies: %+v", payload)
+	}
 
 	var textOut bytes.Buffer
 	var textErr bytes.Buffer
@@ -1014,6 +1058,120 @@ func TestDoctorCommandJSONAndTextUseGoDiagnostics(t *testing.T) {
 	if !strings.Contains(textOut.String(), "docs_default_base_url configured=false") {
 		t.Fatalf("doctor text missing docs default base URL diagnostics:\n%s", textOut.String())
 	}
+	if !strings.Contains(textOut.String(), "dependencies ok=") {
+		t.Fatalf("doctor text missing dependency diagnostics:\n%s", textOut.String())
+	}
+}
+
+func TestSetupDepsDryRunPlansMermaidDependencyInstall(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	stubDependencyRelease(t, version)
+	home := t.TempDir()
+	emptyBin := filepath.Join(home, "empty-bin")
+	if err := os.MkdirAll(emptyBin, 0o755); err != nil {
+		t.Fatalf("mkdir empty bin: %v", err)
+	}
+	t.Setenv("PATH", emptyBin)
+
+	stdout, stderr, code := runCLITest(t, "setup", "deps", "--json")
+	if code != 0 {
+		t.Fatalf("setup deps dry-run exit code = %d, stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["dryRun"] != true || payload["apply"] != false {
+		t.Fatalf("setup deps payload = %+v, want dry-run", payload)
+	}
+	commands := payload["commands"].([]any)
+	text := strings.Join(anyStrings(commands), "\n")
+	for _, expected := range []string{"npm install -g @mermaid-js/mermaid-cli", "npx puppeteer browsers install chrome-headless-shell"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("setup deps commands missing %q: %+v", expected, commands)
+		}
+	}
+}
+
+func TestSetupDepsApplyInstallsMermaidToolchainWithExplicitApply(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	stubDependencyRelease(t, version)
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	writeSetupDepsFixtureCommand(t, bin, "npm", "npm-ran", bin)
+	writeSetupDepsFixtureCommand(t, bin, "npx", "npx-ran", bin)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+"/bin"+string(os.PathListSeparator)+"/usr/bin")
+
+	stdout, stderr, code := runCLITest(t, "setup", "deps", "--apply", "--json")
+	if code != 0 {
+		t.Fatalf("setup deps apply exit code = %d, stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["dryRun"] != false || payload["apply"] != true || payload["applied"] != true {
+		t.Fatalf("setup deps payload = %+v, want applied", payload)
+	}
+	assertFileText(t, filepath.Join(bin, "npm-ran"), "ran\n")
+	assertFileText(t, filepath.Join(bin, "npx-ran"), "ran\n")
+	dependencies := payload["dependencies"].(map[string]any)
+	mermaid := dependencies["mermaid"].(map[string]any)
+	if mermaid["ok"] != true || mermaid["ready"] != true {
+		t.Fatalf("mermaid dependency after setup = %+v, want ready", mermaid)
+	}
+}
+
+func stubDependencyRelease(t *testing.T, latest string) {
+	t.Helper()
+	original := dependencyReleaseLoader
+	dependencyReleaseLoader = func(repo string, releaseFile string) (ixfupdate.Release, error) {
+		return ixfupdate.Release{
+			TagName: "v" + latest,
+			HTMLURL: "https://github.example/releases/v" + latest,
+			Assets:  []ixfupdate.Asset{},
+		}, nil
+	}
+	t.Cleanup(func() {
+		dependencyReleaseLoader = original
+	})
+}
+
+func writeSetupDepsFixtureCommand(t *testing.T, dir string, name string, marker string, bin string) {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	script := "#!/bin/sh\n" +
+		"printf 'ran\\n' > " + shellQuote(filepath.Join(dir, marker)) + "\n" +
+		"cat > " + shellQuote(filepath.Join(bin, "mmdc")) + " <<'EOS'\n" +
+		"#!/bin/sh\n" +
+		"out=\"\"\n" +
+		"while [ \"$#\" -gt 0 ]; do\n" +
+		"  case \"$1\" in\n" +
+		"    -o) out=\"$2\"; shift 2 ;;\n" +
+		"    *) shift ;;\n" +
+		"  esac\n" +
+		"done\n" +
+		"printf '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"></svg>' > \"$out\"\n" +
+		"EOS\n" +
+		"chmod +x " + shellQuote(filepath.Join(bin, "mmdc")) + "\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write %s fixture: %v", name, err)
+	}
+}
+
+func anyStrings(values []any) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if text, ok := value.(string); ok {
+			result = append(result, text)
+		}
+	}
+	return result
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func containsString(values []string, target string) bool {

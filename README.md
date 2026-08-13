@@ -148,7 +148,7 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 
 ### Runtime 状态
 
-v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；v3.0 起 Python runtime/package 实现已删除；v3.1 起测试和发布流程也不再依赖 Python；v3.3 起 Messenger 进入 Go-native 分阶段上线；v3.4 起支持显式 --apply 打开并验证目标会话；v3.5 起支持只读读取未读或最近会话；v3.6 起支持确认后的消息发送，并要求 fresh-session 复核；v3.7 起补齐 Messenger GA 运行手册和可执行诊断提示；v3.8 起补齐 agent routing 诊断和 Messenger 稳定边界元数据；v3.9 起支持已有 docx 正文替换的 dry-run/preflight；v3.10 起支持确认后的已有 docx 正文替换写入；v3.11 起补齐复杂块显式覆盖开关和更新 runbook；v3.13 起提供独立 `ixf sheets read` 和 `ixf sheets update --dry-run` 命令面；v3.14 起支持 API-only `ixf sheets update --apply` 写入和回读校验；v3.16 起引入 docx block graph 基础；v3.17 起支持 `ixf docs patch insert --dry-run`；v3.18 起支持确认后的 API-only 标题下块插入和未改动块校验；v3.20 起支持 API-only 的有界章节替换/删除，并校验章节外 blocks 未变化；v3.21 起读写前置结构分析会输出安全 heading/section/complex-block 摘要，`ixf docs read --out-dir` 会写出 `.structure.json` 产物；v3.22 起支持默认 docs 发布租户，避免自然语言“发到 i讯飞文档”请求因缺少 `--base-url` 停在本地草稿。
+v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；v3.0 起 Python runtime/package 实现已删除；v3.1 起测试和发布流程也不再依赖 Python；v3.3 起 Messenger 进入 Go-native 分阶段上线；v3.4 起支持显式 --apply 打开并验证目标会话；v3.5 起支持只读读取未读或最近会话；v3.6 起支持确认后的消息发送，并要求 fresh-session 复核；v3.7 起补齐 Messenger GA 运行手册和可执行诊断提示；v3.8 起补齐 agent routing 诊断和 Messenger 稳定边界元数据；v3.9 起支持已有 docx 正文替换的 dry-run/preflight；v3.10 起支持确认后的已有 docx 正文替换写入；v3.11 起补齐复杂块显式覆盖开关和更新 runbook；v3.13 起提供独立 `ixf sheets read` 和 `ixf sheets update --dry-run` 命令面；v3.14 起支持 API-only `ixf sheets update --apply` 写入和回读校验；v3.16 起引入 docx block graph 基础；v3.17 起支持 `ixf docs patch insert --dry-run`；v3.18 起支持确认后的 API-only 标题下块插入和未改动块校验；v3.20 起支持 API-only 的有界章节替换/删除，并校验章节外 blocks 未变化；v3.21 起读写前置结构分析会输出安全 heading/section/complex-block 摘要，`ixf docs read --out-dir` 会写出 `.structure.json` 产物；v3.22 起支持默认 docs 发布租户，避免自然语言“发到 i讯飞文档”请求因缺少 `--base-url` 停在本地草稿；v3.23 起支持 Mermaid 图以图片块发布；v3.23.1 起 dry-run 和 apply 会验证 `mmdc` 可实际渲染，提前暴露 Puppeteer 浏览器依赖问题。
 
 Agent 路由契约见 [`docs/agent-routing.md`](docs/agent-routing.md)。Messenger 详细运行手册见 [`docs/messenger.md`](docs/messenger.md)，覆盖 Chrome/Chromium-only discovery、cloned profile 隔离、读取副作用和发送成功判定。
 
@@ -250,7 +250,7 @@ export IXF_DOCS_DEFAULT_BASE_URL=https://tenant.example.test
 
 `ixf doctor --json` 会通过 `docs.defaultBaseURL.configured/source/host` 暴露当前默认发布地址状态，不打印 cookie 或 token。
 
-Markdown 中的 `` ```mermaid `` fenced code，以及 `` ```Plain `` 但首个非空内容行以 `flowchart`、`sequenceDiagram`、`erDiagram` 等 Mermaid 图类型开头的块，会在 `publish`、`update` 和 `patch` 写入时生成 docx 图片块，不再发布为代码块。dry-run 会输出 `mermaidImageCount`、`plannedImageCount`、`mermaidRendererAvailable`、`mermaidPreferredFormat` 和 `mermaidFallbackFormat`；实际 `--apply` 需要本机 `PATH` 中存在 Mermaid CLI `mmdc`，默认先渲染/上传 SVG，SVG 渲染或上传失败时回退 PNG。缺少 `mmdc` 会在远端写入前明确报错。
+Markdown 中的 `` ```mermaid `` fenced code，以及 `` ```Plain `` 但首个非空内容行以 `flowchart`、`sequenceDiagram`、`erDiagram` 等 Mermaid 图类型开头的块，会在 `publish`、`update` 和 `patch` 写入时生成 docx 图片块，不再发布为代码块。dry-run 会输出 `mermaidImageCount`、`plannedImageCount`、`mermaidRendererAvailable`、`mermaidRendererReady`、`mermaidRendererError`、`mermaidRendererRemediation`、`mermaidPreferredFormat` 和 `mermaidFallbackFormat`；实际 `--apply` 需要本机 `PATH` 中存在 Mermaid CLI `mmdc` 且能实际渲染，默认先渲染/上传 SVG，SVG 渲染或上传失败时回退 PNG。缺少 `mmdc` 或 Puppeteer 缺少 `chrome-headless-shell` 等浏览器依赖会在远端写入前明确报错。
 
 ```bash
 ixf docs publish notes/review.md \

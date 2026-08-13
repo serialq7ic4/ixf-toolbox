@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.23.1 - 2026-08-13
+
+- Added a real Mermaid CLI render probe to docs publish/update/patch dry-runs, reporting `mermaidRendererReady`, renderer errors, and remediation when `mmdc` exists but cannot render.
+- Blocked Mermaid image `--apply` operations before any remote document write when the local renderer is unhealthy, including Puppeteer `chrome-headless-shell` dependency failures.
+- Updated docs writer guidance to stop on `mermaidRendererReady=false` and surface the local Puppeteer browser remediation command.
+
 ## 3.23.0 - 2026-08-11
 
 - Added Mermaid image publishing for `ixf docs publish`, `ixf docs update`, and docs patch workflows, including `mermaid` fenced code and exported `Plain` blocks whose first content line is a Mermaid diagram.

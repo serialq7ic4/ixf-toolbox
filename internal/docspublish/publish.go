@@ -362,13 +362,24 @@ func summarizeSpecs(specs []Spec) map[string]int {
 }
 
 func withTableFallbackMetadata(payload map[string]any, specs []Spec) map[string]any {
+	mermaidImageCount := countSpecsBySourceKind(specs, "image", "mermaid")
+	rendererStatus := mermaidRendererStatus(mermaidImageCount > 0)
 	payload["tableFallbackCount"] = 0
 	payload["tableBlockType"] = "table"
 	payload["tableCount"] = countSpecsByKind(specs, "table")
-	payload["mermaidImageCount"] = countSpecsBySourceKind(specs, "image", "mermaid")
+	payload["mermaidImageCount"] = mermaidImageCount
 	payload["plannedImageCount"] = countSpecsByKind(specs, "image")
 	payload["mermaidRenderer"] = mermaidRendererName
-	payload["mermaidRendererAvailable"] = mermaidRendererAvailable()
+	payload["mermaidRendererAvailable"] = rendererStatus.Available
+	if mermaidImageCount > 0 {
+		payload["mermaidRendererReady"] = rendererStatus.Ready
+		if rendererStatus.Error != "" {
+			payload["mermaidRendererError"] = rendererStatus.Error
+		}
+		if rendererStatus.Remediation != "" {
+			payload["mermaidRendererRemediation"] = rendererStatus.Remediation
+		}
+	}
 	payload["mermaidPreferredFormat"] = mermaidPreferredFormat
 	payload["mermaidFallbackFormat"] = mermaidFallbackFormat
 	return payload

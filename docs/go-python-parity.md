@@ -28,7 +28,9 @@ installs and for the agent skills installed by `ixf setup skills`.
 Markdown Mermaid image publishing remains in the Go CLI path. The Go runtime
 detects Mermaid fences, creates docx image blocks, and invokes external Mermaid
 CLI `mmdc` for SVG-first/PNG-fallback rendering during confirmed `--apply`
-writes; it does not use a Python renderer or fallback.
+writes; dry-runs and applies probe `mmdc` with a minimal diagram so missing
+Puppeteer browser dependencies such as `chrome-headless-shell` are reported
+before remote writes. It does not use a Python renderer or fallback.
 
 ## Test Harness
 

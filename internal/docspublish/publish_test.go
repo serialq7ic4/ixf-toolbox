@@ -185,6 +185,44 @@ func TestPublishMarkdownDryRunReportsMermaidImageMetadata(t *testing.T) {
 	if payload["mermaidRendererAvailable"] != false {
 		t.Fatalf("renderer availability = %#v, want false", payload["mermaidRendererAvailable"])
 	}
+	if payload["mermaidRendererReady"] != false {
+		t.Fatalf("renderer readiness = %#v, want false", payload["mermaidRendererReady"])
+	}
+}
+
+func TestPublishMarkdownDryRunReportsMermaidRendererProbeFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	tmpDir := t.TempDir()
+	writeFailingMMDCRendererFixture(t, tmpDir)
+	t.Setenv("PATH", tmpDir)
+	markdownPath := filepath.Join(tmpDir, "mermaid.md")
+	if err := os.WriteFile(markdownPath, []byte("# Title\n\n```mermaid\nflowchart LR\n  A --> B\n```\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	payload, err := PublishMarkdown(Config{
+		MarkdownPath: markdownPath,
+		BaseURL:      "https://tenant.example.test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload["mermaidRendererAvailable"] != true {
+		t.Fatalf("renderer availability = %#v, want true", payload["mermaidRendererAvailable"])
+	}
+	if payload["mermaidRendererReady"] != false {
+		t.Fatalf("renderer readiness = %#v, want false", payload["mermaidRendererReady"])
+	}
+	rendererError, _ := payload["mermaidRendererError"].(string)
+	if !strings.Contains(rendererError, "chrome-headless-shell") {
+		t.Fatalf("renderer error = %q, want chrome-headless-shell guidance", rendererError)
+	}
+	remediation, _ := payload["mermaidRendererRemediation"].(string)
+	if !strings.Contains(remediation, "npx puppeteer browsers install chrome-headless-shell") {
+		t.Fatalf("renderer remediation = %q, want Puppeteer browser install command", remediation)
+	}
 }
 
 func TestPublishMarkdownApplyRequiresMermaidRendererBeforeRemoteWrite(t *testing.T) {
@@ -208,6 +246,43 @@ func TestPublishMarkdownApplyRequiresMermaidRendererBeforeRemoteWrite(t *testing
 	})
 	if err == nil || !strings.Contains(err.Error(), `mermaid renderer "mmdc" not found in PATH`) {
 		t.Fatalf("err = %v, want missing renderer error", err)
+	}
+	if requests != 0 {
+		t.Fatalf("remote requests = %d, want 0 before renderer preflight", requests)
+	}
+}
+
+func TestPublishMarkdownApplyRequiresHealthyMermaidRendererBeforeRemoteWrite(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	tmpDir := t.TempDir()
+	writeFailingMMDCRendererFixture(t, tmpDir)
+	t.Setenv("PATH", tmpDir)
+	markdownPath := filepath.Join(tmpDir, "mermaid.md")
+	if err := os.WriteFile(markdownPath, []byte("# Title\n\n```mermaid\nflowchart LR\n  A --> B\n```\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	if err := os.WriteFile(cookiesPath, []byte(`[{"name":"_csrf_token","value":"csrf-fixture"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	_, err := PublishMarkdown(Config{
+		MarkdownPath: markdownPath,
+		BaseURL:      server.URL,
+		SpaceAPI:     server.URL,
+		CookiesPath:  cookiesPath,
+		Apply:        true,
+	})
+	if err == nil || !strings.Contains(err.Error(), `mermaid renderer "mmdc" is not ready`) || !strings.Contains(err.Error(), "chrome-headless-shell") {
+		t.Fatalf("err = %v, want unhealthy renderer error with chrome-headless-shell guidance", err)
 	}
 	if requests != 0 {
 		t.Fatalf("remote requests = %d, want 0 before renderer preflight", requests)
@@ -621,6 +696,17 @@ case "$out" in
   *) exit 2 ;;
 esac
 `
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeFailingMMDCRendererFixture(t *testing.T, dir string) {
+	t.Helper()
+	path := filepath.Join(dir, "mmdc")
+	script := "#!/bin/sh\n" +
+		"echo \"Error: Could not find Chrome. Run npx puppeteer browsers install chrome-headless-shell.\" >&2\n" +
+		"exit 1\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

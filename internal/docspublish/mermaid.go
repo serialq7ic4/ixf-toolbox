@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	mermaidRendererName    = "mmdc"
-	mermaidPreferredFormat = "svg"
-	mermaidFallbackFormat  = "png"
+	mermaidRendererName        = "mmdc"
+	mermaidPreferredFormat     = "svg"
+	mermaidFallbackFormat      = "png"
+	mermaidRendererProbeSource = "flowchart LR\n  A --> B\n"
 )
 
 type imageSource struct {
@@ -43,6 +44,14 @@ type imageBinding struct {
 	BlockID string
 	Token   string
 	Image   renderedImage
+}
+
+type mermaidRendererReadiness struct {
+	Path        string
+	Available   bool
+	Ready       bool
+	Error       string
+	Remediation string
 }
 
 func isMermaidFence(info string, text string) bool {
@@ -82,19 +91,55 @@ func isMermaidStart(line string) bool {
 	return false
 }
 
-func mermaidRendererAvailable() bool {
-	_, err := exec.LookPath(mermaidRendererName)
-	return err == nil
-}
-
 func requireMermaidRendererForApply(specs []Spec) error {
 	if countSpecsBySourceKind(specs, "image", "mermaid") == 0 {
 		return nil
 	}
-	if mermaidRendererAvailable() {
+	status := mermaidRendererStatus(true)
+	if status.Ready {
 		return nil
 	}
-	return fmt.Errorf("mermaid renderer %q not found in PATH; install Mermaid CLI before applying Mermaid image blocks", mermaidRendererName)
+	if !status.Available {
+		return fmt.Errorf("%s; %s", status.Error, status.Remediation)
+	}
+	return fmt.Errorf("mermaid renderer %q is not ready: %s; %s", mermaidRendererName, status.Error, status.Remediation)
+}
+
+func mermaidRendererStatus(probe bool) mermaidRendererReadiness {
+	status := mermaidRendererReadiness{}
+	rendererPath, err := exec.LookPath(mermaidRendererName)
+	if err != nil {
+		status.Error = fmt.Sprintf("mermaid renderer %q not found in PATH", mermaidRendererName)
+		status.Remediation = mermaidRendererRemediation(status.Error)
+		return status
+	}
+	status.Path = rendererPath
+	status.Available = true
+	if !probe {
+		return status
+	}
+	tempDir, err := os.MkdirTemp("", "ixf-mermaid-probe-*")
+	if err != nil {
+		status.Error = fmt.Sprintf("mermaid renderer probe setup failed: %v", err)
+		status.Remediation = "Check local temporary directory permissions, then retry the docs write."
+		return status
+	}
+	defer os.RemoveAll(tempDir)
+	if _, err := renderMermaid(mermaidRendererProbeSource, 0, mermaidPreferredFormat, tempDir); err != nil {
+		status.Error = err.Error()
+		status.Remediation = mermaidRendererRemediation(status.Error)
+		return status
+	}
+	status.Ready = true
+	return status
+}
+
+func mermaidRendererRemediation(message string) string {
+	lower := strings.ToLower(message)
+	if strings.Contains(lower, "chrome") || strings.Contains(lower, "chromium") || strings.Contains(lower, "puppeteer") || strings.Contains(lower, "headless") {
+		return "Run `npx puppeteer browsers install chrome-headless-shell` for the Mermaid CLI installation, or set PUPPETEER_EXECUTABLE_PATH to an installed Chrome/Chromium binary."
+	}
+	return "Install Mermaid CLI `mmdc` and verify it can render locally before applying Mermaid image blocks."
 }
 
 func renderMermaid(text string, ordinal int, format string, dir string) (renderedImage, error) {

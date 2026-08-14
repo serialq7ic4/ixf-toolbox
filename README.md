@@ -121,6 +121,7 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf bitable inspect --url <bitable-or-host-url> --json` | 检查直接 bitable、wiki bitable 或 docx 内嵌 bitable 的安全元数据 |
 | `ixf bitable read --url <bitable-or-host-url> --json` | 读取 bitable 安全摘要；当前等价于 `inspect` |
 | `ixf bitable record create --url <bitable-or-host-url> --input row.json --dry-run --json` | 规划新增 bitable 记录，可包含附件字段本地文件路径，不执行写入 |
+| `ixf bitable record create --url <bitable-or-host-url> --input row.json --apply --json` | API-only 新增确认后的 bitable 记录，支持文本字段和附件字段图片/文件上传，并回读校验 |
 | `ixf bitable attach --url <bitable-or-host-url> --field <附件字段> --record-match 字段=值 --file image.png --dry-run --json` | 规划向 bitable 附件字段上传本地图片/附件，不执行写入 |
 | `ixf docs outline <file.md>` | 按标题和原子块生成动态阅读目录 |
 | `ixf docs chunk <file.md> --index <n>` | 输出指定动态分块 |
@@ -154,7 +155,7 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 
 ### Runtime 状态
 
-v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；v3.0 起 Python runtime/package 实现已删除；v3.1 起测试和发布流程也不再依赖 Python；v3.3 起 Messenger 进入 Go-native 分阶段上线；v3.4 起支持显式 --apply 打开并验证目标会话；v3.5 起支持只读读取未读或最近会话；v3.6 起支持确认后的消息发送，并要求 fresh-session 复核；v3.7 起补齐 Messenger GA 运行手册和可执行诊断提示；v3.8 起补齐 agent routing 诊断和 Messenger 稳定边界元数据；v3.9 起支持已有 docx 正文替换的 dry-run/preflight；v3.10 起支持确认后的已有 docx 正文替换写入；v3.11 起补齐复杂块显式覆盖开关和更新 runbook；v3.13 起提供独立 `ixf sheets read` 和 `ixf sheets update --dry-run` 命令面；v3.14 起支持 API-only `ixf sheets update --apply` 写入和回读校验；v3.16 起引入 docx block graph 基础；v3.17 起支持 `ixf docs patch insert --dry-run`；v3.18 起支持确认后的 API-only 标题下块插入和未改动块校验；v3.20 起支持 API-only 的有界章节替换/删除，并校验章节外 blocks 未变化；v3.21 起读写前置结构分析会输出安全 heading/section/complex-block 摘要，`ixf docs read --out-dir` 会写出 `.structure.json` 产物；v3.22 起支持默认 docs 发布租户，避免自然语言“发到 i讯飞文档”请求因缺少 `--base-url` 停在本地草稿；v3.23 起支持 Mermaid 图以图片块发布；v3.23.1 起 dry-run 和 apply 会验证 `mmdc` 可实际渲染，提前暴露 Puppeteer 浏览器依赖问题；v3.24 起 root doctor 输出完整依赖摘要，并提供 `ixf setup deps` 显式安装 Mermaid 渲染依赖；未发布版本新增 `ixf bitable` inspect/read、record create dry-run 和附件 dry-run 规划命令面，`record create --apply` 与 `attach --apply` 在 bitable 写入 API 合约捕获前保持失败关闭。
+v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；v3.0 起 Python runtime/package 实现已删除；v3.1 起测试和发布流程也不再依赖 Python；v3.3 起 Messenger 进入 Go-native 分阶段上线；v3.4 起支持显式 --apply 打开并验证目标会话；v3.5 起支持只读读取未读或最近会话；v3.6 起支持确认后的消息发送，并要求 fresh-session 复核；v3.7 起补齐 Messenger GA 运行手册和可执行诊断提示；v3.8 起补齐 agent routing 诊断和 Messenger 稳定边界元数据；v3.9 起支持已有 docx 正文替换的 dry-run/preflight；v3.10 起支持确认后的已有 docx 正文替换写入；v3.11 起补齐复杂块显式覆盖开关和更新 runbook；v3.13 起提供独立 `ixf sheets read` 和 `ixf sheets update --dry-run` 命令面；v3.14 起支持 API-only `ixf sheets update --apply` 写入和回读校验；v3.16 起引入 docx block graph 基础；v3.17 起支持 `ixf docs patch insert --dry-run`；v3.18 起支持确认后的 API-only 标题下块插入和未改动块校验；v3.20 起支持 API-only 的有界章节替换/删除，并校验章节外 blocks 未变化；v3.21 起读写前置结构分析会输出安全 heading/section/complex-block 摘要，`ixf docs read --out-dir` 会写出 `.structure.json` 产物；v3.22 起支持默认 docs 发布租户，避免自然语言“发到 i讯飞文档”请求因缺少 `--base-url` 停在本地草稿；v3.23 起支持 Mermaid 图以图片块发布；v3.23.1 起 dry-run 和 apply 会验证 `mmdc` 可实际渲染，提前暴露 Puppeteer 浏览器依赖问题；v3.24 起 root doctor 输出完整依赖摘要，并提供 `ixf setup deps` 显式安装 Mermaid 渲染依赖；未发布版本新增 `ixf bitable` inspect/read、record create dry-run、API-only `record create --apply` 文本/附件新增记录写入与回读校验，以及附件 dry-run 规划命令面；`attach --apply` 在已有记录更新 API 合约捕获前保持失败关闭。
 
 Agent 路由契约见 [`docs/agent-routing.md`](docs/agent-routing.md)。Messenger 详细运行手册见 [`docs/messenger.md`](docs/messenger.md)，覆盖 Chrome/Chromium-only discovery、cloned profile 隔离、读取副作用和发送成功判定。
 
@@ -420,11 +421,11 @@ ixf sheets update \
   --apply
 ```
 
-### 规划 bitable 附件上传
+### 规划和写入 bitable 附件记录
 
-bitable 附件字段属于多维表格数据层，不能通过 `ixf docs update` 或 `ixf sheets update` 修改。直接 bitable 链接、wiki bitable 链接和 docx 内嵌 bitable 链接统一走 `ixf bitable`。当前 `attach` 只支持 dry-run 规划，会校验本地文件、目标附件字段和唯一记录匹配；`--apply` 会明确失败，直到 bitable 上传素材与更新记录 API 合约被捕获。
+bitable 附件字段属于多维表格数据层，不能通过 `ixf docs update` 或 `ixf sheets update` 修改。直接 bitable 链接、wiki bitable 链接和 docx 内嵌 bitable 链接统一走 `ixf bitable`。当前 `record create --apply` 支持 API-only 新增记录，字段范围先限定为文本字段和附件字段；`attach --apply` 仍失败关闭，直到已有记录更新 API 合约被捕获。
 
-新增记录使用 `record create` dry-run。输入 JSON 可以是字段映射，也可以包在 `fields` 对象里；附件字段用本地文件路径表达。当前只规划新增，不写远端。
+新增记录使用 `record create`。输入 JSON 可以是字段映射，也可以包在 `fields` 对象里；附件字段用本地文件路径表达，支持绝对路径和 `~/...`。先 dry-run 检查计划，确认后用 `--apply` 写入并回读校验。
 
 ```json
 {
@@ -442,6 +443,15 @@ ixf bitable record create \
   --input row.json \
   --cookies /tmp/ixf_cookies.json \
   --dry-run \
+  --json
+```
+
+```bash
+ixf bitable record create \
+  --url "https://tenant.example.test/base/bas_example?table=tbl_main&view=vew_grid" \
+  --input row.json \
+  --cookies /tmp/ixf_cookies.json \
+  --apply \
   --json
 ```
 
@@ -503,7 +513,7 @@ ixf okr write \
 - i讯飞/LarkShell `docx` 文档读取与 Markdown 转换。
 - 可解析到受支持文档类型的 `wiki` 链接读取，包括 docx token 解析和 bitable TSV 输出。
 - bitable 安全元数据检查，以及直接 bitable、wiki bitable、docx 内嵌 bitable 的附件上传 dry-run 规划。
-- bitable 新增记录 dry-run 规划，可识别附件字段本地文件路径；真实写入仍失败关闭。
+- bitable 新增记录 dry-run 规划和 API-only 写入，可识别附件字段本地文件路径、上传素材并回读校验；当前 apply 字段范围限定为文本和附件。
 - 直接 mindnote / sheets 链接读取，以及通过受支持文档 payload 暴露出来的 mindnote 标记和嵌入 sheet TSV 展开。
 - 简单表格、任务列表、代码块语言、富文本链接、图片块下载、直接 sheets 读取、嵌入 sheet 展开、sheets 更新 dry-run/apply 和安全资源清理。
 - 本地 Markdown 分块、读取、发布和测试。
@@ -545,8 +555,8 @@ Linux 不支持桌面会话导出，因为 i讯飞没有 Linux 桌面客户端�
 - 远程读取错误不会回显原始 API payload。
 - 远程写入默认 dry-run，必须显式使用 `--apply`。
 - `ixf sheets update --apply` 只支持确认后的 TSV 单元格写入；不要用 `ixf docs update` 修改 sheet 内容。
-- `ixf bitable attach` 当前只支持 dry-run 规划；不要用 `ixf docs update` 或 `ixf sheets update` 修改 bitable 附件字段。
-- `ixf bitable record create` 当前只支持 dry-run 规划；普通 docx 的 `view/file` 预览块不是 bitable 入口。
+- `ixf bitable record create --apply` 只支持确认后的新增记录，当前字段范围限定为文本和附件，并会回读校验；不要用 `ixf docs update` 或 `ixf sheets update` 修改 bitable 数据。
+- `ixf bitable attach` 当前只支持 dry-run 规划；普通 docx 的 `view/file` 预览块不是 bitable 入口。
 - `ixf docs patch replace-section` 和 `ixf docs patch delete-section` 是有界破坏性操作；简单新增内容必须优先使用 `ixf docs patch insert`。
 - Messenger 当前支持诊断、dry-run 打开规划、显式 --apply 目标验证、只读会话读取，以及确认后的消息发送；发送成功必须通过 fresh-session 复核。Messenger 自动化只自动发现 Chrome/Chromium，并始终使用 cloned profile。
 - 删除 OKR 多余内容需要额外显式使用 `--prune`。

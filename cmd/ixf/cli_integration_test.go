@@ -1302,6 +1302,101 @@ func TestCLIBitableRecordCreateDryRunFetchesClientVarsWithoutMutation(t *testing
 	}
 }
 
+func TestCLIBitableRecordCreateApplyUploadsAndVerifies(t *testing.T) {
+	tmpDir := t.TempDir()
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+	imagePath := filepath.Join(tmpDir, "ceph_logo.jpeg")
+	if err := os.WriteFile(imagePath, []byte{0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inputPath := filepath.Join(tmpDir, "row.json")
+	writeJSONFile(t, inputPath, map[string]any{"fields": map[string]any{
+		"Title":      "New image bug",
+		"Screenshot": map[string]any{"file": imagePath},
+	}})
+
+	clientVarsCalls := 0
+	var sawUpload bool
+	var sawUserChanges bool
+	createdRecordID := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/v1/bitable/bas_fixture/clientvars":
+			clientVarsCalls++
+			data := bitableCLIFixtureData(t)
+			if sawUserChanges {
+				data = bitableCLIFixtureDataWithCreatedRecord(t, createdRecordID, "New image bug", "ceph_logo.jpeg")
+			}
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": data})
+		case "/space/api/bitable/bas_fixture/add_record/token":
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"addRecordToken": "token_fixture"}})
+		case "/space/api/box/upload/prepare/":
+			request := decodeCLIJSONRequest(t, r)
+			if request["mount_point"] != "bitable_image" || request["mount_node_token"] != "bas_fixture" {
+				t.Fatalf("prepare request = %#v", request)
+			}
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{
+				"upload_id":  "upload_fixture",
+				"block_size": float64(8),
+				"num_blocks": float64(1),
+			}})
+		case "/space/api/box/stream/upload/merge_block/":
+			sawUpload = true
+			if got := r.Header.Get("x-block-list-checksum"); got == "" {
+				t.Fatal("merge checksum header was empty")
+			}
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"success_seq_list": []any{float64(0)}}})
+		case "/space/api/box/upload/finish/":
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"file_token": "box_uploaded"}})
+		case "/space/api/rce/messages":
+			request := decodeCLIJSONRequest(t, r)
+			if request["type"] != "BITABLE_TABLE" {
+				writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"type": "ACCEPT_WATCH"}})
+				return
+			}
+			data := request["data"].(map[string]any)
+			operations := decodeCLIGzipBase64String(t, data["operations"].(string))
+			if !strings.Contains(operations, "New image bug") || !strings.Contains(operations, "box_uploaded") {
+				t.Fatalf("USER_CHANGES operations missing expected content: %s", operations)
+			}
+			createdRecordID = cliRecordIDFromOperations(t, operations)
+			sawUserChanges = true
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"type": "ACCEPT_COMMIT"}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr, code := runCLITest(t,
+		"bitable", "record", "create",
+		"--url", server.URL+"/base/bas_fixture?table=tbl_main&view=vew_grid",
+		"--input", inputPath,
+		"--cookies", cookiesPath,
+		"--space-api", server.URL,
+		"--apply",
+		"--json",
+	)
+	if code != 0 {
+		t.Fatalf("bitable record create apply exit code = %d, stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	if clientVarsCalls != 2 || !sawUpload || !sawUserChanges {
+		t.Fatalf("apply calls clientVars=%d upload=%t userChanges=%t", clientVarsCalls, sawUpload, sawUserChanges)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["ok"] != true || payload["operation"] != "bitable_record_create" || payload["dryRun"] != false || payload["applied"] != true {
+		t.Fatalf("payload = %+v", payload)
+	}
+	verify := payload["verify"].(map[string]any)
+	if verify["ok"] != true {
+		t.Fatalf("verify payload = %+v", verify)
+	}
+	if stderr != "" {
+		t.Fatalf("bitable record create apply stderr = %q, want empty", stderr)
+	}
+}
+
 func TestCLISheetsUpdateApplyPostsUserChangesAndVerifiesReadback(t *testing.T) {
 	tmpDir := t.TempDir()
 	cookiesPath := filepath.Join(tmpDir, "cookies.json")
@@ -2225,6 +2320,15 @@ func writeTestJSON(t *testing.T, w http.ResponseWriter, payload map[string]any) 
 	}
 }
 
+func decodeCLIJSONRequest(t *testing.T, r *http.Request) map[string]any {
+	t.Helper()
+	var payload map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	return payload
+}
+
 func sheetCLIFixtureData(t *testing.T, sheetID string) map[string]any {
 	t.Helper()
 	return map[string]any{
@@ -2277,6 +2381,7 @@ func bitableCLIFixtureData(t *testing.T) map[string]any {
 		"data": map[string]any{
 			"table": map[string]any{
 				"id":    "tbl_main",
+				"meta":  map[string]any{"rev": float64(7)},
 				"views": []any{"vew_grid"},
 				"viewMap": map[string]any{
 					"vew_grid": map[string]any{
@@ -2331,6 +2436,57 @@ func bitableCLIFixtureData(t *testing.T) map[string]any {
 			"gzipSchema": gzipCLIJSON(t, schema),
 		},
 	}
+}
+
+func bitableCLIFixtureDataWithCreatedRecord(t *testing.T, recordID string, title string, attachmentName string) map[string]any {
+	t.Helper()
+	if recordID == "" {
+		t.Fatal("created record id was not captured")
+	}
+	data := bitableCLIFixtureData(t)
+	raw := decodeCLIGzipBase64(t, data["oldSchema"].(map[string]any)["gzipSchema"].(string))
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	table := schema["data"].(map[string]any)["table"].(map[string]any)
+	view := table["viewMap"].(map[string]any)["vew_grid"].(map[string]any)
+	property := view["property"].(map[string]any)
+	property["records"] = []any{recordID, "rec_1", "rec_2"}
+	recordMap := schema["data"].(map[string]any)["recordMap"].(map[string]any)
+	recordMap[recordID] = map[string]any{
+		"fld_title": map[string]any{"value": []any{map[string]any{"type": "text", "text": title}}},
+		"fld_image": map[string]any{"value": []any{map[string]any{
+			"id":              "box_uploaded",
+			"attachmentToken": "box_uploaded",
+			"name":            attachmentName,
+			"mimeType":        "image/jpeg",
+			"size":            float64(7),
+			"timeStamp":       float64(1786718860252),
+		}}},
+	}
+	data["oldSchema"].(map[string]any)["gzipSchema"] = gzipCLIJSON(t, schema)
+	return data
+}
+
+func cliRecordIDFromOperations(t *testing.T, operations string) string {
+	t.Helper()
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(operations), &decoded); err != nil {
+		t.Fatalf("decode operations: %v", err)
+	}
+	if len(decoded) == 0 {
+		t.Fatal("operations were empty")
+	}
+	actions := decoded[0]["actions"].([]any)
+	if len(actions) == 0 {
+		t.Fatal("operation actions were empty")
+	}
+	recordID := actions[0].(map[string]any)["recordId"].(string)
+	if recordID == "" {
+		t.Fatal("recordId was empty")
+	}
+	return recordID
 }
 
 func sheetCLIApplyFixtureData(t *testing.T, sheetID string, b2 string) map[string]any {
@@ -2396,6 +2552,11 @@ func decodeCLIGzipBase64(t *testing.T, encoded string) []byte {
 		t.Fatal(err)
 	}
 	return decoded
+}
+
+func decodeCLIGzipBase64String(t *testing.T, encoded string) string {
+	t.Helper()
+	return string(decodeCLIGzipBase64(t, encoded))
 }
 
 func attributedCLIText(text string) map[string]any {

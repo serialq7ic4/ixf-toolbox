@@ -191,6 +191,39 @@ func TestRecordCreateDryRunPlansFieldsAndAttachments(t *testing.T) {
 	}
 }
 
+func TestRecordCreateDryRunExpandsTildeAttachmentPaths(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	downloadDir := filepath.Join(home, "Downloads")
+	if err := os.MkdirAll(downloadDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(downloadDir, "ceph_logo.jpeg"), []byte{0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	input := writeFixtureJSON(t, "row.json", map[string]any{
+		"fields": map[string]any{
+			"Title":      "New image bug",
+			"Screenshot": map[string]any{"file": "~/Downloads/ceph_logo.jpeg"},
+		},
+	})
+
+	payload, err := RecordCreate(RecordCreateConfig{
+		URL:        "https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid",
+		InputPath:  input,
+		DryRun:     true,
+		ClientVars: bitableClientVarsFixture(t),
+	})
+	if err != nil {
+		t.Fatalf("RecordCreate dry-run returned error: %v", err)
+	}
+	attachments := payload["attachments"].([]map[string]any)
+	fileInfo := attachments[0]["file"].(map[string]any)
+	if fileInfo["name"] != "ceph_logo.jpeg" || fileInfo["mimeType"] != "image/jpeg" {
+		t.Fatalf("attachment file metadata = %+v", fileInfo)
+	}
+}
+
 func TestRecordCreateDryRunRejectsUnknownField(t *testing.T) {
 	input := writeFixtureJSON(t, "row.json", map[string]any{
 		"fields": map[string]any{
@@ -209,10 +242,127 @@ func TestRecordCreateDryRunRejectsUnknownField(t *testing.T) {
 	}
 }
 
-func TestRecordCreateApplyFailsUntilContractCaptured(t *testing.T) {
+func TestRecordCreateApplyUploadsAttachmentsWritesRecordAndVerifies(t *testing.T) {
+	cookiesPath := writeCookieFixture(t)
+	file := writeFixtureFile(t, "ceph_logo.jpeg", []byte{0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00})
 	input := writeFixtureJSON(t, "row.json", map[string]any{
 		"fields": map[string]any{
-			"Title": "New image bug",
+			"Title":      "New image bug",
+			"Screenshot": map[string]any{"file": file},
+		},
+	})
+
+	clientVarsCalls := 0
+	var sawPrepare bool
+	var sawMerge bool
+	var sawFinish bool
+	var sawAddRecordToken bool
+	var sawUserChanges bool
+	createdRecordID := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/v1/bitable/bas_fixture/clientvars":
+			clientVarsCalls++
+			data := bitableClientVarsFixture(t)
+			if sawUserChanges {
+				data = bitableClientVarsFixtureWithCreatedRecord(t, createdRecordID, "New image bug", "ceph_logo.jpeg")
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": data})
+		case "/space/api/bitable/bas_fixture/add_record/token":
+			sawAddRecordToken = true
+			request := decodeJSONRequest(t, r)
+			if request["tableID"] != "tbl_main" {
+				t.Fatalf("add_record token tableID = %#v", request["tableID"])
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{"addRecordToken": "token_fixture"}})
+		case "/space/api/box/upload/prepare/":
+			sawPrepare = true
+			request := decodeJSONRequest(t, r)
+			if request["mount_point"] != "bitable_image" || request["mount_node_token"] != "bas_fixture" || request["name"] != "ceph_logo.jpeg" {
+				t.Fatalf("prepare request = %#v", request)
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{
+				"upload_id":  "upload_fixture",
+				"block_size": float64(8),
+				"num_blocks": float64(1),
+			}})
+		case "/space/api/box/stream/upload/merge_block/":
+			sawMerge = true
+			if got := r.URL.Query().Get("upload_id"); got != "upload_fixture" {
+				t.Fatalf("merge upload_id = %q", got)
+			}
+			if got := r.URL.Query().Get("mount_point"); got != "bitable_image" {
+				t.Fatalf("merge mount_point = %q", got)
+			}
+			if got := r.Header.Get("x-seq-list"); got != "0" {
+				t.Fatalf("merge seq header = %q", got)
+			}
+			if got := r.Header.Get("x-block-list-checksum"); got == "" {
+				t.Fatal("merge checksum header was empty")
+			}
+			if got := r.Header.Get("x-block-origin-size"); got != "8" {
+				t.Fatalf("merge block origin size = %q", got)
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{"success_seq_list": []any{float64(0)}}})
+		case "/space/api/box/upload/finish/":
+			sawFinish = true
+			request := decodeJSONRequest(t, r)
+			if request["upload_id"] != "upload_fixture" || request["mount_point"] != "bitable_image" {
+				t.Fatalf("finish request = %#v", request)
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{"file_token": "box_uploaded"}})
+		case "/space/api/rce/messages":
+			request := decodeJSONRequest(t, r)
+			if request["type"] != "BITABLE_TABLE" {
+				writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{"type": "ACCEPT_WATCH"}})
+				return
+			}
+			data := request["data"].(map[string]any)
+			if data["type"] != "USER_CHANGES" || data["token"] != "tbl_main" || data["route_key"] != "bas_fixture" || data["content_type"] != "gzip/base64" {
+				t.Fatalf("USER_CHANGES data = %#v", data)
+			}
+			operations := decodeGzipBase64String(t, data["operations"].(string))
+			if !strings.Contains(operations, "New image bug") || !strings.Contains(operations, "box_uploaded") || !strings.Contains(operations, "ceph_logo.jpeg") {
+				t.Fatalf("USER_CHANGES operations missing text or attachment: %s", operations)
+			}
+			createdRecordID = recordIDFromOperations(t, operations)
+			sawUserChanges = true
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{"type": "ACCEPT_COMMIT"}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	payload, err := RecordCreate(RecordCreateConfig{
+		URL:         server.URL + "/base/bas_fixture?table=tbl_main&view=vew_grid",
+		InputPath:   input,
+		Apply:       true,
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	})
+	if err != nil {
+		t.Fatalf("RecordCreate apply returned error: %v", err)
+	}
+	if !sawPrepare || !sawMerge || !sawFinish || !sawAddRecordToken || !sawUserChanges {
+		t.Fatalf("apply calls prepare=%t merge=%t finish=%t addToken=%t userChanges=%t", sawPrepare, sawMerge, sawFinish, sawAddRecordToken, sawUserChanges)
+	}
+	if clientVarsCalls != 2 {
+		t.Fatalf("clientVarsCalls = %d, want 2", clientVarsCalls)
+	}
+	if payload["ok"] != true || payload["dryRun"] != false || payload["applied"] != true || payload["uploadedFileCount"] != 1 {
+		t.Fatalf("apply payload = %+v", payload)
+	}
+	verify := payload["verify"].(map[string]any)
+	if verify["ok"] != true {
+		t.Fatalf("verify payload = %+v", verify)
+	}
+}
+
+func TestRecordCreateApplyRejectsUnsupportedFieldTypes(t *testing.T) {
+	input := writeFixtureJSON(t, "row.json", map[string]any{
+		"fields": map[string]any{
+			"Module": "Collab",
 		},
 	})
 
@@ -222,8 +372,8 @@ func TestRecordCreateApplyFailsUntilContractCaptured(t *testing.T) {
 		Apply:      true,
 		ClientVars: bitableClientVarsFixture(t),
 	})
-	if err == nil || !strings.Contains(err.Error(), "record create --apply is not available") {
-		t.Fatalf("RecordCreate apply gate error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), `unsupported apply field type "single_select" for field "Module"`) {
+		t.Fatalf("unsupported field error = %v", err)
 	}
 }
 
@@ -375,6 +525,7 @@ func bitableClientVarsFixture(t *testing.T) map[string]any {
 		"data": map[string]any{
 			"table": map[string]any{
 				"id":    "tbl_main",
+				"meta":  map[string]any{"rev": float64(7)},
 				"views": []any{"vew_grid"},
 				"viewMap": map[string]any{
 					"vew_grid": map[string]any{
@@ -432,6 +583,43 @@ func bitableClientVarsFixture(t *testing.T) map[string]any {
 	}
 }
 
+func bitableClientVarsFixtureWithCreatedRecord(t *testing.T, recordID string, title string, attachmentName string) map[string]any {
+	t.Helper()
+	if recordID == "" {
+		t.Fatal("created record id was not captured")
+	}
+	data := bitableClientVarsFixture(t)
+	schema := decodeFixtureSchema(t, data)
+	table := schema["data"].(map[string]any)["table"].(map[string]any)
+	view := table["viewMap"].(map[string]any)["vew_grid"].(map[string]any)
+	property := view["property"].(map[string]any)
+	property["records"] = []any{recordID, "rec_1", "rec_2"}
+	recordMap := schema["data"].(map[string]any)["recordMap"].(map[string]any)
+	recordMap[recordID] = map[string]any{
+		"fld_title": map[string]any{"value": []any{map[string]any{"type": "text", "text": title}}},
+		"fld_image": map[string]any{"value": []any{map[string]any{
+			"id":              "box_uploaded",
+			"attachmentToken": "box_uploaded",
+			"name":            attachmentName,
+			"mimeType":        "image/jpeg",
+			"size":            float64(7),
+			"timeStamp":       float64(1786718860252),
+		}}},
+	}
+	data["oldSchema"].(map[string]any)["gzipSchema"] = gzipBase64JSON(t, schema)
+	return data
+}
+
+func decodeFixtureSchema(t *testing.T, data map[string]any) map[string]any {
+	t.Helper()
+	raw := decodeGzipBase64String(t, data["oldSchema"].(map[string]any)["gzipSchema"].(string))
+	var schema map[string]any
+	if err := json.Unmarshal([]byte(raw), &schema); err != nil {
+		t.Fatalf("decode schema: %v", err)
+	}
+	return schema
+}
+
 func gzipBase64JSON(t *testing.T, value any) string {
 	t.Helper()
 	raw, err := json.Marshal(value)
@@ -447,6 +635,53 @@ func gzipBase64JSON(t *testing.T, value any) string {
 		t.Fatalf("close gzip fixture: %v", err)
 	}
 	return base64.StdEncoding.EncodeToString(compressed.Bytes())
+}
+
+func decodeGzipBase64String(t *testing.T, value string) string {
+	t.Helper()
+	raw, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		t.Fatalf("decode base64: %v", err)
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("create gzip reader: %v", err)
+	}
+	defer reader.Close()
+	var decoded bytes.Buffer
+	if _, err := decoded.ReadFrom(reader); err != nil {
+		t.Fatalf("read gzip: %v", err)
+	}
+	return decoded.String()
+}
+
+func decodeJSONRequest(t *testing.T, r *http.Request) map[string]any {
+	t.Helper()
+	var payload map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode request JSON: %v", err)
+	}
+	return payload
+}
+
+func recordIDFromOperations(t *testing.T, operations string) string {
+	t.Helper()
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(operations), &decoded); err != nil {
+		t.Fatalf("decode operations: %v", err)
+	}
+	if len(decoded) == 0 {
+		t.Fatal("operations were empty")
+	}
+	actions := decoded[0]["actions"].([]any)
+	if len(actions) == 0 {
+		t.Fatal("operation actions were empty")
+	}
+	recordID := actions[0].(map[string]any)["recordId"].(string)
+	if recordID == "" {
+		t.Fatal("recordId was empty")
+	}
+	return recordID
 }
 
 func containsPrivateToken(t *testing.T, value any, token string) bool {

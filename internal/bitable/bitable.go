@@ -3,10 +3,14 @@ package bitable
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash/adler32"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,8 +22,11 @@ import (
 )
 
 const (
-	attachmentFieldType = 17
-	DefaultSpaceAPI     = "https://internal-api-space.xfchat.iflytek.com"
+	attachmentFieldType   = 17
+	bitableVerifyTimeout  = 10 * time.Second
+	bitableVerifyInterval = 750 * time.Millisecond
+	DefaultSpaceAPI       = "https://internal-api-space.xfchat.iflytek.com"
+	DefaultDriveStreamAPI = "https://internal-api-drive-stream.xfchat.iflytek.com"
 )
 
 type Field struct {
@@ -52,10 +59,19 @@ type Record struct {
 type Metadata struct {
 	BaseToken string
 	Title     string
+	TableRev  int
 	Tables    []Table
 	Views     []View
 	Fields    []Field
 	Records   []Record
+}
+
+type bitableUploadedFile struct {
+	Token     string
+	Name      string
+	MimeType  string
+	Size      int64
+	Timestamp int64
 }
 
 type Source struct {
@@ -222,16 +238,24 @@ func RecordCreate(config RecordCreateConfig) (map[string]any, error) {
 		return nil, err
 	}
 	if config.Apply {
-		return nil, fmt.Errorf("bitable record create --apply is not available until the bitable record API contract is captured")
+		if err := validateRecordCreateApplyFields(meta, fields); err != nil {
+			return nil, err
+		}
+		session, err := newSession(config.CookiesPath, source.BaseURL, config.SpaceAPI)
+		if err != nil {
+			return nil, err
+		}
+		return session.applyRecordCreate(source, meta, fields, plan)
 	}
 	return recordCreateDryRunPayload(source, meta, plan, attachments), nil
 }
 
 type session struct {
-	client    *http.Client
-	cookies   []http.Cookie
-	csrfToken string
-	spaceAPI  string
+	client         *http.Client
+	cookies        []http.Cookie
+	csrfToken      string
+	spaceAPI       string
+	driveStreamAPI string
 }
 
 type cookieObject struct {
@@ -300,17 +324,21 @@ func newSession(cookiesPath string, defaultSpaceAPI string, spaceAPI string) (*s
 		})
 	}
 	resolvedSpaceAPI := strings.TrimRight(strings.TrimSpace(spaceAPI), "/")
+	resolvedDriveStreamAPI := DefaultDriveStreamAPI
 	if resolvedSpaceAPI == "" {
 		resolvedSpaceAPI = strings.TrimRight(strings.TrimSpace(defaultSpaceAPI), "/")
+	} else {
+		resolvedDriveStreamAPI = resolvedSpaceAPI
 	}
 	if resolvedSpaceAPI == "" {
 		resolvedSpaceAPI = DefaultSpaceAPI
 	}
 	return &session{
-		client:    &http.Client{Timeout: 30 * time.Second},
-		cookies:   cookies,
-		csrfToken: csrf,
-		spaceAPI:  resolvedSpaceAPI,
+		client:         &http.Client{Timeout: 30 * time.Second},
+		cookies:        cookies,
+		csrfToken:      csrf,
+		spaceAPI:       resolvedSpaceAPI,
+		driveStreamAPI: resolvedDriveStreamAPI,
 	}, nil
 }
 
@@ -663,6 +691,7 @@ func ParseClientVars(data map[string]any, baseToken string) (Metadata, error) {
 	meta := Metadata{
 		BaseToken: strings.TrimSpace(baseToken),
 		Title:     firstNonEmptyString(base["name"], baseToken),
+		TableRev:  intValue(asMap(tableData["meta"])["rev"]),
 	}
 	for _, tableID := range tableIDs {
 		tableInfo := asMap(asMap(base["tableInfos"])[tableID])
@@ -815,6 +844,427 @@ func recordCreateDryRunPayload(source Source, meta Metadata, fields []map[string
 		"attachments":            attachments,
 		"willCreateRecord":       true,
 	}
+}
+
+func recordCreateApplyPayload(source Source, meta Metadata, fields []map[string]any, recordID string, uploadedFileCount int, verify map[string]any) map[string]any {
+	return map[string]any{
+		"ok":                true,
+		"dryRun":            false,
+		"applied":           true,
+		"operation":         "bitable_record_create",
+		"sourceKind":        source.Kind,
+		"target":            map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": firstTableID(meta), "viewId": firstViewID(meta)},
+		"fieldCount":        len(fields),
+		"fields":            fields,
+		"recordId":          recordID,
+		"uploadedFileCount": uploadedFileCount,
+		"verify":            verify,
+	}
+}
+
+func validateRecordCreateApplyFields(meta Metadata, fields map[string]any) error {
+	names := sortedFieldNames(fields)
+	for _, name := range names {
+		field := meta.FieldByName(name)
+		if field == nil {
+			return fmt.Errorf("field %q was not found", name)
+		}
+		if field.Type != 1 && !field.AttachmentCompatible {
+			return fmt.Errorf("unsupported apply field type %q for field %q", field.TypeName, field.Name)
+		}
+	}
+	return nil
+}
+
+func (session *session) applyRecordCreate(source Source, meta Metadata, fields map[string]any, plan []map[string]any) (map[string]any, error) {
+	tableID := targetTableID(source, meta)
+	viewID := targetViewID(source, meta)
+	if tableID == "" || viewID == "" {
+		return nil, fmt.Errorf("bitable record create apply requires a table and view")
+	}
+	memberID, err := randomDecimalID(14)
+	if err != nil {
+		return nil, err
+	}
+	if err := session.watchBitableEntity(source, memberID, "BITABLE_BASE", source.BaseToken, 2); err != nil {
+		return nil, err
+	}
+	if err := session.watchBitableEntity(source, memberID, "BITABLE_TABLE", tableID, 0); err != nil {
+		return nil, err
+	}
+	if err := session.prepareAddRecordToken(source, tableID); err != nil {
+		return nil, err
+	}
+	uploads := map[string][]bitableUploadedFile{}
+	uploadedFileCount := 0
+	for _, name := range sortedFieldNames(fields) {
+		field := meta.FieldByName(name)
+		if field == nil || !field.AttachmentCompatible {
+			continue
+		}
+		paths, err := attachmentPathsFromValue(fields[name])
+		if err != nil {
+			return nil, fmt.Errorf("attachment field %q: %w", field.Name, err)
+		}
+		for _, path := range paths {
+			file, err := inspectLocalFile(path)
+			if err != nil {
+				return nil, err
+			}
+			uploaded, err := session.uploadBitableFile(source, path, file)
+			if err != nil {
+				return nil, err
+			}
+			uploads[field.ID] = append(uploads[field.ID], uploaded)
+			uploadedFileCount++
+		}
+	}
+	recordID, err := session.writeRecordCreate(source, meta, fields, uploads, memberID)
+	if err != nil {
+		return nil, err
+	}
+	verify, err := session.waitForRecordCreateVerification(source, fields, uploads, recordID)
+	if err != nil {
+		return nil, err
+	}
+	return recordCreateApplyPayload(source, meta, plan, recordID, uploadedFileCount, verify), nil
+}
+
+func (session *session) prepareAddRecordToken(source Source, tableID string) error {
+	payload, err := session.postJSON(session.spaceAPI+"/space/api/bitable/"+url.PathEscape(source.BaseToken)+"/add_record/token", source, map[string]any{
+		"tableID": tableID,
+	}, "bitable add_record token")
+	if err != nil {
+		return err
+	}
+	if intValue(payload["code"]) != 0 {
+		return fmt.Errorf("bitable add_record token failed")
+	}
+	return nil
+}
+
+func (session *session) uploadBitableFile(source Source, path string, file fileMetadata) (bitableUploadedFile, error) {
+	content, err := os.ReadFile(expandUser(path))
+	if err != nil {
+		return bitableUploadedFile{}, err
+	}
+	preparePayload, err := session.postJSON(session.spaceAPI+"/space/api/box/upload/prepare/", source, map[string]any{
+		"mount_point":      "bitable_image",
+		"mount_node_token": source.BaseToken,
+		"name":             file.Name,
+		"size":             file.Size,
+		"size_checker":     false,
+	}, "bitable upload prepare")
+	if err != nil {
+		return bitableUploadedFile{}, err
+	}
+	if intValue(preparePayload["code"]) != 0 {
+		return bitableUploadedFile{}, fmt.Errorf("bitable upload prepare failed")
+	}
+	prepareData := asMap(preparePayload["data"])
+	uploadID := firstNonEmptyString(prepareData["upload_id"], prepareData["uploadId"])
+	if uploadID == "" {
+		return bitableUploadedFile{}, fmt.Errorf("bitable upload prepare did not return upload_id")
+	}
+	blockSize := intValue(prepareData["block_size"])
+	if blockSize <= 0 {
+		blockSize = len(content)
+	}
+	if blockSize <= 0 {
+		blockSize = 1
+	}
+	numBlocks := intValue(prepareData["num_blocks"])
+	computedBlocks := (len(content) + blockSize - 1) / blockSize
+	if numBlocks <= 0 {
+		numBlocks = computedBlocks
+	}
+	for seq := 0; seq < computedBlocks; seq++ {
+		start := seq * blockSize
+		end := start + blockSize
+		if end > len(content) {
+			end = len(content)
+		}
+		chunk := content[start:end]
+		if err := session.uploadBitableChunk(source, uploadID, seq, blockSize, chunk); err != nil {
+			return bitableUploadedFile{}, err
+		}
+	}
+	finishPayload, err := session.postJSON(session.spaceAPI+"/space/api/box/upload/finish/", source, map[string]any{
+		"upload_id":                uploadID,
+		"num_blocks":               numBlocks,
+		"mount_point":              "bitable_image",
+		"push_open_history_record": 0,
+	}, "bitable upload finish")
+	if err != nil {
+		return bitableUploadedFile{}, err
+	}
+	if intValue(finishPayload["code"]) != 0 {
+		return bitableUploadedFile{}, fmt.Errorf("bitable upload finish failed")
+	}
+	finishData := asMap(finishPayload["data"])
+	token := firstNonEmptyString(finishData["file_token"], finishData["fileToken"], finishData["token"])
+	if token == "" {
+		return bitableUploadedFile{}, fmt.Errorf("bitable upload finish did not return file_token")
+	}
+	return bitableUploadedFile{
+		Token:     token,
+		Name:      file.Name,
+		MimeType:  file.MimeType,
+		Size:      file.Size,
+		Timestamp: time.Now().UnixMilli(),
+	}, nil
+}
+
+func (session *session) uploadBitableChunk(source Source, uploadID string, seq int, blockSize int, chunk []byte) error {
+	query := url.Values{}
+	query.Set("upload_id", uploadID)
+	query.Set("mount_point", "bitable_image")
+	requestURL := session.driveStreamAPI + "/space/api/box/stream/upload/merge_block/?" + query.Encode()
+	request, err := http.NewRequest(http.MethodPost, requestURL, bytes.NewReader(chunk))
+	if err != nil {
+		return err
+	}
+	session.addHeaders(request, source.BaseURL, source.RawURL)
+	request.Header.Set("Content-Type", "application/octet-stream")
+	request.Header.Set("x-seq-list", strconv.Itoa(seq))
+	request.Header.Set("x-block-list-checksum", strconv.FormatUint(uint64(adler32.Checksum(chunk)), 10))
+	request.Header.Set("x-block-origin-size", strconv.Itoa(blockSize))
+	payload, err := session.doJSON(request, "bitable upload merge_block")
+	if err != nil {
+		return err
+	}
+	if intValue(payload["code"]) != 0 {
+		return fmt.Errorf("bitable upload merge_block failed")
+	}
+	return nil
+}
+
+func (session *session) watchBitableEntity(source Source, memberID string, entityType string, token string, schemaVersion int) error {
+	memberNumber, err := strconv.ParseInt(memberID, 10, 64)
+	if err != nil {
+		return err
+	}
+	body := map[string]any{
+		"type": "COLLABROOM",
+		"data": map[string]any{
+			"member_id":   memberNumber,
+			"user_ticket": "",
+			"type":        "WATCH",
+			"entities": []any{map[string]any{
+				"route_key":      source.BaseToken,
+				"route_type":     "token",
+				"type":           entityType,
+				"token":          token,
+				"schema_version": schemaVersion,
+			}},
+		},
+		"version": 2,
+		"req_id":  randomSmallInt(),
+		"context": bitableRCEContext(),
+	}
+	payload, err := session.postJSON(session.rceMessagesURL(memberID), source, body, "bitable rce watch")
+	if err != nil {
+		return err
+	}
+	if intValue(payload["code"]) != 0 {
+		return fmt.Errorf("bitable rce watch failed")
+	}
+	return nil
+}
+
+func (session *session) writeRecordCreate(source Source, meta Metadata, fields map[string]any, uploads map[string][]bitableUploadedFile, memberID string) (string, error) {
+	tableID := targetTableID(source, meta)
+	viewID := targetViewID(source, meta)
+	recordID, err := randomRecordID()
+	if err != nil {
+		return "", err
+	}
+	cellData := map[string]any{}
+	for _, name := range sortedFieldNames(fields) {
+		field := meta.FieldByName(name)
+		if field == nil {
+			return "", fmt.Errorf("field %q was not found", name)
+		}
+		if field.AttachmentCompatible {
+			values := []any{}
+			for _, upload := range uploads[field.ID] {
+				values = append(values, map[string]any{
+					"id":              upload.Token,
+					"attachmentToken": upload.Token,
+					"name":            upload.Name,
+					"mimeType":        upload.MimeType,
+					"size":            upload.Size,
+					"timeStamp":       upload.Timestamp,
+				})
+			}
+			cellData[field.ID] = map[string]any{"type": attachmentFieldType, "value": values}
+			continue
+		}
+		cellData[field.ID] = map[string]any{
+			"type": 1,
+			"value": []any{map[string]any{
+				"type": "text",
+				"text": renderSheetValue(fields[name]),
+			}},
+		}
+	}
+	operations := []any{map[string]any{
+		"command": "AddRecord",
+		"type":    2,
+		"actions": []any{map[string]any{
+			"action":   "data.addRecord",
+			"type":     2,
+			"tableId":  tableID,
+			"viewId":   viewID,
+			"recordId": recordID,
+			"data": map[string]any{
+				"indexes":          map[string]any{viewID: 0},
+				"cellData":         cellData,
+				"createdExtraInfo": map[string]any{"name": "", "enName": "", "avatarUrl": ""},
+				"total":            len(meta.Records) + 1,
+			},
+		}},
+		"syncFlag": 0,
+	}}
+	encodedOperations, err := encodeGzipBase64JSON(operations)
+	if err != nil {
+		return "", err
+	}
+	memberNumber, err := strconv.ParseInt(memberID, 10, 64)
+	if err != nil {
+		return "", err
+	}
+	body := map[string]any{
+		"type": "BITABLE_TABLE",
+		"data": map[string]any{
+			"member_id":    memberNumber,
+			"user_ticket":  "",
+			"type":         "USER_CHANGES",
+			"token":        tableID,
+			"lang":         "zh",
+			"localRev":     meta.TableRev,
+			"operations":   encodedOperations,
+			"signature":    randomUUID(),
+			"content_type": "gzip/base64",
+			"route_key":    source.BaseToken,
+		},
+		"version": 2,
+		"req_id":  randomSmallInt(),
+		"context": bitableRCEContext(),
+	}
+	payload, err := session.postJSON(session.rceMessagesURL(memberID), source, body, "bitable rce user_changes")
+	if err != nil {
+		return "", err
+	}
+	if intValue(payload["code"]) != 0 {
+		return "", fmt.Errorf("bitable rce user_changes failed")
+	}
+	if dataType := stringValue(asMap(payload["data"])["type"]); dataType != "" && dataType != "ACCEPT_COMMIT" {
+		return "", fmt.Errorf("bitable rce user_changes returned %s", dataType)
+	}
+	return recordID, nil
+}
+
+func (session *session) waitForRecordCreateVerification(source Source, fields map[string]any, uploads map[string][]bitableUploadedFile, recordID string) (map[string]any, error) {
+	deadline := time.Now().Add(bitableVerifyTimeout)
+	var lastErr error
+	for {
+		clientVars, err := session.clientVars(source)
+		if err != nil {
+			return nil, err
+		}
+		meta, err := ParseClientVars(clientVars, source.BaseToken)
+		if err != nil {
+			return nil, err
+		}
+		verify, err := verifyCreatedRecord(meta, fields, uploads, recordID)
+		if err == nil {
+			return verify, nil
+		}
+		lastErr = err
+		if !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("%w after waiting %s", lastErr, bitableVerifyTimeout)
+		}
+		time.Sleep(bitableVerifyInterval)
+	}
+}
+
+func verifyCreatedRecord(meta Metadata, fields map[string]any, uploads map[string][]bitableUploadedFile, recordID string) (map[string]any, error) {
+	for _, record := range meta.Records {
+		if recordID != "" && record.ID != recordID {
+			continue
+		}
+		if recordMatchesExpected(meta, record, fields, uploads) {
+			return map[string]any{"ok": true, "recordId": record.ID}, nil
+		}
+	}
+	if recordID != "" {
+		return nil, fmt.Errorf("created record %s was not found or did not match expected values", recordID)
+	}
+	for _, record := range meta.Records {
+		if recordMatchesExpected(meta, record, fields, uploads) {
+			return map[string]any{"ok": true, "recordId": record.ID}, nil
+		}
+	}
+	return nil, fmt.Errorf("created record was not found")
+}
+
+func recordMatchesExpected(meta Metadata, record Record, fields map[string]any, uploads map[string][]bitableUploadedFile) bool {
+	for _, name := range sortedFieldNames(fields) {
+		field := meta.FieldByName(name)
+		if field == nil {
+			return false
+		}
+		if field.AttachmentCompatible {
+			names := recordAttachmentNames(record, field.ID)
+			for _, upload := range uploads[field.ID] {
+				if !containsString(names, upload.Name) {
+					return false
+				}
+			}
+			continue
+		}
+		if strings.TrimSpace(record.Values[field.ID]) != strings.TrimSpace(renderSheetValue(fields[name])) {
+			return false
+		}
+	}
+	return true
+}
+
+func recordAttachmentNames(record Record, fieldID string) []string {
+	cell := asMap(record.Raw[fieldID])
+	value := cell["value"]
+	if len(cell) == 0 {
+		value = record.Raw[fieldID]
+	}
+	names := []string{}
+	for _, item := range asSlice(value) {
+		name := stringValue(asMap(item)["name"])
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func (session *session) postJSON(requestURL string, source Source, body map[string]any, label string) (map[string]any, error) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequest(http.MethodPost, requestURL, bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	session.addHeaders(request, source.BaseURL, source.RawURL)
+	request.Header.Set("Content-Type", "application/json")
+	return session.doJSON(request, label)
+}
+
+func (session *session) rceMessagesURL(memberID string) string {
+	query := url.Values{}
+	query.Set("member_id", memberID)
+	return session.spaceAPI + "/space/api/rce/messages?" + query.Encode()
 }
 
 func readRecordCreateFields(path string) (map[string]any, error) {
@@ -971,14 +1421,15 @@ func inspectLocalFile(path string) (fileMetadata, error) {
 	if path == "" {
 		return fileMetadata{}, fmt.Errorf("bitable attach requires --file")
 	}
-	info, err := os.Stat(path)
+	expandedPath := expandUser(path)
+	info, err := os.Stat(expandedPath)
 	if err != nil {
 		return fileMetadata{}, err
 	}
 	if !info.Mode().IsRegular() {
 		return fileMetadata{}, fmt.Errorf("--file must point to a regular file")
 	}
-	file, err := os.Open(path)
+	file, err := os.Open(expandedPath)
 	if err != nil {
 		return fileMetadata{}, err
 	}
@@ -1363,4 +1814,124 @@ func asSlice(value any) []any {
 		return typed
 	}
 	return []any{}
+}
+
+func sortedFieldNames(fields map[string]any) []string {
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func targetTableID(source Source, meta Metadata) string {
+	if strings.TrimSpace(source.TableID) != "" {
+		return strings.TrimSpace(source.TableID)
+	}
+	return firstTableID(meta)
+}
+
+func targetViewID(source Source, meta Metadata) string {
+	if strings.TrimSpace(source.ViewID) != "" {
+		return strings.TrimSpace(source.ViewID)
+	}
+	return firstViewID(meta)
+}
+
+func encodeGzipBase64JSON(value any) (string, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(raw); err != nil {
+		return "", err
+	}
+	if err := writer.Close(); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(compressed.Bytes()), nil
+}
+
+func randomRecordID() (string, error) {
+	suffix, err := randomAlphaNumeric(13)
+	if err != nil {
+		return "", err
+	}
+	return "rec" + suffix, nil
+}
+
+func randomAlphaNumeric(length int) (string, error) {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	result := make([]byte, length)
+	limit := big.NewInt(int64(len(alphabet)))
+	for index := range result {
+		value, err := rand.Int(rand.Reader, limit)
+		if err != nil {
+			return "", err
+		}
+		result[index] = alphabet[value.Int64()]
+	}
+	return string(result), nil
+}
+
+func randomDecimalID(length int) (string, error) {
+	if length <= 0 {
+		return "", fmt.Errorf("random decimal id length must be positive")
+	}
+	result := make([]byte, length)
+	first, err := rand.Int(rand.Reader, big.NewInt(9))
+	if err != nil {
+		return "", err
+	}
+	result[0] = byte('1' + first.Int64())
+	for index := 1; index < length; index++ {
+		value, err := rand.Int(rand.Reader, big.NewInt(10))
+		if err != nil {
+			return "", err
+		}
+		result[index] = byte('0' + value.Int64())
+	}
+	return string(result), nil
+}
+
+func randomUUID() string {
+	data := make([]byte, 16)
+	if _, err := rand.Read(data); err != nil {
+		fallback := strconv.FormatInt(time.Now().UnixNano(), 16)
+		return fallback + "-0000-4000-8000-000000000000"
+	}
+	data[6] = (data[6] & 0x0f) | 0x40
+	data[8] = (data[8] & 0x3f) | 0x80
+	encoded := hex.EncodeToString(data)
+	return encoded[0:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:32]
+}
+
+func randomSmallInt() int {
+	value, err := rand.Int(rand.Reader, big.NewInt(900000))
+	if err != nil {
+		return time.Now().Nanosecond()%900000 + 1
+	}
+	return int(value.Int64()) + 1
+}
+
+func bitableRCEContext() map[string]any {
+	return map[string]any{
+		"os":          "mac",
+		"app_version": "1.0.19.5980",
+		"os_version":  "10.15.7",
+		"platform":    "web",
+		"request_id":  randomUUID(),
+	}
+}
+
+func containsString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }

@@ -3,8 +3,8 @@
 ## Unreleased
 
 - Added `ixf bitable inspect/read` and `ixf bitable attach --dry-run` for safe bitable metadata inspection and attachment upload planning across direct bitable, wiki bitable, and docx embedded bitable URLs.
-- Added `ixf bitable record create --dry-run` to plan new records from JSON input, including local file paths for attachment fields, while keeping remote writes unavailable.
-- Kept `ixf bitable attach --apply` fail-closed until the bitable asset upload and record-update API contract is captured, preventing accidental docs/sheets misrouting.
+- Added `ixf bitable record create --dry-run` and API-only `--apply` to create records from JSON input, upload attachment-field files, and verify by clientvars readback.
+- Kept `ixf bitable attach --apply` fail-closed until the existing-record update API contract is captured, preventing accidental docs/sheets misrouting.
 - Updated README, routing docs, Go parity, and installed skill guidance so bitable attachment requests route to `ixf bitable` instead of docs update or sheets update.
 
 ## 3.24.0 - 2026-08-13

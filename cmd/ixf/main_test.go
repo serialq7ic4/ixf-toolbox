@@ -133,6 +133,10 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 			expected: []string{"Usage of ixf bitable attach", "-url", "-field", "-record-match", "-file", "-dry-run", "-apply", "-json"},
 		},
 		{
+			args:     []string{"bitable", "record", "create", "--help"},
+			expected: []string{"Usage of ixf bitable record create", "-url", "-input", "-dry-run", "-apply", "-json"},
+		},
+		{
 			args:     []string{"okr", "read", "--help"},
 			expected: []string{"usage: ixf okr read", "--cookies", "--csrf-url"},
 		},
@@ -202,6 +206,52 @@ func TestBitableAttachDryRunJSONRoutesFlags(t *testing.T) {
 		captured.Field != "Screenshot" ||
 		captured.RecordMatch != "Title=Image bug" ||
 		captured.FilePath != "/tmp/ceph_logo.jpeg" ||
+		!captured.DryRun ||
+		captured.Apply {
+		t.Fatalf("captured config = %+v", captured)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestBitableRecordCreateDryRunJSONRoutesFlags(t *testing.T) {
+	original := bitableRecordCreate
+	var captured ixfbitable.RecordCreateConfig
+	bitableRecordCreate = func(config ixfbitable.RecordCreateConfig) (map[string]any, error) {
+		captured = config
+		return map[string]any{
+			"ok":               true,
+			"dryRun":           true,
+			"operation":        "bitable_record_create",
+			"willCreateRecord": true,
+		}, nil
+	}
+	t.Cleanup(func() {
+		bitableRecordCreate = original
+	})
+
+	input := filepath.Join(t.TempDir(), "row.json")
+	if err := os.WriteFile(input, []byte(`{"fields":{"Title":"New image bug"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runCLITest(t,
+		"bitable", "record", "create",
+		"--url", "https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid",
+		"--input", input,
+		"--dry-run",
+		"--json",
+	)
+	if code != 0 {
+		t.Fatalf("bitable record create dry-run exit code = %d, stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["ok"] != true || payload["operation"] != "bitable_record_create" {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if captured.URL != "https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid" ||
+		captured.InputPath != input ||
 		!captured.DryRun ||
 		captured.Apply {
 		t.Fatalf("captured config = %+v", captured)

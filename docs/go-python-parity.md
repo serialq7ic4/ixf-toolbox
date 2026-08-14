@@ -17,6 +17,7 @@ installs and for the agent skills installed by `ixf setup skills`.
 | `sheets read` | Owned | `ixf sheets read` reads direct authorized sheets links as Markdown/TSV through the sheet client-vars API. |
 | `sheets update` | Owned | `ixf sheets update --dry-run` plans TSV cell updates; `ixf sheets update --apply` writes confirmed cells through the sheet user_changes API and verifies by readback. |
 | `bitable inspect/read` | Owned | `ixf bitable inspect/read` resolves direct bitable, wiki bitable, and docx embedded bitable URLs into safe metadata without printing full tokens. |
+| `bitable record create` | Owned | `ixf bitable record create --dry-run` plans new records, including local file paths for attachment fields; `ixf bitable record create --apply` fails closed until the record-create API contract is captured. |
 | `bitable attach` | Owned | `ixf bitable attach --dry-run` plans attachment uploads into bitable attachment fields; `ixf bitable attach --apply` fails closed until the upload and record-update API contract is captured. |
 | `okr read` | Owned | Reads authorized OKR pages through the OKR detail APIs. |
 | `okr write` | Owned | Writes confirmed Objective / KR JSON, including index-targeted, full-spec, and explicit prune flows. |

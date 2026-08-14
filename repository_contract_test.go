@@ -313,7 +313,7 @@ func TestSheetsRoutingAndUpdateBoundaryAreDocumented(t *testing.T) {
 func TestBitableRoutingAndAttachBoundaryAreDocumented(t *testing.T) {
 	for _, relative := range []string{"README.md", "README.en.md", "docs/agent-routing.md", "docs/go-python-parity.md"} {
 		text := readRepoFile(t, relative)
-		for _, expected := range []string{"ixf bitable inspect", "ixf bitable attach", "attach --apply"} {
+		for _, expected := range []string{"ixf bitable inspect", "ixf bitable record create", "ixf bitable attach", "record create --apply", "attach --apply"} {
 			if !strings.Contains(text, expected) {
 				t.Fatalf("%s missing bitable command boundary %q:\n%s", relative, expected, text)
 			}
@@ -323,7 +323,7 @@ func TestBitableRoutingAndAttachBoundaryAreDocumented(t *testing.T) {
 	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
 		routingPath := filepath.ToSlash(filepath.Join(runtimeDir, "using-ixf-toolbox", "SKILL.md"))
 		routing := readRepoFile(t, routingPath)
-		for _, expected := range []string{"bitable attachment/image upload requests", "ixf bitable attach --dry-run", "do not route those requests through docs or sheets"} {
+		for _, expected := range []string{"bitable record or attachment/image upload requests", "ixf bitable record create --dry-run", "ixf bitable attach --dry-run", "do not route those requests through docs or sheets"} {
 			if !strings.Contains(routing, expected) {
 				t.Fatalf("%s missing bitable routing guidance %q:\n%s", routingPath, expected, routing)
 			}

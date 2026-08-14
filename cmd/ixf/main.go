@@ -37,6 +37,7 @@ var version = ixftoolbox.DefaultVersion
 var dependencyReleaseLoader = ixfupdate.LoadRelease
 var bitableInspect = ixfbitable.Inspect
 var bitableAttach = ixfbitable.Attach
+var bitableRecordCreate = ixfbitable.RecordCreate
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -485,6 +486,7 @@ func runBitable(args []string, stdout io.Writer, stderr io.Writer) int {
 		{"inspect", "Inspect a bitable source and report safe metadata."},
 		{"read", "Read bitable metadata as a safe JSON summary."},
 		{"attach", "Dry-run or apply an approved bitable attachment upload."},
+		{"record", "Inspect or plan approved bitable record changes."},
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "ERROR bitable requires a subcommand.")
@@ -502,11 +504,86 @@ func runBitable(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runBitableRead(args[1:], stdout, stderr)
 	case "attach":
 		return runBitableAttach(args[1:], stdout, stderr)
+	case "record":
+		return runBitableRecord(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "ERROR unsupported bitable subcommand: %s\n", args[0])
 		printCommandHelp(stderr, "ixf bitable", rows)
 		return 2
 	}
+}
+
+func runBitableRecord(args []string, stdout io.Writer, stderr io.Writer) int {
+	rows := [][2]string{
+		{"create", "Dry-run or apply an approved bitable record creation."},
+	}
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "ERROR bitable record requires a subcommand.")
+		printCommandHelp(stderr, "ixf bitable record", rows)
+		return 2
+	}
+	if isHelpArg(args[0]) {
+		printCommandHelp(stdout, "ixf bitable record", rows)
+		return 0
+	}
+	switch args[0] {
+	case "create":
+		return runBitableRecordCreate(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "ERROR unsupported bitable record subcommand: %s\n", args[0])
+		printCommandHelp(stderr, "ixf bitable record", rows)
+		return 2
+	}
+}
+
+func runBitableRecordCreate(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("ixf bitable record create", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	targetURL := flags.String("url", "", "")
+	inputPath := flags.String("input", "", "")
+	cookiesPath := flags.String("cookies", defaultCookies, "")
+	spaceAPI := flags.String("space-api", "", "")
+	dryRun := flags.Bool("dry-run", false, "")
+	apply := flags.Bool("apply", false, "")
+	asJSON := flags.Bool("json", false, "")
+	if hasHelpArg(args) {
+		flags.SetOutput(stdout)
+		flags.Usage()
+		return 0
+	}
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *targetURL == "" {
+		fmt.Fprintln(stderr, "ERROR --url is required")
+		return 2
+	}
+	if *inputPath == "" {
+		fmt.Fprintln(stderr, "ERROR --input is required")
+		return 2
+	}
+	if *dryRun && *apply {
+		fmt.Fprintln(stderr, "ERROR --dry-run and --apply are mutually exclusive")
+		return 2
+	}
+	payload, err := bitableRecordCreate(ixfbitable.RecordCreateConfig{
+		URL:         *targetURL,
+		InputPath:   *inputPath,
+		DryRun:      *dryRun,
+		Apply:       *apply,
+		CookiesPath: *cookiesPath,
+		SpaceAPI:    *spaceAPI,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	if *asJSON {
+		writeJSON(stdout, payload)
+		return 0
+	}
+	formatBitableSummary(stdout, payload)
+	return 0
 }
 
 func runBitableInspect(args []string, stdout io.Writer, stderr io.Writer) int {

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -80,6 +81,16 @@ type AttachConfig struct {
 	RecordID    string
 	RecordMatch string
 	FilePath    string
+	DryRun      bool
+	Apply       bool
+	CookiesPath string
+	SpaceAPI    string
+	ClientVars  map[string]any
+}
+
+type RecordCreateConfig struct {
+	URL         string
+	InputPath   string
 	DryRun      bool
 	Apply       bool
 	CookiesPath string
@@ -181,6 +192,39 @@ func Attach(config AttachConfig) (map[string]any, error) {
 		return nil, fmt.Errorf("bitable attach --apply is not available until the bitable upload API contract is captured")
 	}
 	return attachDryRunPayload(source, meta, *field, matches[0], file), nil
+}
+
+func RecordCreate(config RecordCreateConfig) (map[string]any, error) {
+	if config.Apply && config.DryRun {
+		return nil, fmt.Errorf("--dry-run and --apply are mutually exclusive")
+	}
+	if !config.Apply && !config.DryRun {
+		return nil, fmt.Errorf("bitable record create requires --dry-run")
+	}
+	source, err := ParseSource(config.URL)
+	if err != nil {
+		return nil, err
+	}
+	clientVars, source, err := resolveClientVars(source, config.ClientVars, config.CookiesPath, config.SpaceAPI)
+	if err != nil {
+		return nil, err
+	}
+	meta, err := ParseClientVars(clientVars, source.BaseToken)
+	if err != nil {
+		return nil, err
+	}
+	fields, err := readRecordCreateFields(config.InputPath)
+	if err != nil {
+		return nil, err
+	}
+	plan, attachments, err := planRecordCreateFields(meta, fields)
+	if err != nil {
+		return nil, err
+	}
+	if config.Apply {
+		return nil, fmt.Errorf("bitable record create --apply is not available until the bitable record API contract is captured")
+	}
+	return recordCreateDryRunPayload(source, meta, plan, attachments), nil
 }
 
 type session struct {
@@ -755,6 +799,135 @@ func attachDryRunPayload(source Source, meta Metadata, field Field, record Recor
 		},
 		"willUpload":       true,
 		"willUpdateRecord": true,
+	}
+}
+
+func recordCreateDryRunPayload(source Source, meta Metadata, fields []map[string]any, attachments []map[string]any) map[string]any {
+	return map[string]any{
+		"ok":                     true,
+		"dryRun":                 true,
+		"operation":              "bitable_record_create",
+		"sourceKind":             source.Kind,
+		"target":                 map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": firstTableID(meta), "viewId": firstViewID(meta)},
+		"fieldCount":             len(fields),
+		"fields":                 fields,
+		"plannedAttachmentCount": len(attachments),
+		"attachments":            attachments,
+		"willCreateRecord":       true,
+	}
+}
+
+func readRecordCreateFields(path string) (map[string]any, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, fmt.Errorf("bitable record create requires --input")
+	}
+	content, err := os.ReadFile(expandUser(path))
+	if err != nil {
+		return nil, err
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal(content, &payload); err != nil {
+		return nil, fmt.Errorf("record create input must be JSON")
+	}
+	fields := asMap(payload["fields"])
+	if len(fields) == 0 {
+		fields = payload
+	}
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("record create input must include at least one field")
+	}
+	return fields, nil
+}
+
+func planRecordCreateFields(meta Metadata, fields map[string]any) ([]map[string]any, []map[string]any, error) {
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	plannedFields := make([]map[string]any, 0, len(names))
+	attachments := []map[string]any{}
+	for _, name := range names {
+		field := meta.FieldByName(name)
+		if field == nil {
+			return nil, nil, fmt.Errorf("field %q was not found", name)
+		}
+		value := fields[name]
+		entry := map[string]any{
+			"id":                   field.ID,
+			"name":                 field.Name,
+			"type":                 field.TypeName,
+			"attachmentCompatible": field.AttachmentCompatible,
+		}
+		if field.AttachmentCompatible {
+			files, err := inspectAttachmentValueFiles(value)
+			if err != nil {
+				return nil, nil, fmt.Errorf("attachment field %q: %w", field.Name, err)
+			}
+			entry["attachmentCount"] = len(files)
+			for _, file := range files {
+				attachments = append(attachments, map[string]any{
+					"fieldId":   field.ID,
+					"fieldName": field.Name,
+					"file": map[string]any{
+						"name":      file.Name,
+						"mimeType":  file.MimeType,
+						"sizeBytes": file.Size,
+					},
+				})
+			}
+		} else {
+			entry["valuePreview"] = renderSheetValue(value)
+		}
+		plannedFields = append(plannedFields, entry)
+	}
+	return plannedFields, attachments, nil
+}
+
+func inspectAttachmentValueFiles(value any) ([]fileMetadata, error) {
+	paths, err := attachmentPathsFromValue(value)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]fileMetadata, 0, len(paths))
+	for _, path := range paths {
+		file, err := inspectLocalFile(path)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+	return files, nil
+}
+
+func attachmentPathsFromValue(value any) ([]string, error) {
+	switch typed := value.(type) {
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return []string{}, nil
+		}
+		return []string{typed}, nil
+	case map[string]any:
+		path := firstNonEmptyString(typed["file"], typed["path"])
+		if path == "" {
+			return nil, fmt.Errorf("attachment object must include file or path")
+		}
+		return []string{path}, nil
+	case []any:
+		paths := []string{}
+		for _, item := range typed {
+			itemPaths, err := attachmentPathsFromValue(item)
+			if err != nil {
+				return nil, err
+			}
+			paths = append(paths, itemPaths...)
+		}
+		return paths, nil
+	case nil:
+		return []string{}, nil
+	default:
+		return nil, fmt.Errorf("attachment value must be a path string, object, or array")
 	}
 }
 

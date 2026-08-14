@@ -84,14 +84,18 @@ link so the request carries the required host token.
 Bitable attachment fields are bitable data, not docx blocks or sheet cells. For
 direct bitable, wiki bitable, or docx embedded bitable links, use
 `ixf bitable inspect --url <url> --json` for safe metadata and
+`ixf bitable record create --url <url> --input row.json --dry-run --json` to
+plan new records. Use
 `ixf bitable attach --url <url> --field <attachment-field> --record-id <id> --file <path> --dry-run --json`
 or `--record-match Field=Value` to plan an attachment upload. Do not route
 bitable attachment requests to `ixf docs update`, docs patch commands, or
 `ixf sheets update`.
 
-`ixf bitable attach --apply` is intentionally unavailable until the bitable
-asset upload and record-update API contract is captured. Treat dry-run output as
-planning only; no remote mutation is supported yet.
+`ixf bitable record create --apply` and `ixf bitable attach --apply` are
+intentionally unavailable until the bitable record-create, asset-upload, and
+record-update API contracts are captured. Treat dry-run output as planning only;
+no remote bitable mutation is supported yet. Ordinary docx `view/file` preview
+blocks are not bitable entry points unless a base token can be discovered.
 
 ## Runtime Boundary
 

@@ -156,6 +156,77 @@ func TestAttachApplyFailsUntilContractCaptured(t *testing.T) {
 	}
 }
 
+func TestRecordCreateDryRunPlansFieldsAndAttachments(t *testing.T) {
+	file := writeFixtureFile(t, "ceph_logo.jpeg", []byte{0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00})
+	input := writeFixtureJSON(t, "row.json", map[string]any{
+		"fields": map[string]any{
+			"Title":      "New image bug",
+			"Module":     "Collab",
+			"Screenshot": map[string]any{"file": file},
+		},
+	})
+
+	payload, err := RecordCreate(RecordCreateConfig{
+		URL:        "https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid",
+		InputPath:  input,
+		DryRun:     true,
+		ClientVars: bitableClientVarsFixture(t),
+	})
+	if err != nil {
+		t.Fatalf("RecordCreate dry-run returned error: %v", err)
+	}
+	if payload["ok"] != true || payload["dryRun"] != true || payload["operation"] != "bitable_record_create" {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if payload["willCreateRecord"] != true || payload["plannedAttachmentCount"] != 1 || payload["fieldCount"] != 3 {
+		t.Fatalf("record create plan = %+v", payload)
+	}
+	attachments := payload["attachments"].([]map[string]any)
+	if len(attachments) != 1 || attachments[0]["fieldName"] != "Screenshot" {
+		t.Fatalf("attachments = %+v", attachments)
+	}
+	fileInfo := attachments[0]["file"].(map[string]any)
+	if fileInfo["name"] != "ceph_logo.jpeg" || fileInfo["mimeType"] != "image/jpeg" {
+		t.Fatalf("attachment file metadata = %+v", fileInfo)
+	}
+}
+
+func TestRecordCreateDryRunRejectsUnknownField(t *testing.T) {
+	input := writeFixtureJSON(t, "row.json", map[string]any{
+		"fields": map[string]any{
+			"Missing": "value",
+		},
+	})
+
+	_, err := RecordCreate(RecordCreateConfig{
+		URL:        "https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid",
+		InputPath:  input,
+		DryRun:     true,
+		ClientVars: bitableClientVarsFixture(t),
+	})
+	if err == nil || !strings.Contains(err.Error(), "field \"Missing\" was not found") {
+		t.Fatalf("RecordCreate unknown field error = %v", err)
+	}
+}
+
+func TestRecordCreateApplyFailsUntilContractCaptured(t *testing.T) {
+	input := writeFixtureJSON(t, "row.json", map[string]any{
+		"fields": map[string]any{
+			"Title": "New image bug",
+		},
+	})
+
+	_, err := RecordCreate(RecordCreateConfig{
+		URL:        "https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid",
+		InputPath:  input,
+		Apply:      true,
+		ClientVars: bitableClientVarsFixture(t),
+	})
+	if err == nil || !strings.Contains(err.Error(), "record create --apply is not available") {
+		t.Fatalf("RecordCreate apply gate error = %v", err)
+	}
+}
+
 func TestInspectHTTPFetchesDirectBitableClientVars(t *testing.T) {
 	cookiesPath := writeCookieFixture(t)
 	var requested bool
@@ -394,6 +465,15 @@ func writeFixtureFile(t *testing.T, name string, content []byte) string {
 		t.Fatalf("write fixture file: %v", err)
 	}
 	return path
+}
+
+func writeFixtureJSON(t *testing.T, name string, payload map[string]any) string {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal fixture JSON: %v", err)
+	}
+	return writeFixtureFile(t, name, raw)
 }
 
 func writeCookieFixture(t *testing.T) string {

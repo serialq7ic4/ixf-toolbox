@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	ixftoolbox "github.com/serialq7ic4/ixf-toolbox"
+	ixfbitable "github.com/serialq7ic4/ixf-toolbox/internal/bitable"
 	ixfcookies "github.com/serialq7ic4/ixf-toolbox/internal/cookies"
 	"github.com/serialq7ic4/ixf-toolbox/internal/docslocal"
 	"github.com/serialq7ic4/ixf-toolbox/internal/docspublish"
@@ -34,6 +35,8 @@ const globalDefaultBaseURLEnv = "IXF_DEFAULT_BASE_URL"
 var version = ixftoolbox.DefaultVersion
 
 var dependencyReleaseLoader = ixfupdate.LoadRelease
+var bitableInspect = ixfbitable.Inspect
+var bitableAttach = ixfbitable.Attach
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -81,6 +84,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runDocs(args[1:], stdout, stderr)
 	case "sheets":
 		return runSheets(args[1:], stdout, stderr)
+	case "bitable":
+		return runBitable(args[1:], stdout, stderr)
 	case "okr":
 		return runOKR(args[1:], stdout, stderr)
 	case "messenger":
@@ -104,6 +109,7 @@ func printRootHelp(w io.Writer) {
 	rows := [][2]string{
 		{"docs", "Read, inspect, chunk, clean up, or publish authorized documents."},
 		{"sheets", "Read direct sheets links or plan approved sheet cell updates."},
+		{"bitable", "Inspect or plan approved bitable attachment changes."},
 		{"okr", "Read or plan approved OKR changes."},
 		{"messenger", "Inspect and plan safe i讯飞 Messenger automation."},
 		{"doctor", "Inspect local Toolbox setup without printing secrets."},
@@ -472,6 +478,148 @@ func runSheetsUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	writeJSON(stdout, payload)
 	return 0
+}
+
+func runBitable(args []string, stdout io.Writer, stderr io.Writer) int {
+	rows := [][2]string{
+		{"inspect", "Inspect a bitable source and report safe metadata."},
+		{"read", "Read bitable metadata as a safe JSON summary."},
+		{"attach", "Dry-run or apply an approved bitable attachment upload."},
+	}
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "ERROR bitable requires a subcommand.")
+		printCommandHelp(stderr, "ixf bitable", rows)
+		return 2
+	}
+	if isHelpArg(args[0]) {
+		printCommandHelp(stdout, "ixf bitable", rows)
+		return 0
+	}
+	switch args[0] {
+	case "inspect":
+		return runBitableInspect(args[1:], stdout, stderr)
+	case "read":
+		return runBitableRead(args[1:], stdout, stderr)
+	case "attach":
+		return runBitableAttach(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "ERROR unsupported bitable subcommand: %s\n", args[0])
+		printCommandHelp(stderr, "ixf bitable", rows)
+		return 2
+	}
+}
+
+func runBitableInspect(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("ixf bitable inspect", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	targetURL := flags.String("url", "", "")
+	cookiesPath := flags.String("cookies", defaultCookies, "")
+	spaceAPI := flags.String("space-api", "", "")
+	asJSON := flags.Bool("json", false, "")
+	if hasHelpArg(args) {
+		flags.SetOutput(stdout)
+		flags.Usage()
+		return 0
+	}
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *targetURL == "" {
+		fmt.Fprintln(stderr, "ERROR --url is required")
+		return 2
+	}
+	payload, err := bitableInspect(ixfbitable.InspectConfig{
+		URL:         *targetURL,
+		CookiesPath: *cookiesPath,
+		SpaceAPI:    *spaceAPI,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	if *asJSON {
+		writeJSON(stdout, payload)
+		return 0
+	}
+	formatBitableSummary(stdout, payload)
+	return 0
+}
+
+func runBitableRead(args []string, stdout io.Writer, stderr io.Writer) int {
+	return runBitableInspect(args, stdout, stderr)
+}
+
+func runBitableAttach(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("ixf bitable attach", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	targetURL := flags.String("url", "", "")
+	field := flags.String("field", "", "")
+	recordID := flags.String("record-id", "", "")
+	recordMatch := flags.String("record-match", "", "")
+	filePath := flags.String("file", "", "")
+	cookiesPath := flags.String("cookies", defaultCookies, "")
+	spaceAPI := flags.String("space-api", "", "")
+	dryRun := flags.Bool("dry-run", false, "")
+	apply := flags.Bool("apply", false, "")
+	asJSON := flags.Bool("json", false, "")
+	if hasHelpArg(args) {
+		flags.SetOutput(stdout)
+		flags.Usage()
+		return 0
+	}
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *targetURL == "" {
+		fmt.Fprintln(stderr, "ERROR --url is required")
+		return 2
+	}
+	if *field == "" {
+		fmt.Fprintln(stderr, "ERROR --field is required")
+		return 2
+	}
+	if *filePath == "" {
+		fmt.Fprintln(stderr, "ERROR --file is required")
+		return 2
+	}
+	if *dryRun && *apply {
+		fmt.Fprintln(stderr, "ERROR --dry-run and --apply are mutually exclusive")
+		return 2
+	}
+	payload, err := bitableAttach(ixfbitable.AttachConfig{
+		URL:         *targetURL,
+		Field:       *field,
+		RecordID:    *recordID,
+		RecordMatch: *recordMatch,
+		FilePath:    *filePath,
+		DryRun:      *dryRun,
+		Apply:       *apply,
+		CookiesPath: *cookiesPath,
+		SpaceAPI:    *spaceAPI,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	if *asJSON {
+		writeJSON(stdout, payload)
+		return 0
+	}
+	formatBitableSummary(stdout, payload)
+	return 0
+}
+
+func formatBitableSummary(w io.Writer, payload map[string]any) {
+	fmt.Fprintf(w, "ok %t\n", boolFromMap(payload, "ok"))
+	if operation, _ := payload["operation"].(string); operation != "" {
+		fmt.Fprintf(w, "operation %s\n", operation)
+	}
+	if sourceKind, _ := payload["sourceKind"].(string); sourceKind != "" {
+		fmt.Fprintf(w, "source_kind %s\n", sourceKind)
+	}
+	if dryRun, ok := payload["dryRun"].(bool); ok {
+		fmt.Fprintf(w, "dry_run %t\n", dryRun)
+	}
 }
 
 func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {

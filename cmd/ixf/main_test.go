@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	ixfbitable "github.com/serialq7ic4/ixf-toolbox/internal/bitable"
 	ixfupdate "github.com/serialq7ic4/ixf-toolbox/internal/update"
 )
 
@@ -47,7 +48,7 @@ func TestRootHelpListsCommands(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
-	for _, expected := range []string{"usage: ixf", "docs", "sheets", "okr", "messenger", "update"} {
+	for _, expected := range []string{"usage: ixf", "docs", "sheets", "bitable", "okr", "messenger", "update"} {
 		if !strings.Contains(stdout.String(), expected) {
 			t.Fatalf("stdout missing %q: %s", expected, stdout.String())
 		}
@@ -61,6 +62,7 @@ func TestDocsAndOKRHelpListSupportedSubcommands(t *testing.T) {
 	}{
 		{args: []string{"docs", "--help"}, expected: []string{"usage: ixf docs", "read", "publish", "update", "patch", "structure", "inspect"}},
 		{args: []string{"sheets", "--help"}, expected: []string{"usage: ixf sheets", "read", "update"}},
+		{args: []string{"bitable", "--help"}, expected: []string{"usage: ixf bitable", "inspect", "read", "attach"}},
 		{args: []string{"okr", "--help"}, expected: []string{"usage: ixf okr", "read", "write"}},
 		{args: []string{"messenger", "--help"}, expected: []string{"usage: ixf messenger", "doctor", "open", "read", "send"}},
 	}
@@ -123,6 +125,14 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 			expected: []string{"Usage of ixf sheets update", "-url", "-host-url", "-range", "-input", "-cookies", "-space-api", "-dry-run", "-apply"},
 		},
 		{
+			args:     []string{"bitable", "inspect", "--help"},
+			expected: []string{"Usage of ixf bitable inspect", "-url", "-cookies", "-space-api", "-json"},
+		},
+		{
+			args:     []string{"bitable", "attach", "--help"},
+			expected: []string{"Usage of ixf bitable attach", "-url", "-field", "-record-match", "-file", "-dry-run", "-apply", "-json"},
+		},
+		{
 			args:     []string{"okr", "read", "--help"},
 			expected: []string{"usage: ixf okr read", "--cookies", "--csrf-url"},
 		},
@@ -152,6 +162,52 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 				t.Fatalf("run(%v) stdout missing %q:\n%s", test.args, expected, stdout.String())
 			}
 		}
+	}
+}
+
+func TestBitableAttachDryRunJSONRoutesFlags(t *testing.T) {
+	original := bitableAttach
+	var captured ixfbitable.AttachConfig
+	bitableAttach = func(config ixfbitable.AttachConfig) (map[string]any, error) {
+		captured = config
+		return map[string]any{
+			"ok":               true,
+			"dryRun":           true,
+			"operation":        "bitable_attach",
+			"willUpload":       true,
+			"willUpdateRecord": true,
+		}, nil
+	}
+	t.Cleanup(func() {
+		bitableAttach = original
+	})
+
+	stdout, stderr, code := runCLITest(t,
+		"bitable", "attach",
+		"--url", "https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid",
+		"--field", "Screenshot",
+		"--record-match", "Title=Image bug",
+		"--file", "/tmp/ceph_logo.jpeg",
+		"--dry-run",
+		"--json",
+	)
+	if code != 0 {
+		t.Fatalf("bitable attach dry-run exit code = %d, stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["ok"] != true || payload["operation"] != "bitable_attach" {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if captured.URL != "https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid" ||
+		captured.Field != "Screenshot" ||
+		captured.RecordMatch != "Title=Image bug" ||
+		captured.FilePath != "/tmp/ceph_logo.jpeg" ||
+		!captured.DryRun ||
+		captured.Apply {
+		t.Fatalf("captured config = %+v", captured)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 }
 

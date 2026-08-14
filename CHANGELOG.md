@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added `ixf bitable inspect/read` and `ixf bitable attach --dry-run` for safe bitable metadata inspection and attachment upload planning across direct bitable, wiki bitable, and docx embedded bitable URLs.
+- Kept `ixf bitable attach --apply` fail-closed until the bitable asset upload and record-update API contract is captured, preventing accidental docs/sheets misrouting.
+- Updated README, routing docs, Go parity, and installed skill guidance so bitable attachment requests route to `ixf bitable` instead of docs update or sheets update.
+
 ## 3.24.0 - 2026-08-13
 
 - Added root `ixf doctor --json` dependency diagnostics under `dependencies.mermaid`, `dependencies.messenger`, and `dependencies.update` for full-function readiness checks.

@@ -22,7 +22,7 @@ correct domain skill.
 
 ## Decision Rules
 
-1. Classify the domain: docs, sheets, OKR, or Messenger.
+1. Classify the domain: docs, sheets, bitable, OKR, or Messenger.
 2. Classify the intent: read-only or write.
 3. Default ambiguous intent to read-only.
 4. For writes, confirm the exact target and content.
@@ -78,6 +78,20 @@ use `ixf sheets update --apply` for API-only cell updates and inspect the
 returned `verify.ok` result before claiming success. For embedded sheets, keep
 `--url` on the direct sheets link and add `--host-url` for the parent docx/wiki
 link so the request carries the required host token.
+
+## Bitable Boundary
+
+Bitable attachment fields are bitable data, not docx blocks or sheet cells. For
+direct bitable, wiki bitable, or docx embedded bitable links, use
+`ixf bitable inspect --url <url> --json` for safe metadata and
+`ixf bitable attach --url <url> --field <attachment-field> --record-id <id> --file <path> --dry-run --json`
+or `--record-match Field=Value` to plan an attachment upload. Do not route
+bitable attachment requests to `ixf docs update`, docs patch commands, or
+`ixf sheets update`.
+
+`ixf bitable attach --apply` is intentionally unavailable until the bitable
+asset upload and record-update API contract is captured. Treat dry-run output as
+planning only; no remote mutation is supported yet.
 
 ## Runtime Boundary
 

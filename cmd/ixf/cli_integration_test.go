@@ -1178,6 +1178,66 @@ func TestCLISheetsUpdateDryRunPlansTSVWithoutNetwork(t *testing.T) {
 	}
 }
 
+func TestCLIBitableAttachDryRunFetchesClientVarsWithoutMutation(t *testing.T) {
+	tmpDir := t.TempDir()
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+	imagePath := filepath.Join(tmpDir, "ceph_logo.jpeg")
+	if err := os.WriteFile(imagePath, []byte{0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var clientVarsRequested bool
+	var sawMutation bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/v1/bitable/bas_fixture/clientvars":
+			clientVarsRequested = true
+			if got := r.Header.Get("X-CSRFToken"); got != "csrf-fixture" {
+				t.Fatalf("clientvars csrf = %q, want csrf-fixture", got)
+			}
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": bitableCLIFixtureData(t)})
+		default:
+			if r.Method == http.MethodPost || strings.Contains(r.URL.Path, "upload") || strings.Contains(r.URL.Path, "record") {
+				sawMutation = true
+			}
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr, code := runCLITest(t,
+		"bitable", "attach",
+		"--url", server.URL+"/base/bas_fixture?table=tbl_main&view=vew_grid",
+		"--field", "Screenshot",
+		"--record-match", "Title=Image bug",
+		"--file", imagePath,
+		"--cookies", cookiesPath,
+		"--space-api", server.URL,
+		"--dry-run",
+		"--json",
+	)
+	if code != 0 {
+		t.Fatalf("bitable attach dry-run exit code = %d, stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	if !clientVarsRequested {
+		t.Fatal("bitable clientvars endpoint was not requested")
+	}
+	if sawMutation {
+		t.Fatal("dry-run performed mutation")
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["ok"] != true || payload["operation"] != "bitable_attach" || payload["dryRun"] != true {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if payload["willUpload"] != true || payload["willUpdateRecord"] != true || payload["recordMatchCount"] != float64(1) {
+		t.Fatalf("bitable attach dry-run payload = %+v", payload)
+	}
+	if stderr != "" {
+		t.Fatalf("bitable attach dry-run stderr = %q, want empty", stderr)
+	}
+}
+
 func TestCLISheetsUpdateApplyPostsUserChangesAndVerifiesReadback(t *testing.T) {
 	tmpDir := t.TempDir()
 	cookiesPath := filepath.Join(tmpDir, "cookies.json")
@@ -2135,6 +2195,76 @@ func sheetCLIFixtureData(t *testing.T, sheetID string) map[string]any {
 					},
 				},
 			},
+		},
+	}
+}
+
+func bitableCLIFixtureData(t *testing.T) map[string]any {
+	t.Helper()
+	schema := map[string]any{
+		"base": map[string]any{
+			"name":     "Bug Tracker",
+			"timezone": "Asia/Shanghai",
+			"tables":   []any{"tbl_main"},
+			"tableInfos": map[string]any{
+				"tbl_main": map[string]any{"name": "Issues"},
+			},
+		},
+		"data": map[string]any{
+			"table": map[string]any{
+				"id":    "tbl_main",
+				"views": []any{"vew_grid"},
+				"viewMap": map[string]any{
+					"vew_grid": map[string]any{
+						"id":   "vew_grid",
+						"name": "Grid",
+						"type": float64(1),
+						"property": map[string]any{
+							"fields":  []any{"fld_title", "fld_module", "fld_image"},
+							"records": []any{"rec_1", "rec_2"},
+						},
+					},
+				},
+				"fieldMap": map[string]any{
+					"fld_title": map[string]any{
+						"id":   "fld_title",
+						"name": "Title",
+						"type": float64(1),
+					},
+					"fld_module": map[string]any{
+						"id":   "fld_module",
+						"name": "Module",
+						"type": float64(3),
+						"property": map[string]any{
+							"options": []any{
+								map[string]any{"id": "opt_collab", "name": "Collab"},
+							},
+						},
+					},
+					"fld_image": map[string]any{
+						"id":   "fld_image",
+						"name": "Screenshot",
+						"type": float64(17),
+					},
+				},
+			},
+			"recordMap": map[string]any{
+				"rec_1": map[string]any{
+					"fld_title":  map[string]any{"value": "Image bug"},
+					"fld_module": map[string]any{"value": "opt_collab"},
+					"fld_image":  map[string]any{"value": []any{}},
+				},
+				"rec_2": map[string]any{
+					"fld_title":  map[string]any{"value": "Resume failed"},
+					"fld_module": map[string]any{"value": "opt_collab"},
+					"fld_image":  map[string]any{"value": []any{}},
+				},
+			},
+		},
+	}
+	return map[string]any{
+		"oldSchema": map[string]any{
+			"gzipSchema": gzipCLIJSON(t, schema),
 		},
 	}
 }

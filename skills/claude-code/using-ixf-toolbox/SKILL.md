@@ -21,6 +21,7 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 - For confirmed one-section replacement or deletion requests, route to `ixf docs patch replace-section` or `ixf docs patch delete-section` through `ixf-docs-writer`; do not use those commands for simple insertion.
 - For docx/wiki read or existing-docx write workflows, treat safe structure preflight as background metadata. `ixf docs read --out-dir` and write dry-runs expose `structure`; use `ixf docs structure --json` only when an explicit diagnostic or locator check is useful.
 - For sheet cell update requests, use `ixf sheets update` directly: dry-run first, then `--apply` only after explicit approval and readback verification.
+- For bitable attachment/image upload requests, use `ixf bitable inspect --url <url> --json` and `ixf bitable attach --dry-run --json`; do not route those requests through docs or sheets commands. `ixf bitable attach --apply` is unavailable until the bitable upload API contract is captured.
 - Use `ixf-okr-reader` for authorized OKR reading, summary, ownership, mention, or alignment analysis.
 - Use `ixf-okr-writer` for approved Objective and Key Result creation or modification.
 - Use `ixf-messenger-reader` for authorized i讯飞 Messenger readiness checks and read-only message inspection workflows.
@@ -28,7 +29,7 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 
 ## Decision Rules
 
-1. Classify the request as docs, sheets, OKR, or messenger.
+1. Classify the request as docs, sheets, bitable, OKR, or messenger.
 2. Classify the intent as read or write.
 3. Default ambiguous intent to read-only. Default to read-only when uncertain.
 4. For writes, confirm the exact target and content, then follow the relevant writer skill or sheet CLI dry-run-first workflow.
@@ -36,8 +37,9 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 6. For localized docs insert requests, use `ixf docs patch insert --dry-run`, inspect `structure`, show `duplicateCandidate` and `existingBlocksTouched`, then use `--apply` only after approval.
 7. For one-section replace/delete requests, use `ixf docs patch replace-section` or `ixf docs patch delete-section --dry-run`, inspect `structure`, show complex/outside-section safety metadata, then use `--apply` only after approval.
 8. For sheets update requests, do not use `ixf docs update`; run `ixf sheets update --dry-run`, show the plan, then use `--apply` only after approval.
-9. If local authentication or installed routing looks unclear, run `ixf doctor --json` and inspect `agentRouting`.
-10. If local authentication looks missing, run or suggest `ixf cookies export --provider auto`.
+9. For bitable attachment requests, run `ixf bitable attach --dry-run`, show the plan, and stop; do not claim remote writes are supported yet.
+10. If local authentication or installed routing looks unclear, run `ixf doctor --json` and inspect `agentRouting`.
+11. If local authentication looks missing, run or suggest `ixf cookies export --provider auto`.
 
 ## Safety
 

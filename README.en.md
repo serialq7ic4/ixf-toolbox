@@ -130,6 +130,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf docs cleanup <out-dir>` | Remove generated read artifacts |
 | `ixf docs publish <file.md>` | Publish Markdown as a new authorized docx document; does not overwrite existing docx files |
 | `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run` | Plan a non-destructive block insertion under a heading |
+| `ixf docs table append-row --url <doc-or-wiki-url> --input row.json --dry-run --json` | Plan appending one row to an existing native docx table, including image cells |
 | `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --apply` | Insert confirmed fragment blocks without replacing existing document body |
 | `ixf docs patch replace-section <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run` | Plan replacing one heading section, rejecting complex blocks by default |
 | `ixf docs patch delete-section --url <doc-or-wiki-url> --under-heading <heading> --dry-run` | Plan deleting one heading section, rejecting complex blocks by default |
@@ -153,7 +154,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 
 ### Runtime Status
 
-Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations. Starting with v3.6, it can send approved messages and requires fresh-session verification before reporting success. Starting with v3.7, Messenger has a GA runbook and actionable diagnostic remediation. Starting with v3.8, agent routing diagnostics and Messenger stability metadata are exposed through doctor commands. Starting with v3.9, existing-docx body replacement dry-run/preflight is available. Starting with v3.10, approved existing-docx body replacement writes are available. Starting with v3.11, complex-block explicit override and the update runbook are available. Starting with v3.13, dedicated `ixf sheets read` and `ixf sheets update --dry-run` command surfaces are available. Starting with v3.14, API-only `ixf sheets update --apply` writes cells and verifies by readback. Starting with v3.16, the docx block graph foundation is available. Starting with v3.17, `ixf docs patch insert --dry-run` is available. Starting with v3.18, approved API-only insert-under-heading writes verify unchanged existing blocks. Starting with v3.20, API-only bounded section replace/delete verifies outside-section blocks remain unchanged. Starting with v3.21, read/write preflight exposes safe heading, section, and complex-block structure summaries, and `ixf docs read --out-dir` writes `.structure.json` artifacts. Starting with v3.22, docs publishing can use a configured default tenant so natural publish requests do not stop at local-only drafts when `--base-url` is omitted. The unreleased runtime adds `ixf bitable` inspect/read, record create dry-run, API-only `record create --apply` for text/attachment record creation with readback verification, and attachment dry-run planning; `attach --apply` remains fail-closed until the existing-record update contract is captured.
+Starting with v2.4, the Go binary owns the documented CLI runtime: document reads and publishing, OKR reads and writes, cookie export, doctor, skill setup, and update flows. Starting with v2.6, GitHub Releases publish only Go binaries and checksums. Starting with v3.0, the Python runtime/package implementation has been deleted. Starting with v3.1, tests and release workflows no longer depend on Python. Starting with v3.3, Messenger begins a staged Go-native rollout. Starting with v3.4, it can open and verify a target chat under explicit --apply. Starting with v3.5, it can read unread or recent conversations. Starting with v3.6, it can send approved messages and requires fresh-session verification before reporting success. Starting with v3.7, Messenger has a GA runbook and actionable diagnostic remediation. Starting with v3.8, agent routing diagnostics and Messenger stability metadata are exposed through doctor commands. Starting with v3.9, existing-docx body replacement dry-run/preflight is available. Starting with v3.10, approved existing-docx body replacement writes are available. Starting with v3.11, complex-block explicit override and the update runbook are available. Starting with v3.13, dedicated `ixf sheets read` and `ixf sheets update --dry-run` command surfaces are available. Starting with v3.14, API-only `ixf sheets update --apply` writes cells and verifies by readback. Starting with v3.16, the docx block graph foundation is available. Starting with v3.17, `ixf docs patch insert --dry-run` is available. Starting with v3.18, approved API-only insert-under-heading writes verify unchanged existing blocks. Starting with v3.20, API-only bounded section replace/delete verifies outside-section blocks remain unchanged. Starting with v3.21, read/write preflight exposes safe heading, section, and complex-block structure summaries, and `ixf docs read --out-dir` writes `.structure.json` artifacts. Starting with v3.22, docs publishing can use a configured default tenant so natural publish requests do not stop at local-only drafts when `--base-url` is omitted. The unreleased runtime adds `ixf docs table append-row` dry-run/apply for native docx table rows with PNG/JPEG/SVG image-cell upload and binding, plus `ixf bitable` inspect/read, record create dry-run, API-only `record create --apply` for text/attachment record creation with readback verification, and attachment dry-run planning; `attach --apply` remains fail-closed until the existing-record update contract is captured.
 
 See [`docs/agent-routing.md`](docs/agent-routing.md) for the agent routing contract. See [`docs/messenger.md`](docs/messenger.md) for Messenger operations, including Chrome/Chromium-only discovery, cloned profile isolation, read side effects, and send success criteria.
 
@@ -348,6 +349,39 @@ ixf sheets update \
   --apply
 ```
 
+Append rows to native docs tables, including image cells:
+
+Native tables inside docx documents are docs blocks, not bitable data. Use `ixf docs table append-row` for those tables. Use `ixf bitable` only for real `/base/...` tables or embedded bitables that resolve to a base token.
+
+The input JSON maps fields to the first-row table headers. Text fields become text blocks; image fields use local file paths and currently support PNG, JPEG, and SVG. If the document has exactly one native table, `--table-index` can be omitted; documents with multiple tables require an explicit 1-based table index. Dry-run first, then use `--apply` to create the row, upload images to `docx_image`, bind image block tokens, and verify readback.
+
+```json
+{
+  "fields": {
+    "Issue": "native docs table append-row test",
+    "Screenshot": { "file": "~/Downloads/ceph_logo.png" }
+  }
+}
+```
+
+```bash
+ixf docs table append-row \
+  --url "https://tenant.example.test/docx/dox_example" \
+  --input row.json \
+  --cookies /tmp/ixf_cookies.json \
+  --dry-run \
+  --json
+```
+
+```bash
+ixf docs table append-row \
+  --url "https://tenant.example.test/docx/dox_example" \
+  --input row.json \
+  --cookies /tmp/ixf_cookies.json \
+  --apply \
+  --json
+```
+
 Plan and create bitable attachment records:
 
 Bitable attachment fields belong to the bitable data layer; do not modify them through `ixf docs update` or `ixf sheets update`. Direct bitable links, wiki bitable links, and docx embedded bitable links use `ixf bitable`. `record create --apply` supports API-only new records for text and attachment fields. `attach --apply` remains fail-closed until the existing-record update API contract is captured.
@@ -411,6 +445,7 @@ Toolbox currently supports:
 
 - i讯飞/LarkShell `docx` document reading and Markdown conversion.
 - Supported `wiki` links, including docx token resolution and bitable TSV output.
+- Native docx table append-row dry-run/apply, including text cells and PNG/JPEG/SVG image-cell upload and binding.
 - Safe bitable metadata inspection plus attachment-upload dry-run planning for direct bitable, wiki bitable, and docx embedded bitable links.
 - Bitable record-create dry-run planning and API-only writes, including local file paths for attachment fields, asset upload, and readback verification; apply currently supports text and attachment fields.
 - Direct mindnote and sheets link reads, plus mindnote markers and embedded sheet TSV expansion exposed by supported document payloads.
@@ -444,6 +479,7 @@ See [`docs/migration-from-legacy.md`](docs/migration-from-legacy.md) for command
 - Remote read errors do not echo raw API payloads.
 - Remote writes default to dry-run and require explicit `--apply`.
 - `ixf sheets update --apply` supports only confirmed TSV cell writes; do not use `ixf docs update` to modify sheet content.
+- `ixf docs table append-row --apply` only mutates native docx table blocks; do not use it for bitable/base records or sheet cells.
 - `ixf bitable record create --apply` only supports confirmed new records; apply currently supports text and attachment fields and verifies by readback. Do not use `ixf docs update` or `ixf sheets update` to modify bitable data.
 - `ixf bitable attach` currently supports dry-run planning only; ordinary docx `view/file` preview blocks are not bitable entry points.
 - `ixf docs patch replace-section` and `ixf docs patch delete-section` are bounded destructive operations; simple additions must use `ixf docs patch insert` first.

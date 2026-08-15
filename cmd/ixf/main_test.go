@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	ixfbitable "github.com/serialq7ic4/ixf-toolbox/internal/bitable"
+	"github.com/serialq7ic4/ixf-toolbox/internal/docspublish"
 	ixfupdate "github.com/serialq7ic4/ixf-toolbox/internal/update"
 )
 
@@ -117,6 +118,10 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 			expected: []string{"usage: ixf docs patch delete-section", "--url", "--under-heading", "--allow-complex-section-replace", "--dry-run", "--apply"},
 		},
 		{
+			args:     []string{"docs", "table", "append-row", "--help"},
+			expected: []string{"Usage of ixf docs table append-row", "-url", "-input", "-table-index", "-dry-run", "-apply", "-json"},
+		},
+		{
 			args:     []string{"sheets", "read", "--help"},
 			expected: []string{"usage: ixf sheets read", "--cookies", "--space-api"},
 		},
@@ -166,6 +171,57 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 				t.Fatalf("run(%v) stdout missing %q:\n%s", test.args, expected, stdout.String())
 			}
 		}
+	}
+}
+
+func TestDocsTableAppendRowDryRunJSONRoutesFlags(t *testing.T) {
+	original := docsTableAppendRow
+	var captured docspublish.TableAppendRowConfig
+	docsTableAppendRow = func(config docspublish.TableAppendRowConfig) (map[string]any, error) {
+		captured = config
+		return map[string]any{
+			"ok":        true,
+			"dryRun":    true,
+			"operation": "docs_table_append_row",
+			"willWrite": false,
+		}, nil
+	}
+	t.Cleanup(func() {
+		docsTableAppendRow = original
+	})
+
+	input := filepath.Join(t.TempDir(), "row.json")
+	if err := os.WriteFile(input, []byte(`{"fields":{"Title":"New docs row"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "table", "append-row",
+		"--url", "https://tenant.example/docx/page_1",
+		"--input", input,
+		"--table-index", "2",
+		"--require", "New docs row",
+		"--dry-run",
+		"--json",
+	)
+	if code != 0 {
+		t.Fatalf("docs table append-row dry-run exit code = %d, stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["ok"] != true || payload["operation"] != "docs_table_append_row" {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if captured.URL != "https://tenant.example/docx/page_1" ||
+		captured.InputPath != input ||
+		captured.TableIndex != 2 ||
+		len(captured.RequiredText) != 1 ||
+		captured.RequiredText[0] != "New docs row" ||
+		!captured.DryRun ||
+		captured.Apply {
+		t.Fatalf("captured config = %+v", captured)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 }
 

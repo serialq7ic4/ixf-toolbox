@@ -64,6 +64,22 @@ the whole body. Before applying patch insert, show `duplicateCandidate`,
 
 Section replace/delete requests include prompts such as "replace this section" or "delete this section". Route those to `ixf docs patch replace-section` or `ixf docs patch delete-section`, not `ixf docs update`, when the requested scope is one heading section. These operations are bounded destructive edits: dry-run first, inspect `structure`, show `complexBlockTypes` and `outsideSectionBlocksTouched`, require explicit approval before `--apply`, and require `verify.unchangedOutsideSectionBlocks=true` after apply. Do not use section replace/delete for simple insertion. If the target section contains complex blocks, use `--allow-complex-section-replace` only after explicit destructive approval.
 
+## Docs Native Table Boundary
+
+Native tables inside docx/wiki-backed docx documents are docs blocks, not
+bitable records and not sheet cells. When the user asks to append one row to an
+existing docs table, especially with an image in one cell, use
+`ixf docs table append-row --url <doc-or-wiki-url> --input row.json --dry-run --json`.
+The input JSON maps fields to the table's first-row headers; image cells use
+`{"file":"~/path/image.png"}` and currently support PNG, JPEG, and SVG. If the
+document has multiple native tables, require `--table-index` as a 1-based
+selector. After explicit confirmation, use `--apply` and require `verify.ok`
+plus the expected image attachment count before claiming success.
+
+Do not use `ixf docs table append-row` for `/base/...` links, embedded bitables
+that expose a base token, or sheets cells. Those remain in the `bitable` and
+`sheets` command families below.
+
 ## Sheets Boundary
 
 Direct sheets link reads use `ixf sheets read <sheets-url>`. Embedded sheets

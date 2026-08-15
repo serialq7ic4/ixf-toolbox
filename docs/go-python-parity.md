@@ -14,6 +14,7 @@ installs and for the agent skills installed by `ixf setup skills`.
 | `docs read` | Owned | Reads authorized remote documents and local Markdown into local artifacts. |
 | `docs publish` | Owned | Creates a new docx from Markdown with dry-run-first and explicit `--apply` semantics. |
 | `docs update` | Owned | Updates an existing docx body from Markdown with dry-run-first, `replace_body`, complex-block safeguards, and explicit `--apply` semantics. |
+| `docs table append-row` | Owned | `ixf docs table append-row --dry-run` plans one native docx table row append; `--apply` writes table cells, uploads local PNG/JPEG/SVG image cells to `docx_image`, binds image blocks, and verifies by readback. |
 | `sheets read` | Owned | `ixf sheets read` reads direct authorized sheets links as Markdown/TSV through the sheet client-vars API. |
 | `sheets update` | Owned | `ixf sheets update --dry-run` plans TSV cell updates; `ixf sheets update --apply` writes confirmed cells through the sheet user_changes API and verifies by readback. |
 | `bitable inspect/read` | Owned | `ixf bitable inspect/read` resolves direct bitable, wiki bitable, and docx embedded bitable URLs into safe metadata without printing full tokens. |

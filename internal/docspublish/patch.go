@@ -46,6 +46,7 @@ type patchTarget struct {
 type patchState struct {
 	target   patchTarget
 	session  *publishSession
+	state    map[string]any
 	graph    docxgraph.Graph
 	root     map[string]any
 	memberID string
@@ -345,6 +346,7 @@ func loadPatchState(rawURL string, cookiesPath string, spaceAPI string) (patchSt
 	return patchState{
 		target:   target,
 		session:  session,
+		state:    state,
 		graph:    graph,
 		root:     root,
 		memberID: memberID,

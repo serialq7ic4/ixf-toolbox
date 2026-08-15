@@ -38,6 +38,7 @@ var dependencyReleaseLoader = ixfupdate.LoadRelease
 var bitableInspect = ixfbitable.Inspect
 var bitableAttach = ixfbitable.Attach
 var bitableRecordCreate = ixfbitable.RecordCreate
+var docsTableAppendRow = docspublish.AppendTableRow
 
 var skillNames = []string{
 	"using-ixf-toolbox",
@@ -709,6 +710,7 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		{"publish", "Create a new authorized docx document from Markdown."},
 		{"update", "Update an existing docx body from Markdown."},
 		{"patch", "Plan or apply localized docx/wiki block patches."},
+		{"table", "Plan or apply native docx table row changes."},
 		{"structure", "Print safe docx/wiki structure preflight metadata."},
 	}
 	if len(args) == 0 {
@@ -737,6 +739,8 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runDocsUpdate(args[1:], stdout, stderr)
 	case "patch":
 		return runDocsPatch(args[1:], stdout, stderr)
+	case "table":
+		return runDocsTable(args[1:], stdout, stderr)
 	case "structure":
 		return runDocsStructure(args[1:], stdout, stderr)
 	default:
@@ -744,6 +748,84 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		printCommandHelp(stderr, "ixf docs", rows)
 		return 2
 	}
+}
+
+func runDocsTable(args []string, stdout io.Writer, stderr io.Writer) int {
+	rows := [][2]string{
+		{"append-row", "Append one row to a native docx table, including image cells."},
+	}
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "ERROR docs table requires a subcommand.")
+		printCommandHelp(stderr, "ixf docs table", rows)
+		return 2
+	}
+	if isHelpArg(args[0]) {
+		printCommandHelp(stdout, "ixf docs table", rows)
+		return 0
+	}
+	switch args[0] {
+	case "append-row":
+		return runDocsTableAppendRow(args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "ERROR unsupported docs table subcommand: %s\n", args[0])
+		printCommandHelp(stderr, "ixf docs table", rows)
+		return 2
+	}
+}
+
+func runDocsTableAppendRow(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("ixf docs table append-row", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	targetURL := flags.String("url", "", "")
+	inputPath := flags.String("input", "", "")
+	tableIndex := flags.Int("table-index", 0, "")
+	cookiesPath := flags.String("cookies", defaultCookies, "")
+	spaceAPI := flags.String("space-api", docslocal.DefaultSpaceAPI, "")
+	dryRun := flags.Bool("dry-run", false, "")
+	apply := flags.Bool("apply", false, "")
+	asJSON := flags.Bool("json", false, "")
+	var required repeatedStringFlag
+	flags.Var(&required, "require", "")
+	if hasHelpArg(args) {
+		flags.SetOutput(stdout)
+		flags.Usage()
+		return 0
+	}
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if *targetURL == "" {
+		fmt.Fprintln(stderr, "ERROR --url is required")
+		return 2
+	}
+	if *inputPath == "" {
+		fmt.Fprintln(stderr, "ERROR --input is required")
+		return 2
+	}
+	if *dryRun && *apply {
+		fmt.Fprintln(stderr, "ERROR --dry-run and --apply are mutually exclusive")
+		return 2
+	}
+	payload, err := docsTableAppendRow(docspublish.TableAppendRowConfig{
+		URL:          *targetURL,
+		InputPath:    *inputPath,
+		CookiesPath:  *cookiesPath,
+		SpaceAPI:     *spaceAPI,
+		TableIndex:   *tableIndex,
+		RequiredText: []string(required),
+		DryRun:       *dryRun,
+		Apply:        *apply,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	if *asJSON {
+		writeJSON(stdout, payload)
+		return 0
+	}
+	writeJSON(stdout, payload)
+	return 0
 }
 
 func runDocsRead(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -1638,6 +1720,17 @@ type docsPatchSectionArgs struct {
 	apply        bool
 	dryRun       bool
 	deleteOnly   bool
+}
+
+type repeatedStringFlag []string
+
+func (flag *repeatedStringFlag) String() string {
+	return strings.Join(*flag, ",")
+}
+
+func (flag *repeatedStringFlag) Set(value string) error {
+	*flag = append(*flag, value)
+	return nil
 }
 
 func parseDocsReadArgs(args []string) (docsReadArgs, error) {

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/xml"
 	"fmt"
+	"image"
+	_ "image/jpeg"
 	"image/png"
 	"io"
 	"math"
@@ -28,6 +30,7 @@ const (
 type imageSource struct {
 	Kind    string
 	Text    string
+	Path    string
 	Ordinal int
 }
 
@@ -308,6 +311,68 @@ func mimeTypeForRenderedFormat(format string) string {
 	}
 }
 
+func localRenderedImage(path string) (renderedImage, error) {
+	expanded := expandUser(path)
+	info, err := os.Stat(expanded)
+	if err != nil {
+		return renderedImage{}, err
+	}
+	if info.Size() == 0 {
+		return renderedImage{}, fmt.Errorf("image file is empty: %s", expanded)
+	}
+	name := filepath.Base(expanded)
+	ext := strings.ToLower(filepath.Ext(expanded))
+	if ext == ".svg" {
+		width, height, err := svgDimensions(expanded)
+		if err != nil {
+			return renderedImage{}, err
+		}
+		return renderedImage{
+			Path:     expanded,
+			Name:     name,
+			MimeType: "image/svg+xml",
+			Size:     info.Size(),
+			Width:    width,
+			Height:   height,
+		}, nil
+	}
+	file, err := os.Open(expanded)
+	if err != nil {
+		return renderedImage{}, err
+	}
+	defer file.Close()
+	config, format, err := image.DecodeConfig(file)
+	if err != nil {
+		return renderedImage{}, fmt.Errorf("image dimensions unavailable for %s: %w", expanded, err)
+	}
+	if config.Width <= 0 || config.Height <= 0 {
+		return renderedImage{}, fmt.Errorf("image dimensions invalid for %s", expanded)
+	}
+	mimeType, err := mimeTypeForLocalImageFormat(format)
+	if err != nil {
+		return renderedImage{}, err
+	}
+	return renderedImage{
+		Path:     expanded,
+		Name:     name,
+		MimeType: mimeType,
+		Size:     info.Size(),
+		Width:    config.Width,
+		Height:   config.Height,
+	}, nil
+}
+
+func mimeTypeForLocalImageFormat(format string) (string, error) {
+	switch format {
+	case "png":
+		return "image/png", nil
+	case "jpeg":
+		return "image/jpeg", nil
+	default:
+		return "", fmt.Errorf("unsupported local image format %q; supported formats are png, jpeg, and svg", format)
+	}
+}
+
 func generatedImageEntries(entries []blockEntry) []blockEntry {
 	images := []blockEntry{}
 	for _, entry := range entries {
@@ -336,7 +401,7 @@ func (session *publishSession) attachGeneratedImages(pageID string, memberID str
 
 	bindings := []imageBinding{}
 	for _, entry := range imageEntries {
-		binding, err := session.renderUploadMermaidImage(pageID, entry, referer, tempDir)
+		binding, err := session.renderUploadImageSource(pageID, entry, referer, tempDir)
 		if err != nil {
 			return len(bindings), err
 		}
@@ -362,7 +427,7 @@ func prepareGeneratedImagePlaceholders(entries []blockEntry) (int, error) {
 
 	prepared := 0
 	for _, entry := range imageEntries {
-		image, err := renderMermaidPlaceholderImage(entry, tempDir)
+		image, err := placeholderImageForSource(entry, tempDir)
 		if err != nil {
 			return prepared, err
 		}
@@ -372,9 +437,15 @@ func prepareGeneratedImagePlaceholders(entries []blockEntry) (int, error) {
 	return prepared, nil
 }
 
-func renderMermaidPlaceholderImage(entry blockEntry, tempDir string) (renderedImage, error) {
-	if entry.Image == nil || entry.Image.Kind != "mermaid" {
+func placeholderImageForSource(entry blockEntry, tempDir string) (renderedImage, error) {
+	if entry.Image == nil {
 		return renderedImage{}, fmt.Errorf("unsupported generated image source")
+	}
+	if entry.Image.Kind == "file" {
+		return localRenderedImage(entry.Image.Path)
+	}
+	if entry.Image.Kind != "mermaid" {
+		return renderedImage{}, fmt.Errorf("unsupported generated image source kind %q", entry.Image.Kind)
 	}
 	svg, svgErr := renderMermaid(entry.Image.Text, entry.Image.Ordinal, mermaidPreferredFormat, tempDir)
 	if svgErr == nil {
@@ -400,7 +471,7 @@ func (session *publishSession) prepareGeneratedImageBlocks(pageID string, refere
 
 	prepared := 0
 	for _, entry := range imageEntries {
-		binding, err := session.renderUploadMermaidImage(pageID, entry, referer, tempDir)
+		binding, err := session.renderUploadImageSource(pageID, entry, referer, tempDir)
 		if err != nil {
 			return prepared, err
 		}
@@ -444,9 +515,23 @@ func (session *publishSession) clientVarsContainingBlocks(pageID string, referer
 	return last, fmt.Errorf("new image blocks were not visible after document write")
 }
 
-func (session *publishSession) renderUploadMermaidImage(pageID string, entry blockEntry, referer string, tempDir string) (imageBinding, error) {
-	if entry.Image == nil || entry.Image.Kind != "mermaid" {
+func (session *publishSession) renderUploadImageSource(pageID string, entry blockEntry, referer string, tempDir string) (imageBinding, error) {
+	if entry.Image == nil {
 		return imageBinding{}, fmt.Errorf("unsupported generated image source")
+	}
+	if entry.Image.Kind == "file" {
+		image, err := localRenderedImage(entry.Image.Path)
+		if err != nil {
+			return imageBinding{}, err
+		}
+		token, uploadErr := session.uploadImage(pageID, entry.ID, image, referer)
+		if uploadErr != nil {
+			return imageBinding{}, fmt.Errorf("local image upload failed: %w", uploadErr)
+		}
+		return imageBinding{BlockID: entry.ID, Token: token, Image: image}, nil
+	}
+	if entry.Image.Kind != "mermaid" {
+		return imageBinding{}, fmt.Errorf("unsupported generated image source kind %q", entry.Image.Kind)
 	}
 	svg, svgRenderErr := renderMermaid(entry.Image.Text, entry.Image.Ordinal, mermaidPreferredFormat, tempDir)
 	if svgRenderErr == nil {
@@ -465,6 +550,10 @@ func (session *publishSession) renderUploadMermaidImage(pageID string, entry blo
 		return imageBinding{}, fmt.Errorf("mermaid image upload failed: svg=%v; png=%v", svgRenderErr, uploadErr)
 	}
 	return imageBinding{BlockID: entry.ID, Token: token, Image: png}, nil
+}
+
+func (session *publishSession) renderUploadMermaidImage(pageID string, entry blockEntry, referer string, tempDir string) (imageBinding, error) {
+	return session.renderUploadImageSource(pageID, entry, referer, tempDir)
 }
 
 func (session *publishSession) uploadImage(pageID string, blockID string, image renderedImage, referer string) (string, error) {

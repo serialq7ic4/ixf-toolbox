@@ -21,6 +21,7 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 - For confirmed one-section replacement or deletion requests, route to `ixf docs patch replace-section` or `ixf docs patch delete-section` through `ixf-docs-writer`; do not use those commands for simple insertion.
 - For docx/wiki read or existing-docx write workflows, treat safe structure preflight as background metadata. `ixf docs read --out-dir` and write dry-runs expose `structure`; use `ixf docs structure --json` only when an explicit diagnostic or locator check is useful.
 - For sheet cell update requests, use `ixf sheets update` directly: dry-run first, then `--apply` only after explicit approval and readback verification.
+- For native docx table row append requests, use `ixf docs table append-row --dry-run --json`, mapping JSON fields to first-row headers and image cells to `{"file":"path"}`; after explicit approval use `--apply` and inspect `verify.ok`. Do not route native docs table edits through `ixf bitable` unless the target is a real base/bitable.
 - For bitable record or attachment/image upload requests, use `ixf bitable inspect --url <url> --json`, `ixf bitable record create --dry-run --json`, `ixf bitable record create --apply --json`, or `ixf bitable attach --dry-run --json`; do not route those requests through docs or sheets commands. `ixf bitable record create --apply` supports confirmed API-only creation for text and attachment fields; `ixf bitable attach --apply` remains unavailable until the existing-record update contract is captured.
 - Use `ixf-okr-reader` for authorized OKR reading, summary, ownership, mention, or alignment analysis.
 - Use `ixf-okr-writer` for approved Objective and Key Result creation or modification.
@@ -37,9 +38,10 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 6. For localized docs insert requests, use `ixf docs patch insert --dry-run`, inspect `structure`, show `duplicateCandidate` and `existingBlocksTouched`, then use `--apply` only after approval.
 7. For one-section replace/delete requests, use `ixf docs patch replace-section` or `ixf docs patch delete-section --dry-run`, inspect `structure`, show complex/outside-section safety metadata, then use `--apply` only after approval.
 8. For sheets update requests, do not use `ixf docs update`; run `ixf sheets update --dry-run`, show the plan, then use `--apply` only after approval.
-9. For bitable record create requests, run `ixf bitable record create --dry-run`, show the plan, then use `--apply` only after explicit approval and inspect `verify.ok`; for `ixf bitable attach`, dry-run only and stop because existing-record writes are not supported yet.
-10. If local authentication or installed routing looks unclear, run `ixf doctor --json` and inspect `agentRouting`.
-11. If local authentication looks missing, run or suggest `ixf cookies export --provider auto`.
+9. For native docs table row append requests, run `ixf docs table append-row --dry-run`, show `tableIndex`, `headers`, `plannedCellCount`, and `plannedImageCount`, then use `--apply` only after explicit approval and inspect `verify.ok`.
+10. For bitable record create requests, run `ixf bitable record create --dry-run`, show the plan, then use `--apply` only after explicit approval and inspect `verify.ok`; for `ixf bitable attach`, dry-run only and stop because existing-record writes are not supported yet.
+11. If local authentication or installed routing looks unclear, run `ixf doctor --json` and inspect `agentRouting`.
+12. If local authentication looks missing, run or suggest `ixf cookies export --provider auto`.
 
 ## Safety
 

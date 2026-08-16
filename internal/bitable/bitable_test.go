@@ -196,7 +196,7 @@ func TestRecordCreateDryRunPlansFieldsAndAttachments(t *testing.T) {
 
 func TestRecordCreateDryRunExpandsTildeAttachmentPaths(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	downloadDir := filepath.Join(home, "Downloads")
 	if err := os.MkdirAll(downloadDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -225,6 +225,18 @@ func TestRecordCreateDryRunExpandsTildeAttachmentPaths(t *testing.T) {
 	if fileInfo["name"] != "ceph_logo.jpeg" || fileInfo["mimeType"] != "image/jpeg" {
 		t.Fatalf("attachment file metadata = %+v", fileInfo)
 	}
+}
+
+func setTestHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	volume := filepath.VolumeName(home)
+	if volume == "" {
+		volume = filepath.VolumeName(filepath.Clean(home))
+	}
+	t.Setenv("HOMEDRIVE", volume)
+	t.Setenv("HOMEPATH", strings.TrimPrefix(home, volume))
 }
 
 func TestRecordCreateDryRunRejectsUnknownField(t *testing.T) {

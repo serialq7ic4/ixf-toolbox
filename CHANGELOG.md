@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.25.1 - 2026-08-16
+
+- Documented `ixf bitable record create --insert-position` help output with the supported `top|bottom` values and default `bottom` behavior.
+- Refreshed release install examples so the Chinese and English README files point at the current Go binary artifacts.
+
 ## 3.25.0 - 2026-08-16
 
 - Added `ixf docs table append-row` dry-run/apply for appending one row to native docx tables, including local PNG/JPEG/SVG image cells uploaded through `docx_image` and verified by readback.

@@ -120,8 +120,8 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf sheets update --url <sheets-url> --range A1 --input cells.tsv --apply` | Write confirmed TSV cell updates and verify by readback |
 | `ixf bitable inspect --url <bitable-or-host-url> --json` | Inspect safe metadata for a direct bitable, wiki bitable, or docx embedded bitable |
 | `ixf bitable read --url <bitable-or-host-url> --json` | Read a safe bitable summary; currently aliases `inspect` |
-| `ixf bitable record create --url <bitable-or-host-url> --input row.json --dry-run --json` | Plan creating a bitable record, including local file paths for attachment fields, without writing |
-| `ixf bitable record create --url <bitable-or-host-url> --input row.json --apply --json` | API-only creation of confirmed bitable records with text fields, attachment upload, and readback verification |
+| `ixf bitable record create --url <bitable-or-host-url> --input row.json --dry-run --json` | Plan creating a bitable record appended to the current view by default, including local file paths for attachment fields, without writing |
+| `ixf bitable record create --url <bitable-or-host-url> --input row.json --apply --json` | API-only creation of confirmed bitable records appended to the current view by default, with text fields, attachment upload, and readback verification |
 | `ixf bitable attach --url <bitable-or-host-url> --field <attachment-field> --record-match Field=Value --file image.png --dry-run --json` | Plan a local image/attachment upload into a bitable attachment field without writing |
 | `ixf docs outline <file.md>` | Build heading-aware dynamic reading metadata |
 | `ixf docs chunk <file.md> --index <n>` | Print one dynamic Markdown chunk |
@@ -386,7 +386,7 @@ Plan and create bitable attachment records:
 
 Bitable attachment fields belong to the bitable data layer; do not modify them through `ixf docs update` or `ixf sheets update`. Direct bitable links, wiki bitable links, and docx embedded bitable links use `ixf bitable`. `record create --apply` supports API-only new records for text and attachment fields. `attach --apply` remains fail-closed until the existing-record update API contract is captured.
 
-Use `record create` for new records. The input JSON can be a field map or a top-level `fields` object; attachment fields use local file paths, including absolute paths and `~/...`. Dry-run first, then use `--apply` after review to write and verify by readback.
+Use `record create` for new records. The input JSON can be a field map or a top-level `fields` object; attachment fields use local file paths, including absolute paths and `~/...`. New records append to the current view by default; pass `--insert-position top` to restore the old top-insert behavior, or `--insert-position bottom` to state the default explicitly. Dry-run first and inspect `insertPosition`, `plannedRecordIndex`, and attachment planning, then use `--apply` after review to write and verify `verify.recordIndex` by readback.
 
 ```json
 {
@@ -480,7 +480,7 @@ See [`docs/migration-from-legacy.md`](docs/migration-from-legacy.md) for command
 - Remote writes default to dry-run and require explicit `--apply`.
 - `ixf sheets update --apply` supports only confirmed TSV cell writes; do not use `ixf docs update` to modify sheet content.
 - `ixf docs table append-row --apply` only mutates native docx table blocks; do not use it for bitable/base records or sheet cells.
-- `ixf bitable record create --apply` only supports confirmed new records; apply currently supports text and attachment fields and verifies by readback. Do not use `ixf docs update` or `ixf sheets update` to modify bitable data.
+- `ixf bitable record create --apply` only supports confirmed new records, appended to the current view by default; apply currently supports text and attachment fields and verifies by readback. Do not use `ixf docs update` or `ixf sheets update` to modify bitable data.
 - `ixf bitable attach` currently supports dry-run planning only; ordinary docx `view/file` preview blocks are not bitable entry points.
 - `ixf docs patch replace-section` and `ixf docs patch delete-section` are bounded destructive operations; simple additions must use `ixf docs patch insert` first.
 - Messenger currently supports diagnostics, dry-run open planning, explicit --apply target verification, read-only conversation extraction, and approved sends with fresh-session verification. Messenger auto-discovers only Chrome/Chromium and always uses a cloned profile.

@@ -139,7 +139,7 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 		},
 		{
 			args:     []string{"bitable", "record", "create", "--help"},
-			expected: []string{"Usage of ixf bitable record create", "-url", "-input", "-dry-run", "-apply", "-json"},
+			expected: []string{"Usage of ixf bitable record create", "-url", "-input", "-insert-position", "-dry-run", "-apply", "-json"},
 		},
 		{
 			args:     []string{"okr", "read", "--help"},
@@ -296,6 +296,7 @@ func TestBitableRecordCreateDryRunJSONRoutesFlags(t *testing.T) {
 		"bitable", "record", "create",
 		"--url", "https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid",
 		"--input", input,
+		"--insert-position", "top",
 		"--dry-run",
 		"--json",
 	)
@@ -308,6 +309,7 @@ func TestBitableRecordCreateDryRunJSONRoutesFlags(t *testing.T) {
 	}
 	if captured.URL != "https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid" ||
 		captured.InputPath != input ||
+		captured.InsertPosition != "top" ||
 		!captured.DryRun ||
 		captured.Apply {
 		t.Fatalf("captured config = %+v", captured)

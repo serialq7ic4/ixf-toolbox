@@ -1297,6 +1297,9 @@ func TestCLIBitableRecordCreateDryRunFetchesClientVarsWithoutMutation(t *testing
 	if payload["willCreateRecord"] != true || payload["plannedAttachmentCount"] != float64(1) || payload["fieldCount"] != float64(3) {
 		t.Fatalf("bitable record create dry-run payload = %+v", payload)
 	}
+	if payload["insertPosition"] != "bottom" || payload["plannedRecordIndex"] != float64(2) {
+		t.Fatalf("bitable record create insert plan = %+v", payload)
+	}
 	if stderr != "" {
 		t.Fatalf("bitable record create dry-run stderr = %q, want empty", stderr)
 	}
@@ -1360,6 +1363,9 @@ func TestCLIBitableRecordCreateApplyUploadsAndVerifies(t *testing.T) {
 			if !strings.Contains(operations, "New image bug") || !strings.Contains(operations, "box_uploaded") {
 				t.Fatalf("USER_CHANGES operations missing expected content: %s", operations)
 			}
+			if index := cliRecordIndexFromOperations(t, operations, "vew_grid"); index != 2 {
+				t.Fatalf("record index = %d, want 2 for bottom append; operations=%s", index, operations)
+			}
 			createdRecordID = cliRecordIDFromOperations(t, operations)
 			sawUserChanges = true
 			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"type": "ACCEPT_COMMIT"}})
@@ -1388,9 +1394,15 @@ func TestCLIBitableRecordCreateApplyUploadsAndVerifies(t *testing.T) {
 	if payload["ok"] != true || payload["operation"] != "bitable_record_create" || payload["dryRun"] != false || payload["applied"] != true {
 		t.Fatalf("payload = %+v", payload)
 	}
+	if payload["insertPosition"] != "bottom" || payload["plannedRecordIndex"] != float64(2) {
+		t.Fatalf("bitable record create apply insert plan = %+v", payload)
+	}
 	verify := payload["verify"].(map[string]any)
 	if verify["ok"] != true {
 		t.Fatalf("verify payload = %+v", verify)
+	}
+	if verify["recordIndex"] != float64(2) || verify["expectedRecordIndex"] != float64(2) {
+		t.Fatalf("verify record index = %+v", verify)
 	}
 	if stderr != "" {
 		t.Fatalf("bitable record create apply stderr = %q, want empty", stderr)
@@ -2452,7 +2464,7 @@ func bitableCLIFixtureDataWithCreatedRecord(t *testing.T, recordID string, title
 	table := schema["data"].(map[string]any)["table"].(map[string]any)
 	view := table["viewMap"].(map[string]any)["vew_grid"].(map[string]any)
 	property := view["property"].(map[string]any)
-	property["records"] = []any{recordID, "rec_1", "rec_2"}
+	property["records"] = []any{"rec_1", "rec_2", recordID}
 	recordMap := schema["data"].(map[string]any)["recordMap"].(map[string]any)
 	recordMap[recordID] = map[string]any{
 		"fld_title": map[string]any{"value": []any{map[string]any{"type": "text", "text": title}}},
@@ -2487,6 +2499,19 @@ func cliRecordIDFromOperations(t *testing.T, operations string) string {
 		t.Fatal("recordId was empty")
 	}
 	return recordID
+}
+
+func cliRecordIndexFromOperations(t *testing.T, operations string, viewID string) int {
+	t.Helper()
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(operations), &decoded); err != nil {
+		t.Fatalf("decode operations: %v", err)
+	}
+	actions := decoded[0]["actions"].([]any)
+	action := actions[0].(map[string]any)
+	data := action["data"].(map[string]any)
+	indexes := data["indexes"].(map[string]any)
+	return int(indexes[viewID].(float64))
 }
 
 func sheetCLIApplyFixtureData(t *testing.T, sheetID string, b2 string) map[string]any {

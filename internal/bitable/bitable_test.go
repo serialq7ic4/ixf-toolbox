@@ -181,6 +181,9 @@ func TestRecordCreateDryRunPlansFieldsAndAttachments(t *testing.T) {
 	if payload["willCreateRecord"] != true || payload["plannedAttachmentCount"] != 1 || payload["fieldCount"] != 3 {
 		t.Fatalf("record create plan = %+v", payload)
 	}
+	if payload["insertPosition"] != "bottom" || payload["plannedRecordIndex"] != 2 {
+		t.Fatalf("record create insert plan = %+v", payload)
+	}
 	attachments := payload["attachments"].([]map[string]any)
 	if len(attachments) != 1 || attachments[0]["fieldName"] != "Screenshot" {
 		t.Fatalf("attachments = %+v", attachments)
@@ -325,6 +328,9 @@ func TestRecordCreateApplyUploadsAttachmentsWritesRecordAndVerifies(t *testing.T
 			if !strings.Contains(operations, "New image bug") || !strings.Contains(operations, "box_uploaded") || !strings.Contains(operations, "ceph_logo.jpeg") {
 				t.Fatalf("USER_CHANGES operations missing text or attachment: %s", operations)
 			}
+			if index := recordIndexFromOperations(t, operations, "vew_grid"); index != 2 {
+				t.Fatalf("record index = %d, want 2 for bottom append; operations=%s", index, operations)
+			}
 			createdRecordID = recordIDFromOperations(t, operations)
 			sawUserChanges = true
 			writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{"type": "ACCEPT_COMMIT"}})
@@ -353,9 +359,15 @@ func TestRecordCreateApplyUploadsAttachmentsWritesRecordAndVerifies(t *testing.T
 	if payload["ok"] != true || payload["dryRun"] != false || payload["applied"] != true || payload["uploadedFileCount"] != 1 {
 		t.Fatalf("apply payload = %+v", payload)
 	}
+	if payload["insertPosition"] != "bottom" || payload["plannedRecordIndex"] != 2 {
+		t.Fatalf("apply insert plan = %+v", payload)
+	}
 	verify := payload["verify"].(map[string]any)
 	if verify["ok"] != true {
 		t.Fatalf("verify payload = %+v", verify)
+	}
+	if verify["recordIndex"] != 2 || verify["expectedRecordIndex"] != 2 {
+		t.Fatalf("verify record index = %+v", verify)
 	}
 }
 
@@ -593,7 +605,7 @@ func bitableClientVarsFixtureWithCreatedRecord(t *testing.T, recordID string, ti
 	table := schema["data"].(map[string]any)["table"].(map[string]any)
 	view := table["viewMap"].(map[string]any)["vew_grid"].(map[string]any)
 	property := view["property"].(map[string]any)
-	property["records"] = []any{recordID, "rec_1", "rec_2"}
+	property["records"] = []any{"rec_1", "rec_2", recordID}
 	recordMap := schema["data"].(map[string]any)["recordMap"].(map[string]any)
 	recordMap[recordID] = map[string]any{
 		"fld_title": map[string]any{"value": []any{map[string]any{"type": "text", "text": title}}},
@@ -682,6 +694,19 @@ func recordIDFromOperations(t *testing.T, operations string) string {
 		t.Fatal("recordId was empty")
 	}
 	return recordID
+}
+
+func recordIndexFromOperations(t *testing.T, operations string, viewID string) int {
+	t.Helper()
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(operations), &decoded); err != nil {
+		t.Fatalf("decode operations: %v", err)
+	}
+	actions := decoded[0]["actions"].([]any)
+	action := actions[0].(map[string]any)
+	data := action["data"].(map[string]any)
+	indexes := data["indexes"].(map[string]any)
+	return int(indexes[viewID].(float64))
 }
 
 func containsPrivateToken(t *testing.T, value any, token string) bool {

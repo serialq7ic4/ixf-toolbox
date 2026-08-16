@@ -101,10 +101,12 @@ Bitable attachment fields are bitable data, not docx blocks or sheet cells. For
 direct bitable, wiki bitable, or docx embedded bitable links, use
 `ixf bitable inspect --url <url> --json` for safe metadata and
 `ixf bitable record create --url <url> --input row.json --dry-run --json` to
-plan new records. After explicit confirmation, use
+plan new records. `record create` appends to the current view by default and
+reports `insertPosition` plus `plannedRecordIndex`; pass `--insert-position top`
+only when the user explicitly wants top insertion. After explicit confirmation, use
 `ixf bitable record create --url <url> --input row.json --apply --json` for
 API-only creation of records containing text and attachment fields, then inspect
-the returned `verify.ok` result before claiming success. In shorthand,
+the returned `verify.ok` and `verify.recordIndex` result before claiming success. In shorthand,
 `record create --apply` is supported for new text/attachment records only. Use
 `ixf bitable attach --url <url> --field <attachment-field> --record-id <id> --file <path> --dry-run --json`
 or `--record-match Field=Value` to plan an attachment upload. Do not route

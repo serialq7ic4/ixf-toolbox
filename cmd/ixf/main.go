@@ -542,6 +542,7 @@ func runBitableRecordCreate(args []string, stdout io.Writer, stderr io.Writer) i
 	flags.SetOutput(stderr)
 	targetURL := flags.String("url", "", "")
 	inputPath := flags.String("input", "", "")
+	insertPosition := flags.String("insert-position", "", "")
 	cookiesPath := flags.String("cookies", defaultCookies, "")
 	spaceAPI := flags.String("space-api", "", "")
 	dryRun := flags.Bool("dry-run", false, "")
@@ -568,12 +569,13 @@ func runBitableRecordCreate(args []string, stdout io.Writer, stderr io.Writer) i
 		return 2
 	}
 	payload, err := bitableRecordCreate(ixfbitable.RecordCreateConfig{
-		URL:         *targetURL,
-		InputPath:   *inputPath,
-		DryRun:      *dryRun,
-		Apply:       *apply,
-		CookiesPath: *cookiesPath,
-		SpaceAPI:    *spaceAPI,
+		URL:            *targetURL,
+		InputPath:      *inputPath,
+		InsertPosition: *insertPosition,
+		DryRun:         *dryRun,
+		Apply:          *apply,
+		CookiesPath:    *cookiesPath,
+		SpaceAPI:       *spaceAPI,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)

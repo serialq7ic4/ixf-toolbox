@@ -25,6 +25,8 @@ const (
 	attachmentFieldType   = 17
 	bitableVerifyTimeout  = 10 * time.Second
 	bitableVerifyInterval = 750 * time.Millisecond
+	recordInsertTop       = "top"
+	recordInsertBottom    = "bottom"
 	DefaultSpaceAPI       = "https://internal-api-space.xfchat.iflytek.com"
 	DefaultDriveStreamAPI = "https://internal-api-drive-stream.xfchat.iflytek.com"
 )
@@ -105,13 +107,14 @@ type AttachConfig struct {
 }
 
 type RecordCreateConfig struct {
-	URL         string
-	InputPath   string
-	DryRun      bool
-	Apply       bool
-	CookiesPath string
-	SpaceAPI    string
-	ClientVars  map[string]any
+	URL            string
+	InputPath      string
+	InsertPosition string
+	DryRun         bool
+	Apply          bool
+	CookiesPath    string
+	SpaceAPI       string
+	ClientVars     map[string]any
 }
 
 type fileMetadata struct {
@@ -217,6 +220,10 @@ func RecordCreate(config RecordCreateConfig) (map[string]any, error) {
 	if !config.Apply && !config.DryRun {
 		return nil, fmt.Errorf("bitable record create requires --dry-run")
 	}
+	insertPosition, err := normalizeRecordInsertPosition(config.InsertPosition)
+	if err != nil {
+		return nil, err
+	}
 	source, err := ParseSource(config.URL)
 	if err != nil {
 		return nil, err
@@ -245,9 +252,9 @@ func RecordCreate(config RecordCreateConfig) (map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return session.applyRecordCreate(source, meta, fields, plan)
+		return session.applyRecordCreate(source, meta, fields, plan, insertPosition)
 	}
-	return recordCreateDryRunPayload(source, meta, plan, attachments), nil
+	return recordCreateDryRunPayload(source, meta, plan, attachments, insertPosition), nil
 }
 
 type session struct {
@@ -831,7 +838,26 @@ func attachDryRunPayload(source Source, meta Metadata, field Field, record Recor
 	}
 }
 
-func recordCreateDryRunPayload(source Source, meta Metadata, fields []map[string]any, attachments []map[string]any) map[string]any {
+func normalizeRecordInsertPosition(position string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(position)) {
+	case "", recordInsertBottom:
+		return recordInsertBottom, nil
+	case recordInsertTop:
+		return recordInsertTop, nil
+	default:
+		return "", fmt.Errorf("unsupported bitable record insert position %q; use top or bottom", position)
+	}
+}
+
+func plannedRecordIndex(meta Metadata, insertPosition string) int {
+	if insertPosition == recordInsertTop {
+		return 0
+	}
+	return len(meta.Records)
+}
+
+func recordCreateDryRunPayload(source Source, meta Metadata, fields []map[string]any, attachments []map[string]any, insertPosition string) map[string]any {
+	recordIndex := plannedRecordIndex(meta, insertPosition)
 	return map[string]any{
 		"ok":                     true,
 		"dryRun":                 true,
@@ -842,23 +868,27 @@ func recordCreateDryRunPayload(source Source, meta Metadata, fields []map[string
 		"fields":                 fields,
 		"plannedAttachmentCount": len(attachments),
 		"attachments":            attachments,
+		"insertPosition":         insertPosition,
+		"plannedRecordIndex":     recordIndex,
 		"willCreateRecord":       true,
 	}
 }
 
-func recordCreateApplyPayload(source Source, meta Metadata, fields []map[string]any, recordID string, uploadedFileCount int, verify map[string]any) map[string]any {
+func recordCreateApplyPayload(source Source, meta Metadata, fields []map[string]any, recordID string, uploadedFileCount int, insertPosition string, recordIndex int, verify map[string]any) map[string]any {
 	return map[string]any{
-		"ok":                true,
-		"dryRun":            false,
-		"applied":           true,
-		"operation":         "bitable_record_create",
-		"sourceKind":        source.Kind,
-		"target":            map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": firstTableID(meta), "viewId": firstViewID(meta)},
-		"fieldCount":        len(fields),
-		"fields":            fields,
-		"recordId":          recordID,
-		"uploadedFileCount": uploadedFileCount,
-		"verify":            verify,
+		"ok":                 true,
+		"dryRun":             false,
+		"applied":            true,
+		"operation":          "bitable_record_create",
+		"sourceKind":         source.Kind,
+		"target":             map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": firstTableID(meta), "viewId": firstViewID(meta)},
+		"fieldCount":         len(fields),
+		"fields":             fields,
+		"recordId":           recordID,
+		"uploadedFileCount":  uploadedFileCount,
+		"insertPosition":     insertPosition,
+		"plannedRecordIndex": recordIndex,
+		"verify":             verify,
 	}
 }
 
@@ -876,12 +906,13 @@ func validateRecordCreateApplyFields(meta Metadata, fields map[string]any) error
 	return nil
 }
 
-func (session *session) applyRecordCreate(source Source, meta Metadata, fields map[string]any, plan []map[string]any) (map[string]any, error) {
+func (session *session) applyRecordCreate(source Source, meta Metadata, fields map[string]any, plan []map[string]any, insertPosition string) (map[string]any, error) {
 	tableID := targetTableID(source, meta)
 	viewID := targetViewID(source, meta)
 	if tableID == "" || viewID == "" {
 		return nil, fmt.Errorf("bitable record create apply requires a table and view")
 	}
+	recordIndex := plannedRecordIndex(meta, insertPosition)
 	memberID, err := randomDecimalID(14)
 	if err != nil {
 		return nil, err
@@ -919,15 +950,15 @@ func (session *session) applyRecordCreate(source Source, meta Metadata, fields m
 			uploadedFileCount++
 		}
 	}
-	recordID, err := session.writeRecordCreate(source, meta, fields, uploads, memberID)
+	recordID, err := session.writeRecordCreate(source, meta, fields, uploads, memberID, recordIndex)
 	if err != nil {
 		return nil, err
 	}
-	verify, err := session.waitForRecordCreateVerification(source, fields, uploads, recordID)
+	verify, err := session.waitForRecordCreateVerification(source, fields, uploads, recordID, recordIndex)
 	if err != nil {
 		return nil, err
 	}
-	return recordCreateApplyPayload(source, meta, plan, recordID, uploadedFileCount, verify), nil
+	return recordCreateApplyPayload(source, meta, plan, recordID, uploadedFileCount, insertPosition, recordIndex, verify), nil
 }
 
 func (session *session) prepareAddRecordToken(source Source, tableID string) error {
@@ -1072,7 +1103,7 @@ func (session *session) watchBitableEntity(source Source, memberID string, entit
 	return nil
 }
 
-func (session *session) writeRecordCreate(source Source, meta Metadata, fields map[string]any, uploads map[string][]bitableUploadedFile, memberID string) (string, error) {
+func (session *session) writeRecordCreate(source Source, meta Metadata, fields map[string]any, uploads map[string][]bitableUploadedFile, memberID string, recordIndex int) (string, error) {
 	tableID := targetTableID(source, meta)
 	viewID := targetViewID(source, meta)
 	recordID, err := randomRecordID()
@@ -1118,7 +1149,7 @@ func (session *session) writeRecordCreate(source Source, meta Metadata, fields m
 			"viewId":   viewID,
 			"recordId": recordID,
 			"data": map[string]any{
-				"indexes":          map[string]any{viewID: 0},
+				"indexes":          map[string]any{viewID: recordIndex},
 				"cellData":         cellData,
 				"createdExtraInfo": map[string]any{"name": "", "enName": "", "avatarUrl": ""},
 				"total":            len(meta.Records) + 1,
@@ -1165,7 +1196,7 @@ func (session *session) writeRecordCreate(source Source, meta Metadata, fields m
 	return recordID, nil
 }
 
-func (session *session) waitForRecordCreateVerification(source Source, fields map[string]any, uploads map[string][]bitableUploadedFile, recordID string) (map[string]any, error) {
+func (session *session) waitForRecordCreateVerification(source Source, fields map[string]any, uploads map[string][]bitableUploadedFile, recordID string, expectedRecordIndex int) (map[string]any, error) {
 	deadline := time.Now().Add(bitableVerifyTimeout)
 	var lastErr error
 	for {
@@ -1177,7 +1208,7 @@ func (session *session) waitForRecordCreateVerification(source Source, fields ma
 		if err != nil {
 			return nil, err
 		}
-		verify, err := verifyCreatedRecord(meta, fields, uploads, recordID)
+		verify, err := verifyCreatedRecord(meta, fields, uploads, recordID, expectedRecordIndex)
 		if err == nil {
 			return verify, nil
 		}
@@ -1189,24 +1220,36 @@ func (session *session) waitForRecordCreateVerification(source Source, fields ma
 	}
 }
 
-func verifyCreatedRecord(meta Metadata, fields map[string]any, uploads map[string][]bitableUploadedFile, recordID string) (map[string]any, error) {
-	for _, record := range meta.Records {
+func verifyCreatedRecord(meta Metadata, fields map[string]any, uploads map[string][]bitableUploadedFile, recordID string, expectedRecordIndex int) (map[string]any, error) {
+	for index, record := range meta.Records {
 		if recordID != "" && record.ID != recordID {
 			continue
 		}
 		if recordMatchesExpected(meta, record, fields, uploads) {
-			return map[string]any{"ok": true, "recordId": record.ID}, nil
+			return recordCreateVerifyPayload(record.ID, index, expectedRecordIndex)
 		}
 	}
 	if recordID != "" {
 		return nil, fmt.Errorf("created record %s was not found or did not match expected values", recordID)
 	}
-	for _, record := range meta.Records {
+	for index, record := range meta.Records {
 		if recordMatchesExpected(meta, record, fields, uploads) {
-			return map[string]any{"ok": true, "recordId": record.ID}, nil
+			return recordCreateVerifyPayload(record.ID, index, expectedRecordIndex)
 		}
 	}
 	return nil, fmt.Errorf("created record was not found")
+}
+
+func recordCreateVerifyPayload(recordID string, recordIndex int, expectedRecordIndex int) (map[string]any, error) {
+	if expectedRecordIndex >= 0 && recordIndex != expectedRecordIndex {
+		return nil, fmt.Errorf("created record index = %d, want %d", recordIndex, expectedRecordIndex)
+	}
+	return map[string]any{
+		"ok":                  true,
+		"recordId":            recordID,
+		"recordIndex":         recordIndex,
+		"expectedRecordIndex": expectedRecordIndex,
+	}, nil
 }
 
 func recordMatchesExpected(meta Metadata, record Record, fields map[string]any, uploads map[string][]bitableUploadedFile) bool {

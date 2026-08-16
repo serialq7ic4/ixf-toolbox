@@ -120,8 +120,8 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf sheets update --url <sheets-url> --range A1 --input cells.tsv --apply` | 写入确认后的 TSV 单元格更新，并回读校验 |
 | `ixf bitable inspect --url <bitable-or-host-url> --json` | 检查直接 bitable、wiki bitable 或 docx 内嵌 bitable 的安全元数据 |
 | `ixf bitable read --url <bitable-or-host-url> --json` | 读取 bitable 安全摘要；当前等价于 `inspect` |
-| `ixf bitable record create --url <bitable-or-host-url> --input row.json --dry-run --json` | 规划新增 bitable 记录，可包含附件字段本地文件路径，不执行写入 |
-| `ixf bitable record create --url <bitable-or-host-url> --input row.json --apply --json` | API-only 新增确认后的 bitable 记录，支持文本字段和附件字段图片/文件上传，并回读校验 |
+| `ixf bitable record create --url <bitable-or-host-url> --input row.json --dry-run --json` | 规划新增 bitable 记录，默认追加到当前视图末尾，可包含附件字段本地文件路径，不执行写入 |
+| `ixf bitable record create --url <bitable-or-host-url> --input row.json --apply --json` | API-only 新增确认后的 bitable 记录，默认追加到当前视图末尾，支持文本字段和附件字段图片/文件上传，并回读校验 |
 | `ixf bitable attach --url <bitable-or-host-url> --field <附件字段> --record-match 字段=值 --file image.png --dry-run --json` | 规划向 bitable 附件字段上传本地图片/附件，不执行写入 |
 | `ixf docs outline <file.md>` | 按标题和原子块生成动态阅读目录 |
 | `ixf docs chunk <file.md> --index <n>` | 输出指定动态分块 |
@@ -459,7 +459,7 @@ ixf docs table append-row \
 
 bitable 附件字段属于多维表格数据层，不能通过 `ixf docs update` 或 `ixf sheets update` 修改。直接 bitable 链接、wiki bitable 链接和 docx 内嵌 bitable 链接统一走 `ixf bitable`。当前 `record create --apply` 支持 API-only 新增记录，字段范围先限定为文本字段和附件字段；`attach --apply` 仍失败关闭，直到已有记录更新 API 合约被捕获。
 
-新增记录使用 `record create`。输入 JSON 可以是字段映射，也可以包在 `fields` 对象里；附件字段用本地文件路径表达，支持绝对路径和 `~/...`。先 dry-run 检查计划，确认后用 `--apply` 写入并回读校验。
+新增记录使用 `record create`。输入 JSON 可以是字段映射，也可以包在 `fields` 对象里；附件字段用本地文件路径表达，支持绝对路径和 `~/...`。默认插入到当前视图末尾；如需恢复旧的顶部插入行为，显式加 `--insert-position top`，也可以用 `--insert-position bottom` 明确默认行为。先 dry-run 检查 `insertPosition`、`plannedRecordIndex` 和附件计划，确认后用 `--apply` 写入并回读校验 `verify.recordIndex`。
 
 ```json
 {
@@ -591,7 +591,7 @@ Linux 不支持桌面会话导出，因为 i讯飞没有 Linux 桌面客户端�
 - 远程写入默认 dry-run，必须显式使用 `--apply`。
 - `ixf sheets update --apply` 只支持确认后的 TSV 单元格写入；不要用 `ixf docs update` 修改 sheet 内容。
 - `ixf docs table append-row --apply` 只修改 docx 原生表格 block；不要用它修改 bitable/base 记录或 sheets 单元格。
-- `ixf bitable record create --apply` 只支持确认后的新增记录，当前字段范围限定为文本和附件，并会回读校验；不要用 `ixf docs update` 或 `ixf sheets update` 修改 bitable 数据。
+- `ixf bitable record create --apply` 只支持确认后的新增记录，默认追加到当前视图末尾，当前字段范围限定为文本和附件，并会回读校验；不要用 `ixf docs update` 或 `ixf sheets update` 修改 bitable 数据。
 - `ixf bitable attach` 当前只支持 dry-run 规划；普通 docx 的 `view/file` 预览块不是 bitable 入口。
 - `ixf docs patch replace-section` 和 `ixf docs patch delete-section` 是有界破坏性操作；简单新增内容必须优先使用 `ixf docs patch insert`。
 - Messenger 当前支持诊断、dry-run 打开规划、显式 --apply 目标验证、只读会话读取，以及确认后的消息发送；发送成功必须通过 fresh-session 复核。Messenger 自动化只自动发现 Chrome/Chromium，并始终使用 cloned profile。

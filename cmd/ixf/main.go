@@ -486,7 +486,7 @@ func runBitable(args []string, stdout io.Writer, stderr io.Writer) int {
 	rows := [][2]string{
 		{"inspect", "Inspect a bitable source and report safe metadata."},
 		{"read", "Read bitable metadata as a safe JSON summary."},
-		{"attach", "Dry-run or apply an approved bitable attachment upload."},
+		{"attach", "Plan an existing-record attachment upload; dry-run only."},
 		{"record", "Inspect or plan approved bitable record changes."},
 	}
 	if len(args) == 0 {
@@ -640,7 +640,7 @@ func runBitableAttach(args []string, stdout io.Writer, stderr io.Writer) int {
 	cookiesPath := flags.String("cookies", defaultCookies, "")
 	spaceAPI := flags.String("space-api", "", "")
 	dryRun := flags.Bool("dry-run", false, "")
-	apply := flags.Bool("apply", false, "")
+	apply := flags.Bool("apply", false, "currently unavailable for bitable attach; use --dry-run")
 	asJSON := flags.Bool("json", false, "")
 	if hasHelpArg(args) {
 		flags.SetOutput(stdout)

@@ -63,7 +63,7 @@ func TestDocsAndOKRHelpListSupportedSubcommands(t *testing.T) {
 	}{
 		{args: []string{"docs", "--help"}, expected: []string{"usage: ixf docs", "read", "publish", "update", "patch", "structure", "inspect"}},
 		{args: []string{"sheets", "--help"}, expected: []string{"usage: ixf sheets", "read", "update"}},
-		{args: []string{"bitable", "--help"}, expected: []string{"usage: ixf bitable", "inspect", "read", "attach"}},
+		{args: []string{"bitable", "--help"}, expected: []string{"usage: ixf bitable", "inspect", "read", "attach", "dry-run only"}},
 		{args: []string{"okr", "--help"}, expected: []string{"usage: ixf okr", "read", "write"}},
 		{args: []string{"messenger", "--help"}, expected: []string{"usage: ixf messenger", "doctor", "open", "read", "send"}},
 	}
@@ -135,7 +135,7 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 		},
 		{
 			args:     []string{"bitable", "attach", "--help"},
-			expected: []string{"Usage of ixf bitable attach", "-url", "-field", "-record-match", "-file", "-dry-run", "-apply", "-json"},
+			expected: []string{"Usage of ixf bitable attach", "-url", "-field", "-record-match", "-file", "-dry-run", "-apply", "currently unavailable", "-json"},
 		},
 		{
 			args:     []string{"bitable", "record", "create", "--help"},

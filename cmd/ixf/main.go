@@ -542,7 +542,7 @@ func runBitableRecordCreate(args []string, stdout io.Writer, stderr io.Writer) i
 	flags.SetOutput(stderr)
 	targetURL := flags.String("url", "", "")
 	inputPath := flags.String("input", "", "")
-	insertPosition := flags.String("insert-position", "", "")
+	insertPosition := flags.String("insert-position", "", "top|bottom, default bottom")
 	cookiesPath := flags.String("cookies", defaultCookies, "")
 	spaceAPI := flags.String("space-api", "", "")
 	dryRun := flags.Bool("dry-run", false, "")

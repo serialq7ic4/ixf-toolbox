@@ -139,7 +139,7 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 		},
 		{
 			args:     []string{"bitable", "record", "create", "--help"},
-			expected: []string{"Usage of ixf bitable record create", "-url", "-input", "-insert-position", "-dry-run", "-apply", "-json"},
+			expected: []string{"Usage of ixf bitable record create", "-url", "-input", "-insert-position", "top|bottom", "default bottom", "-dry-run", "-apply", "-json"},
 		},
 		{
 			args:     []string{"okr", "read", "--help"},

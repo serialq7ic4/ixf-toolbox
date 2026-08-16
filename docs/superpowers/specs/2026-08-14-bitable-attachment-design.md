@@ -50,9 +50,7 @@ ixf bitable attach \
   --field <field-name-or-id> \
   --record-match "Field=Value" \
   --file <local-path> \
-  --dry-run
-
-ixf bitable attach ... --apply
+  --dry-run|--apply
 ```
 
 `inspect` is the preflight command. It should report source kind, visible
@@ -227,10 +225,9 @@ that verifies request shape without touching real tenant data.
   - no cookie values, CSRF tokens, full document IDs, or raw private URLs appear
     in JSON or text output.
 
-## Open Implementation Detail
+## Resolved Apply Contract
 
-The exact bitable upload endpoint and record update payload must be captured
-from the web client or existing API behavior before apply support is enabled.
-Until that contract is captured, `ixf bitable attach --apply` should return a
-clear unsupported-contract error while `inspect` and `attach --dry-run` can
-still be implemented safely.
+`ixf bitable attach --apply` uses the same `bitable_image` upload flow as record
+creation, then commits a `SetRecord` / `data.setRecord` RCE operation for the
+matched existing record. The operation preserves existing attachment values,
+appends the uploaded file value, and verifies by re-reading clientvars.

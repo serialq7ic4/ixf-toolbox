@@ -47,27 +47,27 @@
 
 如果你正在使用 Codex，可以直接对 Codex 说：
 
-> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.25.1_darwin_arm64`，macOS Intel 用 `ixf_3.25.1_darwin_amd64`，Windows 用 `ixf_3.25.1_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
+> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.26.0_darwin_arm64`，macOS Intel 用 `ixf_3.26.0_darwin_amd64`，Windows 用 `ixf_3.26.0_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.25.1/ixf_3.25.1_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.26.0/ixf_3.26.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-macOS Intel 将文件名换成 `ixf_3.25.1_darwin_amd64`。
+macOS Intel 将文件名换成 `ixf_3.26.0_darwin_amd64`。
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.25.1/ixf_3.25.1_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.26.0/ixf_3.26.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -122,7 +122,8 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf bitable read --url <bitable-or-host-url> --json` | 读取 bitable 安全摘要；当前等价于 `inspect` |
 | `ixf bitable record create --url <bitable-or-host-url> --input row.json --dry-run --json` | 规划新增 bitable 记录，默认追加到当前视图末尾，可包含附件字段本地文件路径，不执行写入 |
 | `ixf bitable record create --url <bitable-or-host-url> --input row.json --apply --json` | API-only 新增确认后的 bitable 记录，默认追加到当前视图末尾，支持文本字段和附件字段图片/文件上传，并回读校验 |
-| `ixf bitable attach --url <bitable-or-host-url> --field <附件字段> --record-match 字段=值 --file image.png --dry-run --json` | 规划向 bitable 附件字段上传本地图片/附件，不执行写入 |
+| `ixf bitable attach --url <bitable-or-host-url> --field <附件字段> --record-match 字段=值 --file image.png --dry-run --json` | 规划向已有 bitable 记录的附件字段上传本地图片/附件，不执行写入 |
+| `ixf bitable attach --url <bitable-or-host-url> --field <附件字段> --record-match 字段=值 --file image.png --apply --json` | API-only 上传并绑定本地图片/附件到匹配记录的附件字段，保留已有附件并回读校验 |
 | `ixf docs outline <file.md>` | 按标题和原子块生成动态阅读目录 |
 | `ixf docs chunk <file.md> --index <n>` | 输出指定动态分块 |
 | `ixf docs inspect <source>` | 输出安全路由摘要，不读取正文、不打印完整 token |
@@ -503,6 +504,17 @@ ixf bitable attach \
   --json
 ```
 
+```bash
+ixf bitable attach \
+  --url "https://tenant.example.test/base/bas_example?table=tbl_main&view=vew_grid" \
+  --field "Screenshot" \
+  --record-match "Title=Image bug" \
+  --file ceph_logo.png \
+  --cookies /tmp/ixf_cookies.json \
+  --apply \
+  --json
+```
+
 ### 写入 OKR
 
 输入文件示例：
@@ -595,7 +607,7 @@ Linux 不支持桌面会话导出，因为 i讯飞没有 Linux 桌面客户端�
 - `ixf sheets update --apply` 只支持确认后的 TSV 单元格写入；不要用 `ixf docs update` 修改 sheet 内容。
 - `ixf docs table append-row --apply` 只修改 docx 原生表格 block；不要用它修改 bitable/base 记录或 sheets 单元格。
 - `ixf bitable record create --apply` 只支持确认后的新增记录，默认追加到当前视图末尾，当前字段范围限定为文本和附件，并会回读校验；不要用 `ixf docs update` 或 `ixf sheets update` 修改 bitable 数据。
-- `ixf bitable attach` 当前只支持 dry-run 规划；普通 docx 的 `view/file` 预览块不是 bitable 入口。
+- `ixf bitable attach --apply` 只支持确认后的已有记录附件追加写入，会上传本地文件、保留字段中已有附件并回读校验；普通 docx 的 `view/file` 预览块不是 bitable 入口。
 - `ixf docs patch replace-section` 和 `ixf docs patch delete-section` 是有界破坏性操作；简单新增内容必须优先使用 `ixf docs patch insert`。
 - Messenger 当前支持诊断、dry-run 打开规划、显式 --apply 目标验证、只读会话读取，以及确认后的消息发送；发送成功必须通过 fresh-session 复核。Messenger 自动化只自动发现 Chrome/Chromium，并始终使用 cloned profile。
 - 删除 OKR 多余内容需要额外显式使用 `--prune`。

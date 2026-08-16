@@ -1238,6 +1238,106 @@ func TestCLIBitableAttachDryRunFetchesClientVarsWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestCLIBitableAttachApplyUploadsAndVerifies(t *testing.T) {
+	tmpDir := t.TempDir()
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+	imagePath := filepath.Join(tmpDir, "ceph_logo.jpeg")
+	if err := os.WriteFile(imagePath, []byte{0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	clientVarsCalls := 0
+	var sawUpload bool
+	var sawUserChanges bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/v1/bitable/bas_fixture/clientvars":
+			clientVarsCalls++
+			data := bitableCLIFixtureData(t)
+			if sawUserChanges {
+				data = bitableCLIFixtureDataWithUpdatedAttachment(t, "rec_1", "ceph_logo.jpeg")
+			}
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": data})
+		case "/space/api/box/upload/prepare/":
+			request := decodeCLIJSONRequest(t, r)
+			if request["mount_point"] != "bitable_image" || request["mount_node_token"] != "bas_fixture" {
+				t.Fatalf("prepare request = %#v", request)
+			}
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{
+				"upload_id":  "upload_fixture",
+				"block_size": float64(8),
+				"num_blocks": float64(1),
+			}})
+		case "/space/api/box/stream/upload/merge_block/":
+			sawUpload = true
+			if got := r.Header.Get("x-block-list-checksum"); got == "" {
+				t.Fatal("merge checksum header was empty")
+			}
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"success_seq_list": []any{float64(0)}}})
+		case "/space/api/box/upload/finish/":
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"file_token": "box_uploaded"}})
+		case "/space/api/rce/messages":
+			request := decodeCLIJSONRequest(t, r)
+			if request["type"] != "BITABLE_TABLE" {
+				writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"type": "ACCEPT_WATCH"}})
+				return
+			}
+			data := request["data"].(map[string]any)
+			operations := decodeCLIGzipBase64String(t, data["operations"].(string))
+			decoded := decodeCLIOperations(t, operations)
+			if len(decoded) != 1 || decoded[0]["command"] != "SetRecord" {
+				t.Fatalf("operations = %s", operations)
+			}
+			actions := decoded[0]["actions"].([]any)
+			action := actions[0].(map[string]any)
+			if action["action"] != "data.setRecord" || action["recordId"] != "rec_1" {
+				t.Fatalf("setRecord action = %#v", action)
+			}
+			cell := action["data"].(map[string]any)["fld_image"].(map[string]any)
+			values := cell["value"].([]any)
+			attachment := values[len(values)-1].(map[string]any)
+			if attachment["attachmentToken"] != "box_uploaded" || attachment["name"] != "ceph_logo.jpeg" {
+				t.Fatalf("setRecord attachment = %#v", attachment)
+			}
+			sawUserChanges = true
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"type": "ACCEPT_COMMIT"}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr, code := runCLITest(t,
+		"bitable", "attach",
+		"--url", server.URL+"/base/bas_fixture?table=tbl_main&view=vew_grid",
+		"--field", "Screenshot",
+		"--record-match", "Title=Image bug",
+		"--file", imagePath,
+		"--cookies", cookiesPath,
+		"--space-api", server.URL,
+		"--apply",
+		"--json",
+	)
+	if code != 0 {
+		t.Fatalf("bitable attach apply exit code = %d, stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	if clientVarsCalls != 2 || !sawUpload || !sawUserChanges {
+		t.Fatalf("apply calls clientVars=%d upload=%t userChanges=%t", clientVarsCalls, sawUpload, sawUserChanges)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["ok"] != true || payload["operation"] != "bitable_attach" || payload["dryRun"] != false || payload["applied"] != true {
+		t.Fatalf("payload = %+v", payload)
+	}
+	verify := payload["verify"].(map[string]any)
+	if verify["ok"] != true || verify["recordId"] != "rec_1" || verify["recordIndex"] != float64(0) {
+		t.Fatalf("verify payload = %+v", verify)
+	}
+	if stderr != "" {
+		t.Fatalf("bitable attach apply stderr = %q, want empty", stderr)
+	}
+}
+
 func TestCLIBitableRecordCreateDryRunFetchesClientVarsWithoutMutation(t *testing.T) {
 	tmpDir := t.TempDir()
 	cookiesPath := filepath.Join(tmpDir, "cookies.json")
@@ -2479,6 +2579,37 @@ func bitableCLIFixtureDataWithCreatedRecord(t *testing.T, recordID string, title
 	}
 	data["oldSchema"].(map[string]any)["gzipSchema"] = gzipCLIJSON(t, schema)
 	return data
+}
+
+func bitableCLIFixtureDataWithUpdatedAttachment(t *testing.T, recordID string, attachmentName string) map[string]any {
+	t.Helper()
+	data := bitableCLIFixtureData(t)
+	raw := decodeCLIGzipBase64(t, data["oldSchema"].(map[string]any)["gzipSchema"].(string))
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	recordMap := schema["data"].(map[string]any)["recordMap"].(map[string]any)
+	record := recordMap[recordID].(map[string]any)
+	record["fld_image"] = map[string]any{"value": []any{map[string]any{
+		"id":              "box_uploaded",
+		"attachmentToken": "box_uploaded",
+		"name":            attachmentName,
+		"mimeType":        "image/jpeg",
+		"size":            float64(7),
+		"timeStamp":       float64(1786718860252),
+	}}}
+	data["oldSchema"].(map[string]any)["gzipSchema"] = gzipCLIJSON(t, schema)
+	return data
+}
+
+func decodeCLIOperations(t *testing.T, operations string) []map[string]any {
+	t.Helper()
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(operations), &decoded); err != nil {
+		t.Fatalf("decode operations: %v", err)
+	}
+	return decoded
 }
 
 func cliRecordIDFromOperations(t *testing.T, operations string) string {

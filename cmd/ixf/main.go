@@ -111,7 +111,7 @@ func printRootHelp(w io.Writer) {
 	rows := [][2]string{
 		{"docs", "Read, inspect, chunk, clean up, or publish authorized documents."},
 		{"sheets", "Read direct sheets links or plan approved sheet cell updates."},
-		{"bitable", "Inspect or plan approved bitable attachment changes."},
+		{"bitable", "Inspect, plan, or apply approved bitable changes."},
 		{"okr", "Read or plan approved OKR changes."},
 		{"messenger", "Inspect and plan safe i讯飞 Messenger automation."},
 		{"doctor", "Inspect local Toolbox setup without printing secrets."},
@@ -486,7 +486,7 @@ func runBitable(args []string, stdout io.Writer, stderr io.Writer) int {
 	rows := [][2]string{
 		{"inspect", "Inspect a bitable source and report safe metadata."},
 		{"read", "Read bitable metadata as a safe JSON summary."},
-		{"attach", "Plan an existing-record attachment upload; dry-run only."},
+		{"attach", "Dry-run or apply an existing-record attachment upload."},
 		{"record", "Inspect or plan approved bitable record changes."},
 	}
 	if len(args) == 0 {
@@ -640,7 +640,7 @@ func runBitableAttach(args []string, stdout io.Writer, stderr io.Writer) int {
 	cookiesPath := flags.String("cookies", defaultCookies, "")
 	spaceAPI := flags.String("space-api", "", "")
 	dryRun := flags.Bool("dry-run", false, "")
-	apply := flags.Bool("apply", false, "currently unavailable for bitable attach; use --dry-run")
+	apply := flags.Bool("apply", false, "Upload and bind the attachment to the matched record.")
 	asJSON := flags.Bool("json", false, "")
 	if hasHelpArg(args) {
 		flags.SetOutput(stdout)

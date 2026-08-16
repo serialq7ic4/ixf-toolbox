@@ -109,14 +109,15 @@ API-only creation of records containing text and attachment fields, then inspect
 the returned `verify.ok` and `verify.recordIndex` result before claiming success. In shorthand,
 `record create --apply` is supported for new text/attachment records only. Use
 `ixf bitable attach --url <url> --field <attachment-field> --record-id <id> --file <path> --dry-run --json`
-or `--record-match Field=Value` to plan an attachment upload. Do not route
+or `--record-match Field=Value` to plan an attachment upload. After explicit
+confirmation, use `ixf bitable attach --apply --json` to upload and append the
+attachment to the matched existing record, then inspect `verify.ok` and
+`verify.recordId` before claiming success. Do not route
 bitable attachment requests to `ixf docs update`, docs patch commands, or
 `ixf sheets update`.
 
-`ixf bitable attach --apply` is intentionally unavailable until the existing
-record-update API contract is captured. Treat `attach` dry-run output as
-planning only. Ordinary docx `view/file` preview blocks are not bitable entry
-points unless a base token can be discovered.
+Ordinary docx `view/file` preview blocks are not bitable entry points unless a
+base token can be discovered.
 
 ## Runtime Boundary
 

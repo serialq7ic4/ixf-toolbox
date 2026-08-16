@@ -2,7 +2,7 @@
 
 ## Scope
 
-This contract covers API-first `ixf bitable record create --apply` for text and attachment fields. It does not use browser UI automation. Browser/CDP captures are diagnostic evidence only.
+This contract covers API-first `ixf bitable record create --apply` for text and attachment fields, plus `ixf bitable attach --apply` for existing-record attachment fields. It does not use browser UI automation. Browser/CDP captures are diagnostic evidence only.
 
 ## Source Metadata
 
@@ -74,6 +74,7 @@ This contract covers API-first `ixf bitable record create --apply` for text and 
 ```
 
 - Decoded operations shape:
+- New record creation uses `AddRecord` / `data.addRecord`:
 
 ```json
 [
@@ -115,6 +116,43 @@ This contract covers API-first `ixf bitable record create --apply` for text and 
 ]
 ```
 
+- Existing-record attachment append uses `SetRecord` / `data.setRecord`. The action `data` is a map of field id to cell data; for attachment fields, preserve existing attachment values and append uploaded file values before sending:
+
+```json
+[
+  {
+    "command": "SetRecord",
+    "type": 2,
+    "actions": [
+      {
+        "action": "data.setRecord",
+        "type": 2,
+        "tableId": "<tableId>",
+        "viewId": "<viewId>",
+        "recordId": "<existingRecordId>",
+        "viewType": 1,
+        "data": {
+          "<attachmentFieldId>": {
+            "type": 17,
+            "value": [
+              {
+                "id": "<existingOrNewFileToken>",
+                "attachmentToken": "<existingOrNewFileToken>",
+                "name": "file.png",
+                "mimeType": "image/png",
+                "size": 1234,
+                "timeStamp": 1786718860252
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "syncFlag": 0
+  }
+]
+```
+
 - Response success: top-level `code == 0` and `data.type == "ACCEPT_COMMIT"`.
 
 ## Verification
@@ -123,6 +161,7 @@ This contract covers API-first `ixf bitable record create --apply` for text and 
 - Decode `oldSchema.gzipSchema`.
 - Verify expected text values exist in the created or matching record.
 - Verify expected attachment file names exist in the attachment field value.
+- For existing-record attachment append, verify the same `recordId` still exists and its target attachment field contains the uploaded file name.
 
 ## Sanitization
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.26.0 - 2026-08-16
+
+- Added API-only `ixf bitable attach --apply` for existing-record attachment fields, uploading local files through `bitable_image`, appending to the matched record with `SetRecord` / `data.setRecord`, preserving existing attachments, and verifying by clientvars readback.
+- Added unit and CLI integration coverage for existing-record attachment apply, including upload endpoints, RCE payload shape, and verification output.
+- Updated README, routing docs, Go parity, API contract notes, and installed skill guidance so agents can safely route confirmed bitable attachment writes through `ixf bitable attach --apply`.
+
 ## 3.25.1 - 2026-08-16
 
 - Documented `ixf bitable record create --insert-position` help output with the supported `top|bottom` values and default `bottom` behavior.

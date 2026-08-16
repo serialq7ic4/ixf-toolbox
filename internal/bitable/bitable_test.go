@@ -140,19 +140,118 @@ func TestAttachDryRunRejectsNonAttachmentField(t *testing.T) {
 	}
 }
 
-func TestAttachApplyFailsUntilContractCaptured(t *testing.T) {
+func TestAttachApplyUploadsAttachmentWritesSetRecordAndVerifies(t *testing.T) {
+	cookiesPath := writeCookieFixture(t)
 	file := writeFixtureFile(t, "ceph_logo.jpeg", []byte{0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00})
 
-	_, err := Attach(AttachConfig{
-		URL:         "https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid",
+	clientVarsCalls := 0
+	var sawPrepare bool
+	var sawMerge bool
+	var sawFinish bool
+	var sawUserChanges bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/v1/bitable/bas_fixture/clientvars":
+			clientVarsCalls++
+			data := bitableClientVarsFixture(t)
+			if sawUserChanges {
+				data = bitableClientVarsFixtureWithUpdatedAttachment(t, "rec_1", "ceph_logo.jpeg")
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": data})
+		case "/space/api/box/upload/prepare/":
+			sawPrepare = true
+			request := decodeJSONRequest(t, r)
+			if request["mount_point"] != "bitable_image" || request["mount_node_token"] != "bas_fixture" || request["name"] != "ceph_logo.jpeg" {
+				t.Fatalf("prepare request = %#v", request)
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{
+				"upload_id":  "upload_fixture",
+				"block_size": float64(8),
+				"num_blocks": float64(1),
+			}})
+		case "/space/api/box/stream/upload/merge_block/":
+			sawMerge = true
+			if got := r.URL.Query().Get("upload_id"); got != "upload_fixture" {
+				t.Fatalf("merge upload_id = %q", got)
+			}
+			if got := r.Header.Get("x-block-list-checksum"); got == "" {
+				t.Fatal("merge checksum header was empty")
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{"success_seq_list": []any{float64(0)}}})
+		case "/space/api/box/upload/finish/":
+			sawFinish = true
+			request := decodeJSONRequest(t, r)
+			if request["upload_id"] != "upload_fixture" || request["mount_point"] != "bitable_image" {
+				t.Fatalf("finish request = %#v", request)
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{"file_token": "box_uploaded"}})
+		case "/space/api/rce/messages":
+			request := decodeJSONRequest(t, r)
+			if request["type"] != "BITABLE_TABLE" {
+				writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{"type": "ACCEPT_WATCH"}})
+				return
+			}
+			data := request["data"].(map[string]any)
+			if data["type"] != "USER_CHANGES" || data["token"] != "tbl_main" || data["route_key"] != "bas_fixture" || data["content_type"] != "gzip/base64" {
+				t.Fatalf("USER_CHANGES data = %#v", data)
+			}
+			operations := decodeGzipBase64String(t, data["operations"].(string))
+			decoded := decodeOperations(t, operations)
+			if len(decoded) != 1 || decoded[0]["command"] != "SetRecord" {
+				t.Fatalf("operations = %s", operations)
+			}
+			actions := decoded[0]["actions"].([]any)
+			if len(actions) != 1 {
+				t.Fatalf("operation actions = %#v", actions)
+			}
+			action := actions[0].(map[string]any)
+			if action["action"] != "data.setRecord" || action["tableId"] != "tbl_main" || action["viewId"] != "vew_grid" || action["recordId"] != "rec_1" {
+				t.Fatalf("setRecord action = %#v", action)
+			}
+			cell := action["data"].(map[string]any)["fld_image"].(map[string]any)
+			if int(cell["type"].(float64)) != attachmentFieldType {
+				t.Fatalf("setRecord cell = %#v", cell)
+			}
+			values := cell["value"].([]any)
+			if len(values) != 1 {
+				t.Fatalf("setRecord attachment values = %#v", values)
+			}
+			attachment := values[0].(map[string]any)
+			if attachment["attachmentToken"] != "box_uploaded" || attachment["name"] != "ceph_logo.jpeg" {
+				t.Fatalf("setRecord attachment = %#v", attachment)
+			}
+			sawUserChanges = true
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{"type": "ACCEPT_COMMIT"}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	payload, err := Attach(AttachConfig{
+		URL:         server.URL + "/base/bas_fixture?table=tbl_main&view=vew_grid",
 		Field:       "Screenshot",
 		RecordMatch: "Title=Image bug",
 		FilePath:    file,
 		Apply:       true,
-		ClientVars:  bitableClientVarsFixture(t),
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
 	})
-	if err == nil || !strings.Contains(err.Error(), "upload API contract is captured") {
-		t.Fatalf("Attach apply gate error = %v", err)
+	if err != nil {
+		t.Fatalf("Attach apply returned error: %v", err)
+	}
+	if clientVarsCalls != 2 || !sawPrepare || !sawMerge || !sawFinish || !sawUserChanges {
+		t.Fatalf("apply calls clientVars=%d prepare=%t merge=%t finish=%t userChanges=%t", clientVarsCalls, sawPrepare, sawMerge, sawFinish, sawUserChanges)
+	}
+	if payload["ok"] != true || payload["dryRun"] != false || payload["applied"] != true || payload["uploadedFileCount"] != 1 {
+		t.Fatalf("apply payload = %+v", payload)
+	}
+	if payload["recordId"] != "rec_1" {
+		t.Fatalf("recordId = %#v, want rec_1", payload["recordId"])
+	}
+	verify := payload["verify"].(map[string]any)
+	if verify["ok"] != true || verify["recordId"] != "rec_1" || verify["recordIndex"] != 0 {
+		t.Fatalf("verify payload = %+v", verify)
 	}
 }
 
@@ -634,6 +733,24 @@ func bitableClientVarsFixtureWithCreatedRecord(t *testing.T, recordID string, ti
 	return data
 }
 
+func bitableClientVarsFixtureWithUpdatedAttachment(t *testing.T, recordID string, attachmentName string) map[string]any {
+	t.Helper()
+	data := bitableClientVarsFixture(t)
+	schema := decodeFixtureSchema(t, data)
+	recordMap := schema["data"].(map[string]any)["recordMap"].(map[string]any)
+	record := recordMap[recordID].(map[string]any)
+	record["fld_image"] = map[string]any{"value": []any{map[string]any{
+		"id":              "box_uploaded",
+		"attachmentToken": "box_uploaded",
+		"name":            attachmentName,
+		"mimeType":        "image/jpeg",
+		"size":            float64(7),
+		"timeStamp":       float64(1786718860252),
+	}}}
+	data["oldSchema"].(map[string]any)["gzipSchema"] = gzipBase64JSON(t, schema)
+	return data
+}
+
 func decodeFixtureSchema(t *testing.T, data map[string]any) map[string]any {
 	t.Helper()
 	raw := decodeGzipBase64String(t, data["oldSchema"].(map[string]any)["gzipSchema"].(string))
@@ -677,6 +794,15 @@ func decodeGzipBase64String(t *testing.T, value string) string {
 		t.Fatalf("read gzip: %v", err)
 	}
 	return decoded.String()
+}
+
+func decodeOperations(t *testing.T, operations string) []map[string]any {
+	t.Helper()
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(operations), &decoded); err != nil {
+		t.Fatalf("decode operations: %v", err)
+	}
+	return decoded
 }
 
 func decodeJSONRequest(t *testing.T, r *http.Request) map[string]any {

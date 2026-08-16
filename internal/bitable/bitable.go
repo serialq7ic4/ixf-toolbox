@@ -175,7 +175,7 @@ func Attach(config AttachConfig) (map[string]any, error) {
 		return nil, fmt.Errorf("--dry-run and --apply are mutually exclusive")
 	}
 	if !config.Apply && !config.DryRun {
-		return nil, fmt.Errorf("bitable attach requires --dry-run")
+		return nil, fmt.Errorf("bitable attach requires --dry-run or --apply")
 	}
 	source, err := ParseSource(config.URL)
 	if err != nil {
@@ -208,7 +208,11 @@ func Attach(config AttachConfig) (map[string]any, error) {
 		return nil, err
 	}
 	if config.Apply {
-		return nil, fmt.Errorf("bitable attach --apply is not available until the bitable upload API contract is captured")
+		session, err := newSession(config.CookiesPath, source.BaseURL, config.SpaceAPI)
+		if err != nil {
+			return nil, err
+		}
+		return session.applyAttach(source, meta, *field, matches[0], config.FilePath, file)
 	}
 	return attachDryRunPayload(source, meta, *field, matches[0], file), nil
 }
@@ -838,6 +842,23 @@ func attachDryRunPayload(source Source, meta Metadata, field Field, record Recor
 	}
 }
 
+func attachApplyPayload(source Source, meta Metadata, field Field, recordID string, uploadedFileCount int, verify map[string]any) map[string]any {
+	return map[string]any{
+		"ok":                true,
+		"dryRun":            false,
+		"applied":           true,
+		"operation":         "bitable_attach",
+		"sourceKind":        source.Kind,
+		"target":            map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": firstTableID(meta), "viewId": firstViewID(meta)},
+		"fieldName":         field.Name,
+		"recordId":          recordID,
+		"uploadedFileCount": uploadedFileCount,
+		"willUpload":        true,
+		"willUpdateRecord":  true,
+		"verify":            verify,
+	}
+}
+
 func normalizeRecordInsertPosition(position string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(position)) {
 	case "", recordInsertBottom:
@@ -1103,6 +1124,99 @@ func (session *session) watchBitableEntity(source Source, memberID string, entit
 	return nil
 }
 
+func (session *session) applyAttach(source Source, meta Metadata, field Field, record Record, path string, file fileMetadata) (map[string]any, error) {
+	tableID := targetTableID(source, meta)
+	viewID := targetViewID(source, meta)
+	if tableID == "" || viewID == "" {
+		return nil, fmt.Errorf("bitable attach apply requires a table and view")
+	}
+	memberID, err := randomDecimalID(14)
+	if err != nil {
+		return nil, err
+	}
+	if err := session.watchBitableEntity(source, memberID, "BITABLE_BASE", source.BaseToken, 2); err != nil {
+		return nil, err
+	}
+	if err := session.watchBitableEntity(source, memberID, "BITABLE_TABLE", tableID, 0); err != nil {
+		return nil, err
+	}
+	uploaded, err := session.uploadBitableFile(source, path, file)
+	if err != nil {
+		return nil, err
+	}
+	uploads := []bitableUploadedFile{uploaded}
+	if err := session.writeRecordAttachmentUpdate(source, meta, field, record, uploads, memberID); err != nil {
+		return nil, err
+	}
+	verify, err := session.waitForAttachVerification(source, field, record.ID, uploads)
+	if err != nil {
+		return nil, err
+	}
+	return attachApplyPayload(source, meta, field, record.ID, len(uploads), verify), nil
+}
+
+func (session *session) writeRecordAttachmentUpdate(source Source, meta Metadata, field Field, record Record, uploads []bitableUploadedFile, memberID string) error {
+	tableID := targetTableID(source, meta)
+	viewID := targetViewID(source, meta)
+	values := recordAttachmentValues(record, field.ID)
+	for _, upload := range uploads {
+		values = append(values, uploadedFileCellValue(upload))
+	}
+	operations := []any{map[string]any{
+		"command": "SetRecord",
+		"type":    2,
+		"actions": []any{map[string]any{
+			"action":   "data.setRecord",
+			"type":     2,
+			"tableId":  tableID,
+			"viewId":   viewID,
+			"recordId": record.ID,
+			"viewType": targetViewType(source, meta),
+			"data": map[string]any{
+				field.ID: map[string]any{"type": attachmentFieldType, "value": values},
+			},
+		}},
+		"syncFlag": 0,
+	}}
+	encodedOperations, err := encodeGzipBase64JSON(operations)
+	if err != nil {
+		return err
+	}
+	memberNumber, err := strconv.ParseInt(memberID, 10, 64)
+	if err != nil {
+		return err
+	}
+	body := map[string]any{
+		"type": "BITABLE_TABLE",
+		"data": map[string]any{
+			"member_id":    memberNumber,
+			"user_ticket":  "",
+			"type":         "USER_CHANGES",
+			"token":        tableID,
+			"lang":         "zh",
+			"localRev":     meta.TableRev,
+			"operations":   encodedOperations,
+			"signature":    randomUUID(),
+			"content_type": "gzip/base64",
+			"route_key":    source.BaseToken,
+		},
+		"version": 2,
+		"req_id":  randomSmallInt(),
+		"context": bitableRCEContext(),
+	}
+	payload, err := session.postJSON(session.rceMessagesURL(memberID), source, body, "bitable rce user_changes")
+	if err != nil {
+		return err
+	}
+	if intValue(payload["code"]) != 0 {
+		return fmt.Errorf("bitable rce user_changes failed")
+	}
+	if dataType := stringValue(asMap(payload["data"])["type"]); dataType != "" && dataType != "ACCEPT_COMMIT" {
+		return fmt.Errorf("bitable rce user_changes returned %s", dataType)
+	}
+	return nil
+}
+
 func (session *session) writeRecordCreate(source Source, meta Metadata, fields map[string]any, uploads map[string][]bitableUploadedFile, memberID string, recordIndex int) (string, error) {
 	tableID := targetTableID(source, meta)
 	viewID := targetViewID(source, meta)
@@ -1220,6 +1334,30 @@ func (session *session) waitForRecordCreateVerification(source Source, fields ma
 	}
 }
 
+func (session *session) waitForAttachVerification(source Source, field Field, recordID string, uploads []bitableUploadedFile) (map[string]any, error) {
+	deadline := time.Now().Add(bitableVerifyTimeout)
+	var lastErr error
+	for {
+		clientVars, err := session.clientVars(source)
+		if err != nil {
+			return nil, err
+		}
+		meta, err := ParseClientVars(clientVars, source.BaseToken)
+		if err != nil {
+			return nil, err
+		}
+		verify, err := verifyAttachedRecord(meta, field, recordID, uploads)
+		if err == nil {
+			return verify, nil
+		}
+		lastErr = err
+		if !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("%w after waiting %s", lastErr, bitableVerifyTimeout)
+		}
+		time.Sleep(bitableVerifyInterval)
+	}
+}
+
 func verifyCreatedRecord(meta Metadata, fields map[string]any, uploads map[string][]bitableUploadedFile, recordID string, expectedRecordIndex int) (map[string]any, error) {
 	for index, record := range meta.Records {
 		if recordID != "" && record.ID != recordID {
@@ -1238,6 +1376,26 @@ func verifyCreatedRecord(meta Metadata, fields map[string]any, uploads map[strin
 		}
 	}
 	return nil, fmt.Errorf("created record was not found")
+}
+
+func verifyAttachedRecord(meta Metadata, field Field, recordID string, uploads []bitableUploadedFile) (map[string]any, error) {
+	for index, record := range meta.Records {
+		if record.ID != recordID {
+			continue
+		}
+		names := recordAttachmentNames(record, field.ID)
+		for _, upload := range uploads {
+			if !containsString(names, upload.Name) {
+				return nil, fmt.Errorf("record %s attachment field %s did not include %s", recordID, field.Name, upload.Name)
+			}
+		}
+		return map[string]any{
+			"ok":          true,
+			"recordId":    record.ID,
+			"recordIndex": index,
+		}, nil
+	}
+	return nil, fmt.Errorf("record %s was not found", recordID)
 }
 
 func recordCreateVerifyPayload(recordID string, recordIndex int, expectedRecordIndex int) (map[string]any, error) {
@@ -1288,6 +1446,38 @@ func recordAttachmentNames(record Record, fieldID string) []string {
 		}
 	}
 	return names
+}
+
+func recordAttachmentValues(record Record, fieldID string) []any {
+	cell := asMap(record.Raw[fieldID])
+	value := cell["value"]
+	if len(cell) == 0 {
+		value = record.Raw[fieldID]
+	}
+	values := []any{}
+	for _, item := range asSlice(value) {
+		itemMap := asMap(item)
+		if len(itemMap) == 0 {
+			continue
+		}
+		copied := map[string]any{}
+		for key, value := range itemMap {
+			copied[key] = value
+		}
+		values = append(values, copied)
+	}
+	return values
+}
+
+func uploadedFileCellValue(upload bitableUploadedFile) map[string]any {
+	return map[string]any{
+		"id":              upload.Token,
+		"attachmentToken": upload.Token,
+		"name":            upload.Name,
+		"mimeType":        upload.MimeType,
+		"size":            upload.Size,
+		"timeStamp":       upload.Timestamp,
+	}
 }
 
 func (session *session) postJSON(requestURL string, source Source, body map[string]any, label string) (map[string]any, error) {
@@ -1880,6 +2070,16 @@ func targetViewID(source Source, meta Metadata) string {
 		return strings.TrimSpace(source.ViewID)
 	}
 	return firstViewID(meta)
+}
+
+func targetViewType(source Source, meta Metadata) int {
+	viewID := targetViewID(source, meta)
+	for _, view := range meta.Views {
+		if view.ID == viewID {
+			return view.Type
+		}
+	}
+	return 0
 }
 
 func encodeGzipBase64JSON(value any) (string, error) {

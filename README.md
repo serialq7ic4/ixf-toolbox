@@ -47,27 +47,27 @@
 
 如果你正在使用 Codex，可以直接对 Codex 说：
 
-> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.24.0_darwin_arm64`，macOS Intel 用 `ixf_3.24.0_darwin_amd64`，Windows 用 `ixf_3.24.0_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
+> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.25.0_darwin_arm64`，macOS Intel 用 `ixf_3.25.0_darwin_amd64`，Windows 用 `ixf_3.25.0_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.24.0/ixf_3.24.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.25.0/ixf_3.25.0_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-macOS Intel 将文件名换成 `ixf_3.24.0_darwin_amd64`。
+macOS Intel 将文件名换成 `ixf_3.25.0_darwin_amd64`。
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.24.0/ixf_3.24.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.25.0/ixf_3.25.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -156,7 +156,7 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 
 ### Runtime 状态
 
-v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；v3.0 起 Python runtime/package 实现已删除；v3.1 起测试和发布流程也不再依赖 Python；v3.3 起 Messenger 进入 Go-native 分阶段上线；v3.4 起支持显式 --apply 打开并验证目标会话；v3.5 起支持只读读取未读或最近会话；v3.6 起支持确认后的消息发送，并要求 fresh-session 复核；v3.7 起补齐 Messenger GA 运行手册和可执行诊断提示；v3.8 起补齐 agent routing 诊断和 Messenger 稳定边界元数据；v3.9 起支持已有 docx 正文替换的 dry-run/preflight；v3.10 起支持确认后的已有 docx 正文替换写入；v3.11 起补齐复杂块显式覆盖开关和更新 runbook；v3.13 起提供独立 `ixf sheets read` 和 `ixf sheets update --dry-run` 命令面；v3.14 起支持 API-only `ixf sheets update --apply` 写入和回读校验；v3.16 起引入 docx block graph 基础；v3.17 起支持 `ixf docs patch insert --dry-run`；v3.18 起支持确认后的 API-only 标题下块插入和未改动块校验；v3.20 起支持 API-only 的有界章节替换/删除，并校验章节外 blocks 未变化；v3.21 起读写前置结构分析会输出安全 heading/section/complex-block 摘要，`ixf docs read --out-dir` 会写出 `.structure.json` 产物；v3.22 起支持默认 docs 发布租户，避免自然语言“发到 i讯飞文档”请求因缺少 `--base-url` 停在本地草稿；v3.23 起支持 Mermaid 图以图片块发布；v3.23.1 起 dry-run 和 apply 会验证 `mmdc` 可实际渲染，提前暴露 Puppeteer 浏览器依赖问题；v3.24 起 root doctor 输出完整依赖摘要，并提供 `ixf setup deps` 显式安装 Mermaid 渲染依赖；未发布版本新增 `ixf docs table append-row` 原生 docx 表格追加行 dry-run/apply（含 PNG/JPEG/SVG 图片单元格上传绑定），以及 `ixf bitable` inspect/read、record create dry-run、API-only `record create --apply` 文本/附件新增记录写入与回读校验和附件 dry-run 规划命令面；`attach --apply` 在已有记录更新 API 合约捕获前保持失败关闭。
+v2.4 起 Go 二进制拥有已文档化的 CLI runtime：文档读取/发布、OKR 读取/写入、cookie export、doctor、skill setup 和 update flow。v2.6 起 GitHub Release 只发布 Go 二进制和 checksum；v3.0 起 Python runtime/package 实现已删除；v3.1 起测试和发布流程也不再依赖 Python；v3.3 起 Messenger 进入 Go-native 分阶段上线；v3.4 起支持显式 --apply 打开并验证目标会话；v3.5 起支持只读读取未读或最近会话；v3.6 起支持确认后的消息发送，并要求 fresh-session 复核；v3.7 起补齐 Messenger GA 运行手册和可执行诊断提示；v3.8 起补齐 agent routing 诊断和 Messenger 稳定边界元数据；v3.9 起支持已有 docx 正文替换的 dry-run/preflight；v3.10 起支持确认后的已有 docx 正文替换写入；v3.11 起补齐复杂块显式覆盖开关和更新 runbook；v3.13 起提供独立 `ixf sheets read` 和 `ixf sheets update --dry-run` 命令面；v3.14 起支持 API-only `ixf sheets update --apply` 写入和回读校验；v3.16 起引入 docx block graph 基础；v3.17 起支持 `ixf docs patch insert --dry-run`；v3.18 起支持确认后的 API-only 标题下块插入和未改动块校验；v3.20 起支持 API-only 的有界章节替换/删除，并校验章节外 blocks 未变化；v3.21 起读写前置结构分析会输出安全 heading/section/complex-block 摘要，`ixf docs read --out-dir` 会写出 `.structure.json` 产物；v3.22 起支持默认 docs 发布租户，避免自然语言“发到 i讯飞文档”请求因缺少 `--base-url` 停在本地草稿；v3.23 起支持 Mermaid 图以图片块发布；v3.23.1 起 dry-run 和 apply 会验证 `mmdc` 可实际渲染，提前暴露 Puppeteer 浏览器依赖问题；v3.24 起 root doctor 输出完整依赖摘要，并提供 `ixf setup deps` 显式安装 Mermaid 渲染依赖；v3.25 起新增 `ixf docs table append-row` 原生 docx 表格追加行 dry-run/apply（含 PNG/JPEG/SVG 图片单元格上传绑定），以及 `ixf bitable` inspect/read、record create dry-run、API-only `record create --apply` 文本/附件新增记录写入与回读校验和附件 dry-run 规划命令面；`attach --apply` 在已有记录更新 API 合约捕获前保持失败关闭。
 
 Agent 路由契约见 [`docs/agent-routing.md`](docs/agent-routing.md)。Messenger 详细运行手册见 [`docs/messenger.md`](docs/messenger.md)，覆盖 Chrome/Chromium-only discovery、cloned profile 隔离、读取副作用和发送成功判定。
 

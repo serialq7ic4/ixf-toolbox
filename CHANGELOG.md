@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 3.25.0 - 2026-08-16
+
 - Added `ixf docs table append-row` dry-run/apply for appending one row to native docx tables, including local PNG/JPEG/SVG image cells uploaded through `docx_image` and verified by readback.
 - Added `ixf bitable inspect/read` and `ixf bitable attach --dry-run` for safe bitable metadata inspection and attachment upload planning across direct bitable, wiki bitable, and docx embedded bitable URLs.
 - Added `ixf bitable record create --dry-run` and API-only `--apply` to create records from JSON input, upload attachment-field files, append to the current view by default, optionally restore top insertion with `--insert-position top`, and verify by clientvars readback.

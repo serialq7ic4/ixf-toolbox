@@ -319,6 +319,27 @@ func TestBitableRecordCreateDryRunJSONRoutesFlags(t *testing.T) {
 	}
 }
 
+func TestOKRWriteRejectsDryRunAndApplyTogether(t *testing.T) {
+	input := filepath.Join(t.TempDir(), "okr.json")
+	if err := os.WriteFile(input, []byte(`[{"objective":"O1","krs":["KR1"]}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runCLITest(t,
+		"okr", "write",
+		"--url", "https://tenant.example/okr/user/example/?okrId=okr_fixture",
+		"--input", input,
+		"--dry-run",
+		"--apply",
+	)
+	if code == 0 {
+		t.Fatalf("okr write accepted mutually exclusive dry-run/apply; stdout=%q stderr=%q", stdout, stderr)
+	}
+	if !strings.Contains(stderr, "--dry-run and --apply are mutually exclusive") {
+		t.Fatalf("stderr = %q, want mutually exclusive error", stderr)
+	}
+}
+
 func TestDocsPublishUsesDefaultBaseURLFromEnvironment(t *testing.T) {
 	home := t.TempDir()
 	source := filepath.Join(home, "note.md")

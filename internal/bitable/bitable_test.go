@@ -255,6 +255,26 @@ func TestAttachApplyUploadsAttachmentWritesSetRecordAndVerifies(t *testing.T) {
 	}
 }
 
+func TestVerifyAttachedRecordRequiresUploadedAttachmentToken(t *testing.T) {
+	data := bitableClientVarsFixtureWithUpdatedAttachmentToken(t, "rec_1", "ceph_logo.jpeg", "old_same_name_token")
+	meta, err := ParseClientVars(data, "bas_fixture")
+	if err != nil {
+		t.Fatalf("ParseClientVars returned error: %v", err)
+	}
+	field := meta.FieldByName("Screenshot")
+	if field == nil {
+		t.Fatal("Screenshot field not found")
+	}
+
+	_, err = verifyAttachedRecord(meta, *field, "rec_1", []bitableUploadedFile{{
+		Token: "box_uploaded",
+		Name:  "ceph_logo.jpeg",
+	}})
+	if err == nil || !strings.Contains(err.Error(), "box_uploaded") {
+		t.Fatalf("verifyAttachedRecord error = %v, want uploaded token mismatch", err)
+	}
+}
+
 func TestRecordCreateDryRunPlansFieldsAndAttachments(t *testing.T) {
 	file := writeFixtureFile(t, "ceph_logo.jpeg", []byte{0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00})
 	input := writeFixtureJSON(t, "row.json", map[string]any{
@@ -734,14 +754,18 @@ func bitableClientVarsFixtureWithCreatedRecord(t *testing.T, recordID string, ti
 }
 
 func bitableClientVarsFixtureWithUpdatedAttachment(t *testing.T, recordID string, attachmentName string) map[string]any {
+	return bitableClientVarsFixtureWithUpdatedAttachmentToken(t, recordID, attachmentName, "box_uploaded")
+}
+
+func bitableClientVarsFixtureWithUpdatedAttachmentToken(t *testing.T, recordID string, attachmentName string, attachmentToken string) map[string]any {
 	t.Helper()
 	data := bitableClientVarsFixture(t)
 	schema := decodeFixtureSchema(t, data)
 	recordMap := schema["data"].(map[string]any)["recordMap"].(map[string]any)
 	record := recordMap[recordID].(map[string]any)
 	record["fld_image"] = map[string]any{"value": []any{map[string]any{
-		"id":              "box_uploaded",
-		"attachmentToken": "box_uploaded",
+		"id":              attachmentToken,
+		"attachmentToken": attachmentToken,
 		"name":            attachmentName,
 		"mimeType":        "image/jpeg",
 		"size":            float64(7),

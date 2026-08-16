@@ -1394,6 +1394,10 @@ func runOKRWrite(args []string, stdout io.Writer, stderr io.Writer) int {
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
+	if *dryRun && *apply {
+		fmt.Fprintln(stderr, "ERROR --dry-run and --apply are mutually exclusive")
+		return 2
+	}
 	if *targetURL == "" {
 		fmt.Fprintln(stderr, "ERROR --url is required")
 		return 2
@@ -1409,7 +1413,7 @@ func runOKRWrite(args []string, stdout io.Writer, stderr io.Writer) int {
 		CSRFURL:        *csrfURL,
 		ObjectiveIndex: *objectiveIndex,
 		Prune:          *prune,
-		Apply:          *apply && !*dryRun,
+		Apply:          *apply,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)

@@ -47,27 +47,27 @@ The recommended path is to let the agent you are already using install Toolbox. 
 
 If you are using Codex, ask Codex directly:
 
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.26.0_darwin_arm64`, macOS Intel: `ixf_3.26.0_darwin_amd64`, Windows: `ixf_3.26.0_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
+> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.26.1_darwin_arm64`, macOS Intel: `ixf_3.26.1_darwin_amd64`, Windows: `ixf_3.26.1_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.26.0/ixf_3.26.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.26.1/ixf_3.26.1_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-For macOS Intel, use `ixf_3.26.0_darwin_amd64` instead.
+For macOS Intel, use `ixf_3.26.1_darwin_amd64` instead.
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.26.0/ixf_3.26.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.26.1/ixf_3.26.1_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -149,6 +149,8 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf cookies export` | Export cookies from the local desktop session |
 | `ixf doctor --json` | Inspect runtime, skills, and cookie metadata without printing cookie values |
 | `ixf setup skills --runtimes auto --json` | Install Codex / Claude Code skills |
+| `ixf setup deps --json` | Dry-run the optional dependency installer plan |
+| `ixf setup deps --apply --json` | Install Mermaid CLI / Puppeteer browser dependencies without changing the Messenger desktop environment |
 | `ixf update check --json` | Check the latest GitHub Release |
 | `ixf update self --json` | Plan or apply a Toolbox package upgrade |
 | `ixf update skills --runtimes auto --json` | Refresh installed skill wrappers |

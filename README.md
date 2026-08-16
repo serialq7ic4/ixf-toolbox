@@ -47,27 +47,27 @@
 
 如果你正在使用 Codex，可以直接对 Codex 说：
 
-> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.26.0_darwin_arm64`，macOS Intel 用 `ixf_3.26.0_darwin_amd64`，Windows 用 `ixf_3.26.0_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
+> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.26.1_darwin_arm64`，macOS Intel 用 `ixf_3.26.1_darwin_amd64`，Windows 用 `ixf_3.26.1_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
 
 ### macOS Apple Silicon
 
 ```bash
 mkdir -p ~/.local/bin
 curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.26.0/ixf_3.26.0_darwin_arm64
+  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.26.1/ixf_3.26.1_darwin_arm64
 chmod +x ~/.local/bin/ixf
 ixf setup skills --runtimes codex --json
 ixf --version
 ixf doctor --json
 ```
 
-macOS Intel 将文件名换成 `ixf_3.26.0_darwin_amd64`。
+macOS Intel 将文件名换成 `ixf_3.26.1_darwin_amd64`。
 
 ### Windows PowerShell
 
 ```powershell
 New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.26.0/ixf_3.26.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
+Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.26.1/ixf_3.26.1_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
 $env:PATH = "$HOME\bin;$env:PATH"
 ixf setup skills --runtimes codex --json
 ixf --version
@@ -461,7 +461,7 @@ ixf docs table append-row \
 
 ### 规划和写入 bitable 附件记录
 
-bitable 附件字段属于多维表格数据层，不能通过 `ixf docs update` 或 `ixf sheets update` 修改。直接 bitable 链接、wiki bitable 链接和 docx 内嵌 bitable 链接统一走 `ixf bitable`。当前 `record create --apply` 支持 API-only 新增记录，字段范围先限定为文本字段和附件字段；`attach --apply` 仍失败关闭，直到已有记录更新 API 合约被捕获。
+bitable 附件字段属于多维表格数据层，不能通过 `ixf docs update` 或 `ixf sheets update` 修改。直接 bitable 链接、wiki bitable 链接和 docx 内嵌 bitable 链接统一走 `ixf bitable`。当前 `record create --apply` 支持 API-only 新增记录，字段范围先限定为文本字段和附件字段；`attach --apply` 支持确认后的已有记录附件追加写入，会保留已有附件并按上传 token 回读校验。
 
 新增记录使用 `record create`。输入 JSON 可以是字段映射，也可以包在 `fields` 对象里；附件字段用本地文件路径表达，支持绝对路径和 `~/...`。默认插入到当前视图末尾；如需恢复旧的顶部插入行为，显式加 `--insert-position top`，也可以用 `--insert-position bottom` 明确默认行为。先 dry-run 检查 `insertPosition`、`plannedRecordIndex` 和附件计划，确认后用 `--apply` 写入并回读校验 `verify.recordIndex`。
 

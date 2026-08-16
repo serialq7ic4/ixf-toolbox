@@ -1384,9 +1384,13 @@ func verifyAttachedRecord(meta Metadata, field Field, recordID string, uploads [
 			continue
 		}
 		names := recordAttachmentNames(record, field.ID)
+		tokens := recordAttachmentTokens(record, field.ID)
 		for _, upload := range uploads {
 			if !containsString(names, upload.Name) {
 				return nil, fmt.Errorf("record %s attachment field %s did not include %s", recordID, field.Name, upload.Name)
+			}
+			if !containsString(tokens, upload.Token) {
+				return nil, fmt.Errorf("record %s attachment field %s did not include uploaded token %s for %s", recordID, field.Name, upload.Token, upload.Name)
 			}
 		}
 		return map[string]any{
@@ -1418,8 +1422,12 @@ func recordMatchesExpected(meta Metadata, record Record, fields map[string]any, 
 		}
 		if field.AttachmentCompatible {
 			names := recordAttachmentNames(record, field.ID)
+			tokens := recordAttachmentTokens(record, field.ID)
 			for _, upload := range uploads[field.ID] {
 				if !containsString(names, upload.Name) {
+					return false
+				}
+				if !containsString(tokens, upload.Token) {
 					return false
 				}
 			}
@@ -1446,6 +1454,20 @@ func recordAttachmentNames(record Record, fieldID string) []string {
 		}
 	}
 	return names
+}
+
+func recordAttachmentTokens(record Record, fieldID string) []string {
+	tokens := []string{}
+	for _, item := range recordAttachmentValues(record, fieldID) {
+		itemMap := asMap(item)
+		for _, key := range []string{"attachmentToken", "id", "token", "file_token"} {
+			token := stringValue(itemMap[key])
+			if token != "" {
+				tokens = append(tokens, token)
+			}
+		}
+	}
+	return tokens
 }
 
 func recordAttachmentValues(record Record, fieldID string) []any {

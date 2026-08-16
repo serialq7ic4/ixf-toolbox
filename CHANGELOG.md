@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.26.1 - 2026-08-17
+
+- Fixed OKR write flag handling so `--dry-run` and `--apply` are rejected before input parsing, matching other write commands.
+- Tightened bitable attachment readback verification to require the uploaded attachment token, not just a matching file name.
+- Refreshed README command tables and bitable attach guidance to match the supported `setup deps` and `attach --apply` behavior.
+
 ## 3.26.0 - 2026-08-16
 
 - Added API-only `ixf bitable attach --apply` for existing-record attachment fields, uploading local files through `bitable_image`, appending to the matched record with `SetRecord` / `data.setRecord`, preserving existing attachments, and verifying by clientvars readback.

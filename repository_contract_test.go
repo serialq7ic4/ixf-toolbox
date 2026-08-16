@@ -318,6 +318,11 @@ func TestBitableRoutingAndAttachBoundaryAreDocumented(t *testing.T) {
 				t.Fatalf("%s missing bitable command boundary %q:\n%s", relative, expected, text)
 			}
 		}
+		for _, forbidden := range []string{"attach --apply` 仍失败关闭", "until the existing-record update API contract is captured"} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s contains stale bitable attach apply guidance %q:\n%s", relative, forbidden, text)
+			}
+		}
 	}
 
 	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
@@ -326,6 +331,17 @@ func TestBitableRoutingAndAttachBoundaryAreDocumented(t *testing.T) {
 		for _, expected := range []string{"bitable record or attachment/image upload requests", "ixf bitable record create --dry-run", "ixf bitable attach --dry-run", "do not route those requests through docs or sheets"} {
 			if !strings.Contains(routing, expected) {
 				t.Fatalf("%s missing bitable routing guidance %q:\n%s", routingPath, expected, routing)
+			}
+		}
+	}
+}
+
+func TestReadmeCommandTablesDocumentSetupDeps(t *testing.T) {
+	for _, relative := range []string{"README.md", "README.en.md"} {
+		text := readRepoFile(t, relative)
+		for _, expected := range []string{"ixf setup deps --json", "ixf setup deps --apply --json"} {
+			if !strings.Contains(text, expected) {
+				t.Fatalf("%s missing setup dependency command %q:\n%s", relative, expected, text)
 			}
 		}
 	}

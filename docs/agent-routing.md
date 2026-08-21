@@ -30,6 +30,19 @@ correct domain skill.
 6. Run `ixf doctor --json` when the installed routing or local auth state is unclear; `ixf doctor --json` exposes `agentRouting` for machine-readable verification.
 7. For docs publish readiness, inspect `cookies.ok`, `capabilities.docsPublish`, and `docs.defaultBaseURL`; do not treat top-level `doctor.ok=false` alone as an auth failure.
 
+## Local Markdown Boundary
+
+Intent, not file type, is the routing trigger. Ordinary local Markdown files do
+not require ixf Toolbox for reading. When the user asks to inspect, summarize,
+review, or edit a local `.md` file, use the host filesystem and normal
+coding-agent tools.
+
+Use `ixf` for a local Markdown file only when the request is an explicit
+chunking, artifact generation, publish, update, or patch workflow. The material
+advantages are deterministic artifact or manifest output, heading-aware
+outline/chunk processing for large files, and a shared preprocessing pipeline
+for remote document writes.
+
 ## Docs Publish Boundary
 
 When the user asks to publish or整理内容到 i讯飞文档, create the Markdown source

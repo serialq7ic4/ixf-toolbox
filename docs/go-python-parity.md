@@ -11,7 +11,7 @@ installs and for the agent skills installed by `ixf setup skills`.
 
 | Command family | Go ownership | Notes |
 |---|---|---|
-| `docs read` | Owned | Reads authorized remote documents and local Markdown into local artifacts. |
+| `docs read` | Owned | Reads authorized remote documents into local artifacts; local Markdown support is for explicit artifact generation and chunking diagnostics, not the default agent path for ordinary local file reading. |
 | `docs publish` | Owned | Creates a new docx from Markdown with dry-run-first and explicit `--apply` semantics. |
 | `docs update` | Owned | Updates an existing docx body from Markdown with dry-run-first, `replace_body`, complex-block safeguards, and explicit `--apply` semantics. |
 | `docs table append-row` | Owned | `ixf docs table append-row --dry-run` plans one native docx table row append; `--apply` writes table cells, uploads local PNG/JPEG/SVG image cells to `docx_image`, binds image blocks, and verifies by readback. |

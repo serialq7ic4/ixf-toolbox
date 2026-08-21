@@ -15,7 +15,7 @@
 `ixf-toolbox` 提供一个本地 CLI 和七个 agent skill：
 
 - `using-ixf-toolbox`: 轻量路由入口，在文档/OKR/Messenger、读取/写入意图不明确时选择正确的具体 skill。
-- `ixf-docs-reader`: 只读，读取已授权云文档、本地 Markdown、动态分块和图片产物。
+- `ixf-docs-reader`: 只读，读取已授权云文档、动态分块和图片产物；普通本地 Markdown 阅读直接使用宿主文件系统。
 - `ixf-docs-writer`: 写入，先 dry-run，再发布新 docx、在标题下插入片段或整体替换已有 docx；`publish` 不覆盖已有 docx。
 - `ixf-okr-reader`: 只读，读取已授权 OKR 页面并输出 Objective / Key Result Markdown。
 - `ixf-okr-writer`: 写入，先 dry-run，再创建或修改经过确认的 Objective / Key Result。
@@ -86,7 +86,7 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 
 ## 在 Agent 里使用
 
-安装 skill 后，可以直接让 agent 处理授权链接、本地文件或 Messenger 请求。你不需要点名具体 skill；直接按日常方式描述目标即可。using-ixf-toolbox 会在后台识别链接类型、读写意图和安全边界，再分配给对应的文档、OKR 或 Messenger skill。
+安装 skill 后，可以直接让 agent 处理授权链接、发布/更新所需的本地输入文件或 Messenger 请求。你不需要点名具体 skill；直接按日常方式描述目标即可。using-ixf-toolbox 会在后台识别链接类型、读写意图和安全边界，再分配给对应的文档、OKR 或 Messenger skill。普通本地 Markdown 的阅读、总结、审阅和编辑不需要 `ixf-toolbox`，直接使用宿主文件系统即可。
 
 > 帮我总结一下这个文档：https://tenant.example.test/wiki/example
 
@@ -106,6 +106,10 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 
 > 给这个群发一段消息，先展示 dry-run 计划，等我确认后再继续。
 
+### 本地 Markdown 路由边界
+
+触发条件是意图，不是 `.md` 文件类型。普通本地 Markdown 的检查、总结、审阅和编辑直接走宿主文件系统；这比启动 `ixf` 更直接，也避免生成重复 artifact。只有在需要稳定的 artifact / manifest、heading-aware outline/chunk 大文档分块，或将 Markdown 作为发布、更新、patch 输入源时，才让 agent 走 `ixf`。
+
 第一次读取或写入私有远程内容前，需要先确保本机 i讯飞/LarkShell 桌面端已登录。Toolbox 会通过本机登录态导出 cookie 并复用授权会话。
 
 ## 底层命令
@@ -114,7 +118,7 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 
 | 命令 | 用途 |
 |---|---|
-| `ixf docs read <source>...` | 将授权云文档链接或本地 Markdown 读取为 Markdown/TSV/manifest 产物 |
+| `ixf docs read <source>...` | 将授权云文档链接读取为 Markdown/TSV/manifest 产物；本地 Markdown 仅用于显式 artifact 生成或分块调试 |
 | `ixf sheets read <sheets-url>` | 将直接 sheets 链接读取为 Markdown/TSV 内容 |
 | `ixf sheets update --url <sheets-url> --range A1 --input cells.tsv --dry-run` | 规划 TSV 单元格更新，不执行写入 |
 | `ixf sheets update --url <sheets-url> --range A1 --input cells.tsv --apply` | 写入确认后的 TSV 单元格更新，并回读校验 |
@@ -566,7 +570,7 @@ ixf okr write \
 - bitable 新增记录 dry-run 规划和 API-only 写入，可识别附件字段本地文件路径、上传素材并回读校验；当前 apply 字段范围限定为文本和附件。
 - 直接 mindnote / sheets 链接读取，以及通过受支持文档 payload 暴露出来的 mindnote 标记和嵌入 sheet TSV 展开。
 - 简单表格、任务列表、代码块语言、富文本链接、图片块下载、直接 sheets 读取、嵌入 sheet 展开、sheets 更新 dry-run/apply 和安全资源清理。
-- 本地 Markdown 分块、读取、发布和测试。
+- 本地 Markdown 显式分块、artifact 生成、发布和测试；普通本地 Markdown 阅读由宿主文件系统完成。
 - 授权 OKR 页面读取、指定 Objective 更新/创建、按 Objective 文本写入多个 Objective、KR 创建/修改/排序、显式 prune 和发布。
 - Messenger 自动化就绪诊断、profile 发现、profile 安全克隆（cloned profile）、dry-run 打开规划、显式 --apply 打开并验证目标会话、只读读取最近/未读会话，以及确认后的消息发送和 fresh-session 复核。
 - 本机 macOS / Windows 桌面端 cookie 导出、诊断和 skill 安装。

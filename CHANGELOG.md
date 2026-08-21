@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.26.2 - 2026-08-21
+
+- Tightened agent routing guidance so ordinary local Markdown inspection, summary, review, and edits use the host filesystem instead of defaulting through `ixf-docs-reader`.
+- Documented the limited cases where local Markdown should still use `ixf`: deterministic artifact/manifest output, heading-aware outline/chunk workflows, and publish/update/patch preprocessing.
+- Added repository contract coverage to prevent installed skills from reintroducing local Markdown as a default `ixf-docs-reader` trigger.
+
 ## 3.26.1 - 2026-08-17
 
 - Fixed OKR write flag handling so `--dry-run` and `--apply` are rejected before input parsing, matching other write commands.

@@ -88,7 +88,7 @@ All current document, wiki, docx, sheets, OKR, cookie, setup, update, and Messen
 
 ## Agent Usage
 
-After installing the skills, ask your agent to work with authorized links, local files, or Messenger requests. You do not need to name a specific skill. Describe the task naturally; `using-ixf-toolbox` routes in the background based on link type, read/write intent, and safety boundaries.
+After installing the skills, ask your agent to work with authorized links, local input files for publish/update workflows, or Messenger requests. You do not need to name a specific skill. Describe the task naturally; `using-ixf-toolbox` routes in the background based on link type, read/write intent, and safety boundaries. Ordinary local Markdown inspection, summary, review, and edits do not need `ixf-toolbox`; use the host filesystem.
 
 > Summarize this document: https://tenant.example.test/wiki/example
 
@@ -108,13 +108,17 @@ After installing the skills, ask your agent to work with authorized links, local
 
 > Send this message to the group. Show the dry-run plan first and wait for my confirmation.
 
+### Local Markdown Routing Boundary
+
+Intent, not the `.md` file type, triggers ixf routing. Ordinary local Markdown inspection, summary, review, and edits should use the host filesystem; that is more direct than starting `ixf` and avoids duplicate generated artifacts. Use `ixf` for local Markdown only when you need deterministic artifact / manifest output, heading-aware outline/chunk processing for large files, or a Markdown input source for publish, update, or patch workflows.
+
 Before the first private remote read or write, make sure the local i讯飞/LarkShell desktop client is logged in.
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
-| `ixf docs read <source>...` | Read authorized cloud document links or local Markdown into Markdown, TSV, image, and manifest artifacts |
+| `ixf docs read <source>...` | Read authorized cloud document links into Markdown, TSV, image, and manifest artifacts; local Markdown is only for explicit artifact generation or chunking diagnostics |
 | `ixf sheets read <sheets-url>` | Read a direct sheets link as Markdown/TSV content |
 | `ixf sheets update --url <sheets-url> --range A1 --input cells.tsv --dry-run` | Plan a TSV cell update without writing |
 | `ixf sheets update --url <sheets-url> --range A1 --input cells.tsv --apply` | Write confirmed TSV cell updates and verify by readback |
@@ -467,7 +471,7 @@ Toolbox currently supports:
 - Bitable record-create dry-run planning and API-only writes, including local file paths for attachment fields, asset upload, and readback verification; apply currently supports text and attachment fields.
 - Direct mindnote and sheets link reads, plus mindnote markers and embedded sheet TSV expansion exposed by supported document payloads.
 - Simple tables, task lists, code languages, rich-text links, image block download, direct sheets reads, embedded sheet expansion, sheets update dry-run/apply, and safe artifact cleanup.
-- Local Markdown chunking, reading, publishing, and test workflows.
+- Explicit local Markdown chunking, artifact generation, publishing, and test workflows; ordinary local Markdown reading uses the host filesystem.
 - Authorized OKR reading, selected Objective update/create, multi-Objective writes by Objective text, KR create/update/order, explicit prune, and publish-after-edit.
 - Messenger readiness diagnostics, profile discovery, safe cloned profile usage, dry-run open planning, explicit --apply target verification, read-only recent/unread extraction, and approved sends with fresh-session verification.
 - macOS and experimental Windows desktop-session cookie export, diagnostics, and skill installation.

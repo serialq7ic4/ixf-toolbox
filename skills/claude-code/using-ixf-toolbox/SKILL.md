@@ -15,7 +15,8 @@ Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, P
 
 - Use `docs/agent-routing.md`, `AGENTS.md`, and current `skills/*/*/SKILL.md` files as authoritative current guidance.
 - Do not route from historical implementation notes, old changelog entries, or `docs/superpowers/` plans.
-- Use `ixf-docs-reader` for authorized document, wiki, docx, cloud-doc, embedded sheet, mindnote, image artifact, local Markdown reading, and direct sheets link reads through `ixf sheets read`.
+- Use `ixf-docs-reader` for authorized document, wiki, docx, cloud-doc, embedded sheet, mindnote, image artifact, and direct sheets link reads through `ixf sheets read`.
+- Ordinary local Markdown files do not require ixf Toolbox. For local `.md` inspection, summary, review, or edits, use the host filesystem. Use `ixf` for local Markdown only when the user explicitly needs chunking, artifact generation, publish, update, or patch workflows.
 - Use `ixf-docs-writer` for approved Markdown publishing as a new docx document, localized insert under heading workflows, bounded one-section replace/delete workflows, or existing-docx update; existing-docx update can mean whole-body replacement through `ixf docs update`.
 - For localized document insertion or append-under-heading requests, route to `ixf docs patch insert` through `ixf-docs-writer`; do not route these to `ixf docs update`.
 - For confirmed one-section replacement or deletion requests, route to `ixf docs patch replace-section` or `ixf docs patch delete-section` through `ixf-docs-writer`; do not use those commands for simple insertion.

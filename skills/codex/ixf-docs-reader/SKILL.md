@@ -1,6 +1,6 @@
 ---
 name: ixf-docs-reader
-description: Use when reading authorized i讯飞 cloud document, wiki, docx, mindnote, bitable, direct sheets link, embedded sheet, or local Markdown sources into local artifacts for analysis.
+description: Use when reading authorized i讯飞 cloud document, wiki, docx, mindnote, bitable, direct sheets link, embedded sheet, or generated image artifacts for analysis.
 ---
 
 # ixf Docs Reader
@@ -10,6 +10,11 @@ Remote docx/wiki reads include safe structure preflight metadata in the manifest
 and write a `.structure.json` artifact when `--out-dir` is used.
 For a direct sheets link, prefer `ixf sheets read` so the request stays on the
 dedicated sheet API surface.
+
+Ordinary local Markdown files do not require this skill. Use the host
+filesystem for local `.md` inspection, summary, review, or edits. Use local
+Markdown with `ixf` only when the user explicitly requests chunking, manifest
+artifact generation, or a docs writer workflow that consumes Markdown.
 
 ## Runtime Boundary
 

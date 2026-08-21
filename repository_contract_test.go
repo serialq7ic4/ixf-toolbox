@@ -156,6 +156,61 @@ func TestAgentRoutingContractIsAuthoritativeAndNatural(t *testing.T) {
 	}
 }
 
+func TestLocalMarkdownDoesNotDefaultToIxfDocsReader(t *testing.T) {
+	routingDoc := readRepoFile(t, "docs/agent-routing.md")
+	normalizedRoutingDoc := strings.Join(strings.Fields(routingDoc), " ")
+	for _, expected := range []string{
+		"Ordinary local Markdown files do not require ixf Toolbox",
+		"Intent, not file type, is the routing trigger",
+		"use the host filesystem",
+		"explicit chunking, artifact generation, publish, update, or patch workflow",
+		"deterministic artifact or manifest output",
+	} {
+		if !strings.Contains(normalizedRoutingDoc, expected) {
+			t.Fatalf("docs/agent-routing.md missing local Markdown routing boundary %q:\n%s", expected, routingDoc)
+		}
+	}
+
+	readme := readRepoFile(t, "README.md")
+	for _, expected := range []string{
+		"触发条件是意图，不是 `.md` 文件类型",
+		"稳定的 artifact / manifest",
+		"heading-aware outline/chunk",
+	} {
+		if !strings.Contains(readme, expected) {
+			t.Fatalf("README.md missing local Markdown rationale %q:\n%s", expected, readme)
+		}
+	}
+
+	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
+		routingPath := filepath.ToSlash(filepath.Join(runtimeDir, "using-ixf-toolbox", "SKILL.md"))
+		routing := readRepoFile(t, routingPath)
+		for _, forbidden := range []string{"local Markdown reading", "local Markdown sources"} {
+			if strings.Contains(routing, forbidden) {
+				t.Fatalf("%s still routes ordinary local Markdown through ixf docs reader with %q:\n%s", routingPath, forbidden, routing)
+			}
+		}
+		for _, expected := range []string{"Ordinary local Markdown files do not require ixf Toolbox", "use the host filesystem"} {
+			if !strings.Contains(strings.Join(strings.Fields(routing), " "), expected) {
+				t.Fatalf("%s missing local Markdown filesystem boundary %q:\n%s", routingPath, expected, routing)
+			}
+		}
+
+		readerPath := filepath.ToSlash(filepath.Join(runtimeDir, "ixf-docs-reader", "SKILL.md"))
+		reader := readRepoFile(t, readerPath)
+		for _, forbidden := range []string{"local Markdown sources", "local Markdown files into local artifacts"} {
+			if strings.Contains(reader, forbidden) {
+				t.Fatalf("%s still claims ordinary local Markdown reader routing with %q:\n%s", readerPath, forbidden, reader)
+			}
+		}
+		for _, expected := range []string{"Ordinary local Markdown files do not require this skill", "Use the host filesystem"} {
+			if !strings.Contains(strings.Join(strings.Fields(reader), " "), expected) {
+				t.Fatalf("%s missing local Markdown filesystem guidance %q:\n%s", readerPath, expected, reader)
+			}
+		}
+	}
+}
+
 func TestIxfSkillsRejectPythonAndLegacyFallbacks(t *testing.T) {
 	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
 		for _, skillName := range skillNamesForContract() {

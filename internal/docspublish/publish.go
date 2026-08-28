@@ -45,6 +45,18 @@ type Spec struct {
 	SourceKind string
 	Text       string
 	Rows       [][]string
+	Runs       []InlineRun
+	RowRuns    [][][]InlineRun
+}
+
+type InlineRun struct {
+	Text string
+	Bold bool
+}
+
+type inlineText struct {
+	Text string
+	Runs []InlineRun
 }
 
 func PublishMarkdown(config Config) (map[string]any, error) {
@@ -176,7 +188,7 @@ func applyUpdateMarkdown(
 	if err != nil {
 		return nil, err
 	}
-	verify, err := session.verify(target.Token, target.Referer, config.RequiredText, countSpecsByKind(specs, "image"))
+	verify, err := session.verifyMarkdownOutput(target.Token, target.Referer, config.RequiredText, specs)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +277,7 @@ func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, co
 	if err != nil {
 		return nil, err
 	}
-	verify, err := session.verify(pageID, finalURL, config.RequiredText, countSpecsByKind(specs, "image"))
+	verify, err := session.verifyMarkdownOutput(pageID, finalURL, config.RequiredText, specs)
 	if err != nil {
 		return nil, err
 	}
@@ -295,31 +307,34 @@ func ParseMarkdown(markdown string) (string, []Spec, error) {
 }
 
 var (
-	headingPattern        = regexp.MustCompile(`^(#{1,9})\s+(.*)$`)
-	orderedPattern        = regexp.MustCompile(`^\d+\.\s+`)
-	inlineCodePattern     = regexp.MustCompile("`([^`]+)`")
-	tableSeparatorPattern = regexp.MustCompile(`^\|\s*:?-+`)
+	headingPattern           = regexp.MustCompile(`^(#{1,9})\s+(.*)$`)
+	orderedPattern           = regexp.MustCompile(`^\d+\.\s+`)
+	tableSeparatorPattern    = regexp.MustCompile(`^\|\s*:?-+`)
+	attributedTextOpPattern  = regexp.MustCompile(`((?:\*\d+)*)(?:\|[0-9a-z]+)?\+([0-9a-z]+)`)
+	attributedTextNumPattern = regexp.MustCompile(`\*(\d+)`)
 )
 
 func isTableStart(lines []string, index int) bool {
 	return index+1 < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[index]), "|") && tableSeparatorPattern.MatchString(strings.TrimSpace(lines[index+1]))
 }
 
-func parseMarkdownTable(lines []string, index int) (string, [][]string, int) {
+func parseMarkdownTable(lines []string, index int) (string, [][]string, [][][]InlineRun, int) {
 	rows := []string{}
 	tableRows := [][]string{}
+	tableRowRuns := [][][]InlineRun{}
 	for index < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[index]), "|") {
 		line := strings.TrimSpace(lines[index])
 		if !isTableSeparator(line) {
-			cells := markdownTableCells(line)
+			cells, cellRuns := markdownTableCellsWithRuns(line)
 			if len(cells) > 0 {
 				rows = append(rows, strings.Join(cells, " | "))
 				tableRows = append(tableRows, cells)
+				tableRowRuns = append(tableRowRuns, cellRuns)
 			}
 		}
 		index++
 	}
-	return strings.Join(rows, "\n"), tableRows, index
+	return strings.Join(rows, "\n"), tableRows, tableRowRuns, index
 }
 
 func isTableSeparator(line string) bool {
@@ -337,20 +352,100 @@ func isTableSeparator(line string) bool {
 }
 
 func markdownTableCells(line string) []string {
+	cells, _ := markdownTableCellsWithRuns(line)
+	return cells
+}
+
+func markdownTableCellsWithRuns(line string) ([]string, [][]InlineRun) {
 	line = strings.TrimSpace(line)
 	line = strings.TrimPrefix(line, "|")
 	line = strings.TrimSuffix(line, "|")
 	rawCells := strings.Split(line, "|")
 	cells := make([]string, 0, len(rawCells))
+	cellRuns := make([][]InlineRun, 0, len(rawCells))
 	for _, cell := range rawCells {
-		text := cleanInline(strings.TrimSpace(cell))
-		cells = append(cells, text)
+		inline := parseInline(strings.TrimSpace(cell))
+		cells = append(cells, inline.Text)
+		cellRuns = append(cellRuns, inline.Runs)
 	}
-	return cells
+	return cells, cellRuns
 }
 
 func cleanInline(text string) string {
-	return strings.TrimSpace(inlineCodePattern.ReplaceAllString(text, "$1"))
+	return parseInline(text).Text
+}
+
+func parseInline(text string) inlineText {
+	runs := parseInlineRuns(strings.TrimSpace(text))
+	return inlineFromRuns(runs)
+}
+
+func parseInlineRuns(text string) []InlineRun {
+	runs := []InlineRun{}
+	for index := 0; index < len(text); {
+		if text[index] == '`' {
+			if end := strings.IndexByte(text[index+1:], '`'); end >= 0 {
+				appendInlineRun(&runs, InlineRun{Text: text[index+1 : index+1+end]})
+				index += end + 2
+				continue
+			}
+		}
+		if strings.HasPrefix(text[index:], "**") {
+			if end := strings.Index(text[index+2:], "**"); end > 0 {
+				appendInlineRun(&runs, InlineRun{Text: text[index+2 : index+2+end], Bold: true})
+				index += end + 4
+				continue
+			}
+		}
+		next := len(text)
+		if end := strings.IndexByte(text[index:], '`'); end >= 0 && index+end < next {
+			next = index + end
+		}
+		if end := strings.Index(text[index:], "**"); end >= 0 && index+end < next {
+			next = index + end
+		}
+		if next == index {
+			if strings.HasPrefix(text[index:], "**") {
+				appendInlineRun(&runs, InlineRun{Text: "**"})
+				index += 2
+				continue
+			}
+			appendInlineRun(&runs, InlineRun{Text: text[index : index+1]})
+			index++
+			continue
+		}
+		appendInlineRun(&runs, InlineRun{Text: text[index:next]})
+		index = next
+	}
+	return runs
+}
+
+func inlineFromRuns(runs []InlineRun) inlineText {
+	text := ""
+	cleaned := make([]InlineRun, 0, len(runs))
+	for _, run := range runs {
+		if run.Text == "" {
+			continue
+		}
+		text += run.Text
+		appendInlineRun(&cleaned, run)
+	}
+	if text == "" {
+		return inlineText{}
+	}
+	return inlineText{Text: text, Runs: cleaned}
+}
+
+func appendInlineRun(runs *[]InlineRun, run InlineRun) {
+	if run.Text == "" {
+		return
+	}
+	last := len(*runs) - 1
+	if last >= 0 && (*runs)[last].Bold == run.Bold {
+		(*runs)[last].Text += run.Text
+		return
+	}
+	*runs = append(*runs, run)
 }
 
 func summarizeSpecs(specs []Spec) map[string]int {
@@ -367,6 +462,8 @@ func withTableFallbackMetadata(payload map[string]any, specs []Spec) map[string]
 	payload["tableFallbackCount"] = 0
 	payload["tableBlockType"] = "table"
 	payload["tableCount"] = countSpecsByKind(specs, "table")
+	payload["quoteCount"] = countSpecsByKind(specs, "quote")
+	payload["boldTextRunCount"] = countBoldTextRuns(specs)
 	payload["mermaidImageCount"] = mermaidImageCount
 	payload["plannedImageCount"] = countSpecsByKind(specs, "image")
 	payload["mermaidRenderer"] = mermaidRendererName
@@ -399,6 +496,29 @@ func countSpecsBySourceKind(specs []Spec, kind string, sourceKind string) int {
 	count := 0
 	for _, spec := range specs {
 		if spec.Kind == kind && spec.SourceKind == sourceKind {
+			count++
+		}
+	}
+	return count
+}
+
+func countBoldTextRuns(specs []Spec) int {
+	count := 0
+	for _, spec := range specs {
+		count += countBoldRuns(spec.Runs)
+		for _, row := range spec.RowRuns {
+			for _, cell := range row {
+				count += countBoldRuns(cell)
+			}
+		}
+	}
+	return count
+}
+
+func countBoldRuns(runs []InlineRun) int {
+	count := 0
+	for _, run := range runs {
+		if run.Bold && run.Text != "" {
 			count++
 		}
 	}
@@ -621,6 +741,204 @@ func (session *publishSession) verify(pageID string, referer string, requiredTex
 	return last, nil
 }
 
+func (session *publishSession) verifyMarkdownOutput(pageID string, referer string, requiredText []string, specs []Spec) (map[string]any, error) {
+	expectedImageCount := countSpecsByKind(specs, "image")
+	expectedQuoteCount := countSpecsByKind(specs, "quote")
+	expectedBoldTextRunCount := countBoldTextRuns(specs)
+	last := map[string]any{
+		"ok":                         false,
+		"counts":                     map[string]int{},
+		"textChars":                  0,
+		"expectedImageCount":         expectedImageCount,
+		"imageCount":                 0,
+		"missingImageCount":          expectedImageCount,
+		"expectedQuoteCount":         expectedQuoteCount,
+		"quoteContainerCount":        0,
+		"missingQuoteContainerCount": expectedQuoteCount,
+		"expectedBoldTextRunCount":   expectedBoldTextRunCount,
+		"boldTextRunCount":           0,
+		"missingBoldTextRunCount":    expectedBoldTextRunCount,
+	}
+	for attempt := 0; attempt < 8; attempt++ {
+		if attempt > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+		payload, err := session.clientVars(pageID, referer)
+		if err != nil {
+			return nil, err
+		}
+		counts := map[string]int{}
+		textValues := []string{}
+		codeTexts := []string{}
+		emptyCalloutCount := 0
+		boldTextRunCount := 0
+		blockMap := asMap(payload["block_map"])
+		for blockID, raw := range blockMap {
+			data := dataForBlock(raw)
+			blockType := asString(data["type"])
+			if blockType != "" {
+				counts[blockType]++
+			}
+			if blockType == "callout" && strings.TrimSpace(blockSubtreeText(blockMap, blockID, map[string]bool{})) == "" {
+				emptyCalloutCount++
+			}
+			if textObject := asMap(data["text"]); len(textObject) > 0 {
+				boldTextRunCount += countBoldRunsInTextObject(textObject)
+			}
+			text := textFromBlockData(data)
+			if text == "" {
+				continue
+			}
+			textValues = append(textValues, text)
+			if blockType == "code" {
+				codeTexts = append(codeTexts, text)
+			}
+		}
+		allText := strings.Join(textValues, "\n")
+		missingRequiredText := []string{}
+		for _, required := range requiredText {
+			if !strings.Contains(allText, required) {
+				missingRequiredText = append(missingRequiredText, required)
+			}
+		}
+		codeTextOK := true
+		if len(codeTexts) > 0 {
+			codeTextOK = false
+			for _, code := range codeTexts {
+				if strings.Contains(code, "\n") {
+					codeTextOK = true
+					break
+				}
+			}
+		}
+		imageCount := counts["image"]
+		missingImageCount := positiveDifference(expectedImageCount, imageCount)
+		quoteContainerCount := counts["quote_container"]
+		missingQuoteContainerCount := positiveDifference(expectedQuoteCount, quoteContainerCount)
+		missingBoldTextRunCount := positiveDifference(expectedBoldTextRunCount, boldTextRunCount)
+		ok := len(missingRequiredText) == 0 &&
+			emptyCalloutCount == 0 &&
+			codeTextOK &&
+			missingImageCount == 0 &&
+			missingQuoteContainerCount == 0 &&
+			missingBoldTextRunCount == 0
+		last = map[string]any{
+			"ok":                         ok,
+			"counts":                     counts,
+			"textChars":                  len(allText),
+			"missingRequiredText":        missingRequiredText,
+			"emptyCalloutCount":          emptyCalloutCount,
+			"expectedImageCount":         expectedImageCount,
+			"imageCount":                 imageCount,
+			"missingImageCount":          missingImageCount,
+			"expectedQuoteCount":         expectedQuoteCount,
+			"quoteContainerCount":        quoteContainerCount,
+			"missingQuoteContainerCount": missingQuoteContainerCount,
+			"expectedBoldTextRunCount":   expectedBoldTextRunCount,
+			"boldTextRunCount":           boldTextRunCount,
+			"missingBoldTextRunCount":    missingBoldTextRunCount,
+		}
+		if ok {
+			return last, nil
+		}
+	}
+	return last, nil
+}
+
+func positiveDifference(expected int, actual int) int {
+	if actual >= expected {
+		return 0
+	}
+	return expected - actual
+}
+
+func countBoldRunsInTextObject(textObject map[string]any) int {
+	boldNums := boldAttributeNums(textObject["apool"])
+	if len(boldNums) == 0 {
+		return 0
+	}
+	initial := asMap(textObject["initialAttributedTexts"])
+	attribs := asMap(initial["attribs"])
+	count := 0
+	for _, rawAttrib := range attribs {
+		count += countBoldOps(asString(rawAttrib), boldNums)
+	}
+	return count
+}
+
+func boldAttributeNums(apool any) map[string]bool {
+	nums := map[string]bool{}
+	numToAttrib := asMap(asMap(apool)["numToAttrib"])
+	for num, rawAttrib := range numToAttrib {
+		if containsTruthyTextAttribute(rawAttrib, "bold") {
+			nums[num] = true
+		}
+	}
+	return nums
+}
+
+func containsTruthyTextAttribute(value any, key string) bool {
+	switch typed := value.(type) {
+	case []any:
+		if len(typed) >= 2 && asString(typed[0]) == key {
+			return truthyTextAttributeValue(typed[1])
+		}
+		for _, item := range typed {
+			if containsTruthyTextAttribute(item, key) {
+				return true
+			}
+		}
+	case map[string]any:
+		if raw, ok := typed[key]; ok {
+			return truthyTextAttributeValue(raw)
+		}
+		for _, item := range typed {
+			if containsTruthyTextAttribute(item, key) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func truthyTextAttributeValue(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return typed != "" && typed != "false" && typed != "0"
+	case int:
+		return typed != 0
+	case int64:
+		return typed != 0
+	case float64:
+		return typed != 0
+	default:
+		return value != nil
+	}
+}
+
+func countBoldOps(attrText string, boldNums map[string]bool) int {
+	matches := attributedTextOpPattern.FindAllStringSubmatch(attrText, -1)
+	count := 0
+	for _, match := range matches {
+		if len(match) != 3 {
+			continue
+		}
+		length, err := strconv.ParseInt(match[2], 36, 64)
+		if err != nil || length <= 0 {
+			continue
+		}
+		for _, attrMatch := range attributedTextNumPattern.FindAllStringSubmatch(match[1], -1) {
+			if len(attrMatch) == 2 && boldNums[attrMatch[1]] {
+				count++
+				break
+			}
+		}
+	}
+	return count
+}
+
 func (session *publishSession) addCommonHeaders(request *http.Request, referer string) {
 	request.Header.Set("User-Agent", "ixf-toolbox-go")
 	request.Header.Set("Origin", session.baseURL)
@@ -671,19 +989,34 @@ func (factory *blockFactory) blockID() string {
 }
 
 func (factory *blockFactory) textObject(text string) map[string]any {
+	return factory.textObjectWithRuns(text, nil)
+}
+
+func (factory *blockFactory) textObjectWithRuns(text string, runs []InlineRun) map[string]any {
+	runs = normalizeInlineRuns(text, runs)
+	numToAttrib := map[string]any{"0": []any{"author", factory.author}}
+	nextNum := 1
+	if inlineRunsContainBold(runs) {
+		numToAttrib["1"] = []any{"bold", true}
+		nextNum = 2
+	}
 	return map[string]any{
 		"initialAttributedTexts": map[string]any{
 			"text":    map[string]any{"0": text},
-			"attribs": map[string]any{"0": attribFor(text)},
+			"attribs": map[string]any{"0": attribForRuns(runs)},
 		},
 		"apool": map[string]any{
-			"numToAttrib": map[string]any{"0": []any{"author", factory.author}},
-			"nextNum":     1,
+			"numToAttrib": numToAttrib,
+			"nextNum":     nextNum,
 		},
 	}
 }
 
 func (factory *blockFactory) baseBlock(blockType string, parentID string, text string) map[string]any {
+	return factory.baseBlockWithRuns(blockType, parentID, text, nil)
+}
+
+func (factory *blockFactory) baseBlockWithRuns(blockType string, parentID string, text string, runs []InlineRun) map[string]any {
 	data := map[string]any{
 		"type":      blockType,
 		"parent_id": parentID,
@@ -696,7 +1029,7 @@ func (factory *blockFactory) baseBlock(blockType string, parentID string, text s
 		"align":     "",
 	}
 	if strings.HasPrefix(blockType, "heading") || blockType == "text" || blockType == "bullet" || blockType == "ordered" || blockType == "code" {
-		data["text"] = factory.textObject(text)
+		data["text"] = factory.textObjectWithRuns(text, runs)
 		data["folded"] = false
 	}
 	if blockType == "code" {
@@ -716,6 +1049,10 @@ func (factory *blockFactory) baseBlock(blockType string, parentID string, text s
 }
 
 func (factory *blockFactory) quoteBlocks(parentID string, text string) ([]blockEntry, string) {
+	return factory.quoteBlocksWithRuns(parentID, text, nil)
+}
+
+func (factory *blockFactory) quoteBlocksWithRuns(parentID string, text string, runs []InlineRun) ([]blockEntry, string) {
 	quoteID := factory.blockID()
 	childID := factory.blockID()
 	quote := map[string]any{
@@ -730,11 +1067,15 @@ func (factory *blockFactory) quoteBlocks(parentID string, text string) ([]blockE
 	}
 	return []blockEntry{
 		{ID: quoteID, Data: quote},
-		{ID: childID, Data: factory.baseBlock("text", quoteID, text)},
+		{ID: childID, Data: factory.baseBlockWithRuns("text", quoteID, text, runs)},
 	}, quoteID
 }
 
 func (factory *blockFactory) calloutBlocks(parentID string, text string) ([]blockEntry, string) {
+	return factory.calloutBlocksWithRuns(parentID, text, nil)
+}
+
+func (factory *blockFactory) calloutBlocksWithRuns(parentID string, text string, runs []InlineRun) ([]blockEntry, string) {
 	calloutID := factory.blockID()
 	childID := factory.blockID()
 	callout := map[string]any{
@@ -755,12 +1096,13 @@ func (factory *blockFactory) calloutBlocks(parentID string, text string) ([]bloc
 	}
 	return []blockEntry{
 		{ID: calloutID, Data: callout},
-		{ID: childID, Data: factory.baseBlock("text", calloutID, text)},
+		{ID: childID, Data: factory.baseBlockWithRuns("text", calloutID, text, runs)},
 	}, calloutID
 }
 
-func (factory *blockFactory) tableBlocks(parentID string, rows [][]string) ([]blockEntry, string) {
+func (factory *blockFactory) tableBlocks(parentID string, rows [][]string, rowRuns [][][]InlineRun) ([]blockEntry, string) {
 	rows = normalizeTableRows(rows)
+	rowRuns = normalizeTableRowRuns(rows, rowRuns)
 	if len(rows) == 0 || len(rows[0]) == 0 {
 		return factory.calloutBlocks(parentID, "")
 	}
@@ -809,7 +1151,7 @@ func (factory *blockFactory) tableBlocks(parentID string, rows [][]string) ([]bl
 			}
 			entries = append(entries,
 				blockEntry{ID: cellID, Data: factory.tableCellBlock(tableID, textID)},
-				blockEntry{ID: textID, Data: factory.baseBlock("text", cellID, rows[rowIndex][columnIndex])},
+				blockEntry{ID: textID, Data: factory.baseBlockWithRuns("text", cellID, rows[rowIndex][columnIndex], rowRuns[rowIndex][columnIndex])},
 			)
 		}
 	}
@@ -862,6 +1204,21 @@ func normalizeTableRows(rows [][]string) [][]string {
 	return normalized
 }
 
+func normalizeTableRowRuns(rows [][]string, rowRuns [][][]InlineRun) [][][]InlineRun {
+	normalized := make([][][]InlineRun, len(rows))
+	for rowIndex, row := range rows {
+		normalized[rowIndex] = make([][]InlineRun, len(row))
+		for columnIndex, text := range row {
+			if rowIndex < len(rowRuns) && columnIndex < len(rowRuns[rowIndex]) {
+				normalized[rowIndex][columnIndex] = normalizeInlineRuns(text, rowRuns[rowIndex][columnIndex])
+				continue
+			}
+			normalized[rowIndex][columnIndex] = []InlineRun{{Text: text}}
+		}
+	}
+	return normalized
+}
+
 func buildBlocks(specs []Spec, pageID string, factory *blockFactory) ([]string, []blockEntry) {
 	topIDs := []string{}
 	entries := []blockEntry{}
@@ -869,15 +1226,15 @@ func buildBlocks(specs []Spec, pageID string, factory *blockFactory) ([]string, 
 	for _, spec := range specs {
 		switch spec.Kind {
 		case "quote":
-			newEntries, topID := factory.quoteBlocks(pageID, spec.Text)
+			newEntries, topID := factory.quoteBlocksWithRuns(pageID, spec.Text, spec.Runs)
 			topIDs = append(topIDs, topID)
 			entries = append(entries, newEntries...)
 		case "callout":
-			newEntries, topID := factory.calloutBlocks(pageID, spec.Text)
+			newEntries, topID := factory.calloutBlocksWithRuns(pageID, spec.Text, spec.Runs)
 			topIDs = append(topIDs, topID)
 			entries = append(entries, newEntries...)
 		case "table":
-			newEntries, topID := factory.tableBlocks(pageID, spec.Rows)
+			newEntries, topID := factory.tableBlocks(pageID, spec.Rows, spec.RowRuns)
 			topIDs = append(topIDs, topID)
 			entries = append(entries, newEntries...)
 		case "image":
@@ -896,7 +1253,7 @@ func buildBlocks(specs []Spec, pageID string, factory *blockFactory) ([]string, 
 		default:
 			blockID := factory.blockID()
 			topIDs = append(topIDs, blockID)
-			entries = append(entries, blockEntry{ID: blockID, Data: factory.baseBlock(spec.Kind, pageID, spec.Text)})
+			entries = append(entries, blockEntry{ID: blockID, Data: factory.baseBlockWithRuns(spec.Kind, pageID, spec.Text, spec.Runs)})
 		}
 	}
 	return topIDs, entries
@@ -1110,20 +1467,74 @@ func insertChildOpsAt(startIndex int, topIDs []string) []map[string]any {
 }
 
 func attribFor(text string) string {
+	return attribForTextAttrs(text, "*0")
+}
+
+func attribForRuns(runs []InlineRun) string {
+	if len(runs) == 0 {
+		return attribFor("")
+	}
+	builder := strings.Builder{}
+	for _, run := range runs {
+		attrs := "*0"
+		if run.Bold {
+			attrs += "*1"
+		}
+		builder.WriteString(attribForTextAttrs(run.Text, attrs))
+	}
+	return builder.String()
+}
+
+func attribForTextAttrs(text string, attrs string) string {
 	if text == "" {
-		return "*0+0"
+		return attrs + "+0"
 	}
 	parts := strings.Split(text, "\n")
 	if len(parts) == 1 {
-		return "*0+" + strconv.FormatInt(int64(utf16CodeUnitLen(text)), 36)
+		return attrs + "+" + strconv.FormatInt(int64(utf16CodeUnitLen(text)), 36)
 	}
 	prefixLen := 0
 	for _, part := range parts[:len(parts)-1] {
 		prefixLen += utf16CodeUnitLen(part) + 1
 	}
-	return "*0|" + strconv.FormatInt(int64(len(parts)-1), 36) + "+" +
-		strconv.FormatInt(int64(prefixLen), 36) + "*0+" +
+	return attrs + "|" + strconv.FormatInt(int64(len(parts)-1), 36) + "+" +
+		strconv.FormatInt(int64(prefixLen), 36) + attrs + "+" +
 		strconv.FormatInt(int64(utf16CodeUnitLen(parts[len(parts)-1])), 36)
+}
+
+func normalizeInlineRuns(text string, runs []InlineRun) []InlineRun {
+	normalized := []InlineRun{}
+	for _, run := range runs {
+		appendInlineRun(&normalized, run)
+	}
+	joined := inlineRunsText(normalized)
+	if joined != text {
+		if text == "" {
+			return []InlineRun{{Text: ""}}
+		}
+		return []InlineRun{{Text: text}}
+	}
+	if len(normalized) == 0 {
+		return []InlineRun{{Text: text}}
+	}
+	return normalized
+}
+
+func inlineRunsText(runs []InlineRun) string {
+	text := ""
+	for _, run := range runs {
+		text += run.Text
+	}
+	return text
+}
+
+func inlineRunsContainBold(runs []InlineRun) bool {
+	for _, run := range runs {
+		if run.Bold {
+			return true
+		}
+	}
+	return false
 }
 
 func utf16CodeUnitLen(text string) int {

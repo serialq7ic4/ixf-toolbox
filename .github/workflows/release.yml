@@ -45,7 +45,7 @@ jobs:
               artifact="${artifact}.exe"
             fi
             GOOS="${goos}" GOARCH="${goarch}" CGO_ENABLED=0 \
-              go build -trimpath -ldflags "-s -w -X main.version=${RELEASE_VERSION}" \
+              go build -trimpath -ldflags "-s -w" \
               -o "dist/${artifact}" ./cmd/ixf
           done
           (cd dist && sha256sum ixf_${RELEASE_VERSION}_* > "ixf_${RELEASE_VERSION}_checksums.txt")

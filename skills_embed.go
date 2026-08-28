@@ -13,6 +13,5 @@ var SkillFS embed.FS
 //go:embed VERSION
 var rawVersion string
 
-// DefaultVersion is the source-tree CLI version used when release builds do not
-// override main.version through ldflags.
+// DefaultVersion is the CLI version embedded from the repository VERSION file.
 var DefaultVersion = strings.TrimSpace(rawVersion)

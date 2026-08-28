@@ -475,15 +475,162 @@ func renderTextPieces(pieces map[string]any, attribs any, apool any) string {
 		return pieceSortKey(keys[i]) < pieceSortKey(keys[j])
 	})
 	parts := make([]string, 0, len(keys))
+	attribMap := asMap(attribs)
 	for _, key := range keys {
 		text := stringValue(pieces[key])
-		url := pieceURL(attribs, apool, key)
-		if text != "" && url != "" {
-			text = "[" + escapeMarkdownLinkText(text) + "](" + url + ")"
-		}
-		parts = append(parts, text)
+		parts = append(parts, renderAttributedPiece(text, stringValue(attribMap[key]), apool))
 	}
 	return strings.Join(parts, "")
+}
+
+type attributedOp struct {
+	attributes []string
+	length     int
+}
+
+type textAttributes struct {
+	bold bool
+	url  string
+}
+
+var attributedOpPattern = regexp.MustCompile(`((?:\*\d+)*)(?:\|[0-9a-z]+)?\+([0-9a-z]+)`)
+
+func renderAttributedPiece(text string, attrText string, apool any) string {
+	ops := parseAttributedOps(attrText)
+	if len(ops) == 0 {
+		return text
+	}
+	remaining := text
+	parts := []string{}
+	for _, op := range ops {
+		segment, rest := consumeUTF16Units(remaining, op.length)
+		remaining = rest
+		parts = append(parts, renderMarkdownStyledSegment(segment, attributesForNums(op.attributes, apool)))
+	}
+	if remaining != "" {
+		parts = append(parts, remaining)
+	}
+	return strings.Join(parts, "")
+}
+
+func parseAttributedOps(attrText string) []attributedOp {
+	matches := attributedOpPattern.FindAllStringSubmatch(attrText, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	ops := make([]attributedOp, 0, len(matches))
+	for _, match := range matches {
+		if len(match) != 3 {
+			continue
+		}
+		length, err := strconv.ParseInt(match[2], 36, 64)
+		if err != nil {
+			continue
+		}
+		ops = append(ops, attributedOp{attributes: attributedNums(match[1]), length: int(length)})
+	}
+	return ops
+}
+
+func attributedNums(prefix string) []string {
+	matches := regexp.MustCompile(`\*(\d+)`).FindAllStringSubmatch(prefix, -1)
+	nums := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) == 2 {
+			nums = append(nums, match[1])
+		}
+	}
+	return nums
+}
+
+func consumeUTF16Units(text string, units int) (string, string) {
+	if units <= 0 || text == "" {
+		return "", text
+	}
+	consumed := 0
+	for byteIndex, r := range text {
+		width := 1
+		if r > 0xFFFF {
+			width = 2
+		}
+		if consumed+width > units {
+			return text[:byteIndex], text[byteIndex:]
+		}
+		consumed += width
+		if consumed == units {
+			end := byteIndex + len(string(r))
+			return text[:end], text[end:]
+		}
+	}
+	return text, ""
+}
+
+func attributesForNums(nums []string, apool any) textAttributes {
+	numToAttrib := asMap(asMap(apool)["numToAttrib"])
+	attributes := textAttributes{}
+	for _, num := range nums {
+		collectTextAttributes(numToAttrib[num], &attributes)
+	}
+	return attributes
+}
+
+func collectTextAttributes(value any, attributes *textAttributes) {
+	switch typed := value.(type) {
+	case []any:
+		if len(typed) >= 2 {
+			if key := stringValue(typed[0]); key != "" {
+				applyTextAttribute(key, typed[1], attributes)
+				return
+			}
+		}
+		for _, item := range typed {
+			collectTextAttributes(item, attributes)
+		}
+	case map[string]any:
+		for key, value := range typed {
+			applyTextAttribute(key, value, attributes)
+		}
+	}
+}
+
+func applyTextAttribute(key string, value any, attributes *textAttributes) {
+	switch key {
+	case "bold":
+		attributes.bold = truthyAttributeValue(value)
+	case "url", "href", "link":
+		if url := stringValue(value); url != "" {
+			attributes.url = url
+		}
+	}
+}
+
+func truthyAttributeValue(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return typed != "" && typed != "false" && typed != "0"
+	case float64:
+		return typed != 0
+	case int:
+		return typed != 0
+	default:
+		return value != nil
+	}
+}
+
+func renderMarkdownStyledSegment(segment string, attributes textAttributes) string {
+	if segment == "" {
+		return ""
+	}
+	rendered := segment
+	if attributes.url != "" {
+		rendered = "[" + escapeMarkdownLinkText(rendered) + "](" + attributes.url + ")"
+	}
+	if attributes.bold {
+		rendered = "**" + rendered + "**"
+	}
+	return rendered
 }
 
 func pieceURL(attribs any, apool any, pieceKey string) string {

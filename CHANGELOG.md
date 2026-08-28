@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 3.26.3 - 2026-08-28
+
+- Fixed Markdown blockquotes so published, updated, and patched docx content creates native quote containers instead of literal `>` text.
+- Fixed Markdown bold runs so `**...**` publishes as rich-text bold and docx reads render bold back to Markdown for verification.
+- Added dry-run and apply verification metadata for expected quote containers and bold text runs.
+- Removed misleading release-build version ldflags usage; release binaries now rely on the repository `VERSION` file as the single version source.
+
 ## 3.26.2 - 2026-08-21
 
 - Tightened agent routing guidance so ordinary local Markdown inspection, summary, review, and edits use the host filesystem instead of defaulting through `ixf-docs-reader`.

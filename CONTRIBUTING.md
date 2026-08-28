@@ -24,7 +24,7 @@
 ```bash
 go test ./...
 go vet ./...
-CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(cat VERSION)" -o /tmp/ixf-go ./cmd/ixf
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /tmp/ixf-go ./cmd/ixf
 scripts/smoke-go-binary.sh /tmp/ixf-go "$(cat VERSION)"
 ```
 

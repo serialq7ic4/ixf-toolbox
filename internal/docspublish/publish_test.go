@@ -157,6 +157,94 @@ func TestMarkdownTablesBuildNativeTableBlocks(t *testing.T) {
 	}
 }
 
+func TestParseMarkdownConvertsStandardBlockquotesToQuoteSpecs(t *testing.T) {
+	_, specs, err := ParseMarkdown("# Title\n\n> 事件日期：2026-08-27\n> 影响：约 11% 的对象读请求出现 1~3 秒延迟\n\nBody.\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(specs) != 2 {
+		t.Fatalf("spec count = %d, want 2: %#v", len(specs), specs)
+	}
+	if specs[0].Kind != "quote" {
+		t.Fatalf("spec[0].Kind = %q, want quote: %#v", specs[0].Kind, specs[0])
+	}
+	if specs[0].Text != "事件日期：2026-08-27\n影响：约 11% 的对象读请求出现 1~3 秒延迟" {
+		t.Fatalf("quote text = %q", specs[0].Text)
+	}
+
+	topIDs, entries := buildBlocks(specs[:1], "doxrzPage", newBlockFactory("author_fixture"))
+	if len(topIDs) != 1 || len(entries) != 2 {
+		t.Fatalf("quote blocks top=%#v entries=%#v, want container and child", topIDs, entries)
+	}
+	if entries[0].Data["type"] != "quote_container" {
+		t.Fatalf("top quote entry = %#v", entries[0].Data)
+	}
+	childText := textFromBlockData(entries[1].Data)
+	if childText != specs[0].Text {
+		t.Fatalf("quote child text = %q, want %q", childText, specs[0].Text)
+	}
+}
+
+func TestBuildBlocksCreatesBoldAttributedText(t *testing.T) {
+	_, specs, err := ParseMarkdown("# Title\n\n表象是 Swift proxy，且**只影响重启过的那一台 memcache 节点**。\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(specs) != 1 || specs[0].Kind != "text" {
+		t.Fatalf("specs = %#v", specs)
+	}
+	if strings.Contains(specs[0].Text, "**") {
+		t.Fatalf("parsed text kept markdown bold markers: %#v", specs[0])
+	}
+	if specs[0].Text != "表象是 Swift proxy，且只影响重启过的那一台 memcache 节点。" {
+		t.Fatalf("spec text = %q", specs[0].Text)
+	}
+
+	_, entries := buildBlocks(specs, "doxrzPage", newBlockFactory("author_fixture"))
+	if len(entries) != 1 {
+		t.Fatalf("entries = %#v, want one text entry", entries)
+	}
+	textObject := asMap(entries[0].Data["text"])
+	if !textObjectHasAttribute(textObject, "bold", true) {
+		raw, _ := json.Marshal(textObject)
+		t.Fatalf("text object missing bold attribute: %s", raw)
+	}
+	initial := asMap(textObject["initialAttributedTexts"])
+	if asMap(initial["text"])["0"] != specs[0].Text {
+		t.Fatalf("initial text = %#v, want %q", asMap(initial["text"])["0"], specs[0].Text)
+	}
+	attrib := asString(asMap(initial["attribs"])["0"])
+	if !strings.Contains(attrib, "*0") || !strings.Contains(attrib, "*1") {
+		t.Fatalf("attrib string = %q, want author and bold attribute references", attrib)
+	}
+	raw, _ := json.Marshal(entries)
+	if strings.Contains(string(raw), "**") {
+		t.Fatalf("generated block still contains markdown bold markers: %s", raw)
+	}
+}
+
+func TestPublishMarkdownDryRunReportsQuoteAndBoldMetadata(t *testing.T) {
+	tmpDir := t.TempDir()
+	markdownPath := filepath.Join(tmpDir, "rich.md")
+	if err := os.WriteFile(markdownPath, []byte("# Title\n\n> Quote with **bold quote**.\n\nBody with **bold body**.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	payload, err := PublishMarkdown(Config{
+		MarkdownPath: markdownPath,
+		BaseURL:      "https://tenant.example.test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload["quoteCount"] != 1 {
+		t.Fatalf("quoteCount = %#v, want 1; payload=%+v", payload["quoteCount"], payload)
+	}
+	if payload["boldTextRunCount"] != 2 {
+		t.Fatalf("boldTextRunCount = %#v, want 2; payload=%+v", payload["boldTextRunCount"], payload)
+	}
+}
+
 func TestPublishMarkdownDryRunReportsMermaidImageMetadata(t *testing.T) {
 	tmpDir := t.TempDir()
 	markdownPath := filepath.Join(tmpDir, "mermaid.md")
@@ -800,6 +888,125 @@ func TestVerifyFailsWhenExpectedImageBlocksAreMissing(t *testing.T) {
 	}
 }
 
+func TestVerifyMarkdownOutputFailsWhenExpectedQuoteContainersAreMissing(t *testing.T) {
+	session, closeServer := newVerifyFixtureSession(t, map[string]any{
+		"doxrzPage": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":     "page",
+				"children": []any{"body"},
+			},
+		},
+		"body": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":      "text",
+				"parent_id": "doxrzPage",
+				"text":      attributedCLIText("required text"),
+			},
+		},
+	})
+	defer closeServer()
+
+	verify, err := session.verifyMarkdownOutput("doxrzPage", session.spaceAPI+"/docx/doxrzPage", []string{"required text"}, []Spec{
+		{Kind: "quote", Text: "required text"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify["ok"] != false {
+		t.Fatalf("verify ok = %#v, want false for missing quote container: %+v", verify["ok"], verify)
+	}
+	if verify["quoteContainerCount"] != 0 || verify["expectedQuoteCount"] != 1 || verify["missingQuoteContainerCount"] != 1 {
+		t.Fatalf("quote verification metadata = %+v", verify)
+	}
+}
+
+func TestVerifyMarkdownOutputFailsWhenExpectedBoldRunsAreMissing(t *testing.T) {
+	session, closeServer := newVerifyFixtureSession(t, map[string]any{
+		"doxrzPage": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":     "page",
+				"children": []any{"body"},
+			},
+		},
+		"body": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":      "text",
+				"parent_id": "doxrzPage",
+				"text":      attributedCLIText("required text"),
+			},
+		},
+	})
+	defer closeServer()
+
+	verify, err := session.verifyMarkdownOutput("doxrzPage", session.spaceAPI+"/docx/doxrzPage", []string{"required text"}, []Spec{
+		{Kind: "text", Text: "required text", Runs: []InlineRun{
+			{Text: "required "},
+			{Text: "text", Bold: true},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify["ok"] != false {
+		t.Fatalf("verify ok = %#v, want false for missing bold text run: %+v", verify["ok"], verify)
+	}
+	if verify["boldTextRunCount"] != 0 || verify["expectedBoldTextRunCount"] != 1 || verify["missingBoldTextRunCount"] != 1 {
+		t.Fatalf("bold verification metadata = %+v", verify)
+	}
+}
+
+func TestVerifyMarkdownOutputPassesWithExpectedQuoteAndBoldRuns(t *testing.T) {
+	session, closeServer := newVerifyFixtureSession(t, map[string]any{
+		"doxrzPage": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":     "page",
+				"children": []any{"quote"},
+			},
+		},
+		"quote": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":      "quote_container",
+				"parent_id": "doxrzPage",
+				"children":  []any{"body"},
+			},
+		},
+		"body": map[string]any{
+			"version": 1,
+			"data": map[string]any{
+				"type":      "text",
+				"parent_id": "quote",
+				"text":      attributedCLITextWithBold("required text", "*0+9*0*1+4"),
+			},
+		},
+	})
+	defer closeServer()
+
+	verify, err := session.verifyMarkdownOutput("doxrzPage", session.spaceAPI+"/docx/doxrzPage", []string{"required text"}, []Spec{
+		{Kind: "quote", Text: "required text", Runs: []InlineRun{
+			{Text: "required "},
+			{Text: "text", Bold: true},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verify["ok"] != true {
+		t.Fatalf("verify ok = %#v, want true: %+v", verify["ok"], verify)
+	}
+	if verify["quoteContainerCount"] != 1 || verify["missingQuoteContainerCount"] != 0 {
+		t.Fatalf("quote verification metadata = %+v", verify)
+	}
+	if verify["boldTextRunCount"] != 1 || verify["missingBoldTextRunCount"] != 0 {
+		t.Fatalf("bold verification metadata = %+v", verify)
+	}
+}
+
 func TestVerifyFailsWhenCalloutIsEmpty(t *testing.T) {
 	session, closeServer := newVerifyFixtureSession(t, map[string]any{
 		"doxrzPage": map[string]any{
@@ -1024,6 +1231,32 @@ func newVerifyFixtureSession(t *testing.T, blockMap map[string]any) (*publishSes
 
 func attributedCLIText(text string) map[string]any {
 	return map[string]any{"initialAttributedTexts": map[string]any{"text": map[string]any{"0": text}}}
+}
+
+func attributedCLITextWithBold(text string, attrib string) map[string]any {
+	return map[string]any{
+		"apool": map[string]any{
+			"numToAttrib": map[string]any{
+				"0": []any{"author", "author_fixture"},
+				"1": []any{"bold", true},
+			},
+		},
+		"initialAttributedTexts": map[string]any{
+			"attribs": map[string]any{"0": attrib},
+			"text":    map[string]any{"0": text},
+		},
+	}
+}
+
+func textObjectHasAttribute(textObject map[string]any, key string, want any) bool {
+	numToAttrib := asMap(asMap(textObject["apool"])["numToAttrib"])
+	for _, rawAttrib := range numToAttrib {
+		attrib := asSlice(rawAttrib)
+		if len(attrib) == 2 && attrib[0] == key && attrib[1] == want {
+			return true
+		}
+	}
+	return false
 }
 
 func assertHeader(t *testing.T, r *http.Request, name string, want string) {

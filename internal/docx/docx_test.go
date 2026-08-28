@@ -118,6 +118,41 @@ func TestConvertClientVarsRendersRichTextLinks(t *testing.T) {
 	assertStringSlice(t, result.Warnings, nil)
 }
 
+func TestConvertClientVarsRendersRichTextBold(t *testing.T) {
+	clientVars := map[string]any{
+		"block_map": map[string]any{
+			"page_1": blockData(map[string]any{
+				"type":     "page",
+				"children": []any{"text_1"},
+			}),
+			"text_1": blockData(map[string]any{
+				"type":      "text",
+				"parent_id": "page_1",
+				"text": map[string]any{
+					"apool": map[string]any{
+						"numToAttrib": map[string]any{
+							"0": []any{"author", "author_fixture"},
+							"1": []any{"bold", true},
+						},
+					},
+					"initialAttributedTexts": map[string]any{
+						"attribs": map[string]any{"0": "*0+h*0*1+m*0+1"},
+						"text":    map[string]any{"0": "表象是 Swift proxy，且只影响重启过的那一台 memcache 节点。"},
+					},
+				},
+			}),
+		},
+	}
+
+	result := ConvertClientVars(clientVars, "page_1")
+
+	if result.Markdown != "表象是 Swift proxy，且**只影响重启过的那一台 memcache 节点**。\n" {
+		t.Fatalf("markdown = %q", result.Markdown)
+	}
+	assertCounts(t, result.Counts, map[string]int{"page": 1, "text": 1})
+	assertStringSlice(t, result.Warnings, nil)
+}
+
 func TestConvertClientVarsRendersTodosTablesAndResourceMarkers(t *testing.T) {
 	clientVars := map[string]any{
 		"block_map": map[string]any{

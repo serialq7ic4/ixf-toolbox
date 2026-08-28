@@ -62,6 +62,26 @@ func TestWorkflowsUseGoToolchainOnly(t *testing.T) {
 	}
 }
 
+func TestVersionIsOwnedByVersionFileNotLdflags(t *testing.T) {
+	for _, relative := range []string{
+		".github/workflows/release.yml",
+		".github/PULL_REQUEST_TEMPLATE.md",
+		"CONTRIBUTING.md",
+		"README.md",
+		"README.en.md",
+	} {
+		text := readRepoFile(t, relative)
+		if strings.Contains(text, "-X main.version") {
+			t.Fatalf("%s still documents ldflags version injection", relative)
+		}
+	}
+
+	embedSource := readRepoFile(t, "skills_embed.go")
+	if strings.Contains(embedSource, "override main.version") {
+		t.Fatalf("skills_embed.go still describes release ldflags as the version source")
+	}
+}
+
 func TestReadmeDescribesNaturalAgentPromptsAndBackgroundRouting(t *testing.T) {
 	text := readRepoFile(t, "README.md")
 	for _, forbidden := range []string{

@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/url"
 	"os"
 	"os/exec"
@@ -39,29 +38,6 @@ var bitableInspect = ixfbitable.Inspect
 var bitableAttach = ixfbitable.Attach
 var bitableRecordCreate = ixfbitable.RecordCreate
 var docsTableAppendRow = docspublish.AppendTableRow
-
-var skillNames = []string{
-	"using-ixf-toolbox",
-	"ixf-docs-reader",
-	"ixf-docs-writer",
-	"ixf-okr-reader",
-	"ixf-okr-writer",
-	"ixf-messenger-reader",
-	"ixf-messenger-writer",
-}
-
-type runtimeTarget struct {
-	Key       string
-	SkillsDir string
-	SourceDir string
-}
-
-type skillResult struct {
-	Runtime string `json:"runtime"`
-	Skill   string `json:"skill"`
-	Path    string `json:"path"`
-	Reason  string `json:"reason,omitempty"`
-}
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -115,7 +91,7 @@ func printRootHelp(w io.Writer) {
 		{"okr", "Read or plan approved OKR changes."},
 		{"messenger", "Inspect and plan safe i讯飞 Messenger automation."},
 		{"doctor", "Inspect local Toolbox setup without printing secrets."},
-		{"setup", "Install agent skill wrappers or optional dependencies."},
+		{"setup", "Inspect or install optional dependencies."},
 		{"cookies", "Export local desktop session cookies."},
 		{"update", "Check, apply, or refresh Toolbox updates."},
 	}
@@ -170,11 +146,10 @@ func printUsageHelp(w io.Writer, usage string, options [][2]string) {
 
 func runSetup(args []string, stdout io.Writer, stderr io.Writer) int {
 	rows := [][2]string{
-		{"skills", "Install agent skill wrappers."},
 		{"deps", "Inspect or install optional local dependencies."},
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "ERROR setup requires subcommand: skills or deps")
+		fmt.Fprintln(stderr, "ERROR setup requires subcommand: deps")
 		printCommandHelp(stderr, "ixf setup", rows)
 		return 2
 	}
@@ -183,8 +158,6 @@ func runSetup(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 0
 	}
 	switch args[0] {
-	case "skills":
-		return runSetupSkills(args[1:], stdout, stderr)
 	case "deps":
 		return runSetupDeps(args[1:], stdout, stderr)
 	default:
@@ -192,39 +165,6 @@ func runSetup(args []string, stdout io.Writer, stderr io.Writer) int {
 		printCommandHelp(stderr, "ixf setup", rows)
 		return 2
 	}
-}
-
-func runSetupSkills(args []string, stdout io.Writer, stderr io.Writer) int {
-	flags := flag.NewFlagSet("ixf setup skills", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	runtimesRaw := flags.String("runtimes", "auto", "")
-	force := flags.Bool("force", false, "")
-	asJSON := flags.Bool("json", false, "")
-	if hasHelpArg(args) {
-		flags.SetOutput(stdout)
-		flags.Usage()
-		return 0
-	}
-	if err := flags.Parse(args); err != nil {
-		return 2
-	}
-
-	runtimes, err := normalizeRuntimes(strings.Split(*runtimesRaw, ","))
-	if err != nil {
-		fmt.Fprintf(stderr, "ERROR %s\n", err)
-		return 2
-	}
-	payload, err := installSkills(runtimes, *force)
-	if err != nil {
-		fmt.Fprintf(stderr, "ERROR %s\n", err)
-		return 1
-	}
-	if *asJSON {
-		writeJSON(stdout, payload)
-		return 0
-	}
-	fmt.Fprintf(stdout, "installed=%d skipped=%d\n", len(payload["installed"].([]skillResult)), len(payload["skipped"].([]skillResult)))
-	return 0
 }
 
 func runSetupDeps(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -2221,7 +2161,6 @@ func runUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 	rows := [][2]string{
 		{"check", "Check the latest ixf Toolbox release."},
 		{"self", "Download and optionally apply a CLI self-update."},
-		{"skills", "Refresh installed agent skill wrappers."},
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "ERROR update requires a subcommand")
@@ -2237,8 +2176,6 @@ func runUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runUpdateCheck(args[1:], stdout, stderr)
 	case "self":
 		return runUpdateSelf(args[1:], stdout, stderr)
-	case "skills":
-		return runUpdateSkills(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "ERROR unsupported update subcommand: %s\n", args[0])
 		return 2
@@ -2303,37 +2240,6 @@ func printUpdateSelfHelp(w io.Writer) {
 		{"--apply", "Replace the target binary; omitted means dry-run/check only."},
 		{"--json", "Print machine-readable JSON output."},
 	})
-}
-
-func runUpdateSkills(args []string, stdout io.Writer, stderr io.Writer) int {
-	flags := flag.NewFlagSet("ixf update skills", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	runtimesRaw := flags.String("runtimes", "auto", "")
-	asJSON := flags.Bool("json", false, "")
-	if hasHelpArg(args) {
-		flags.SetOutput(stdout)
-		flags.Usage()
-		return 0
-	}
-	if err := flags.Parse(args); err != nil {
-		return 2
-	}
-	runtimes, err := normalizeRuntimes(strings.Split(*runtimesRaw, ","))
-	if err != nil {
-		fmt.Fprintf(stderr, "ERROR %s\n", err)
-		return 2
-	}
-	payload, err := installSkills(runtimes, true)
-	if err != nil {
-		fmt.Fprintf(stderr, "ERROR %s\n", err)
-		return 1
-	}
-	if *asJSON {
-		writeJSON(stdout, payload)
-		return 0
-	}
-	fmt.Fprintf(stdout, "installed=%d skipped=%d\n", len(payload["installed"].([]skillResult)), len(payload["skipped"].([]skillResult)))
-	return 0
 }
 
 func parseUpdateArgs(args []string, allowApply bool) (string, string, bool, error) {
@@ -2426,106 +2332,13 @@ func goCommandUnavailable(stderr io.Writer, command string, hint string) int {
 	return 9
 }
 
-func installSkills(runtimes []string, force bool) (map[string]any, error) {
-	installed := []skillResult{}
-	skipped := []skillResult{}
-	targets := detectRuntimeTargets()
-	selected := map[string]bool{}
-	for _, runtime := range runtimes {
-		selected[runtime] = true
-	}
-
-	for _, target := range targets {
-		if !selected[target.Key] {
-			continue
-		}
-		for _, skillName := range skillNames {
-			source := filepath.ToSlash(filepath.Join(target.SourceDir, skillName, "SKILL.md"))
-			content, err := fs.ReadFile(ixftoolbox.SkillFS, source)
-			if err != nil {
-				return nil, err
-			}
-			destination := filepath.Join(target.SkillsDir, skillName)
-			skillPath := filepath.Join(destination, "SKILL.md")
-			if pathExists(destination) && !force {
-				skipped = append(skipped, skillResult{Runtime: target.Key, Skill: skillName, Path: destination, Reason: "exists"})
-				continue
-			}
-			if force {
-				if err := os.RemoveAll(destination); err != nil {
-					return nil, err
-				}
-			}
-			if err := os.MkdirAll(destination, 0o755); err != nil {
-				return nil, err
-			}
-			if err := os.WriteFile(skillPath, content, 0o644); err != nil {
-				return nil, err
-			}
-			installed = append(installed, skillResult{Runtime: target.Key, Skill: skillName, Path: destination})
-		}
-	}
-	return map[string]any{"ok": true, "installed": installed, "skipped": skipped}, nil
-}
-
-func detectRuntimeTargets() []runtimeTarget {
-	home := homeDir()
-	codexDir := getenvDefault("IXF_TOOLBOX_CODEX_SKILLS_DIR", filepath.Join(home, ".codex", "skills"))
-	claudeDir := getenvDefault("IXF_TOOLBOX_CLAUDE_CODE_SKILLS_DIR", filepath.Join(home, ".claude", "skills"))
-	return []runtimeTarget{
-		{Key: "codex", SkillsDir: codexDir, SourceDir: filepath.FromSlash("skills/codex")},
-		{Key: "claude-code", SkillsDir: claudeDir, SourceDir: filepath.FromSlash("skills/claude-code")},
-	}
-}
-
-func normalizeRuntimes(raw []string) ([]string, error) {
-	values := []string{}
-	for _, value := range raw {
-		value = strings.ToLower(strings.TrimSpace(value))
-		if value != "" {
-			values = append(values, value)
-		}
-	}
-	if len(values) == 0 || contains(values, "auto") || contains(values, "all") {
-		return []string{"codex", "claude-code"}, nil
-	}
-	if contains(values, "none") {
-		return []string{}, nil
-	}
-	result := []string{}
-	seen := map[string]bool{}
-	for _, value := range values {
-		normalized := value
-		if value == "claude" || value == "claude_code" {
-			normalized = "claude-code"
-		}
-		if normalized != "codex" && normalized != "claude-code" {
-			return nil, fmt.Errorf("unsupported runtime: %s", value)
-		}
-		if !seen[normalized] {
-			result = append(result, normalized)
-			seen[normalized] = true
-		}
-	}
-	return result, nil
-}
-
 func collectDiagnostics(cookiesPath string) map[string]any {
-	skills := skillsStatus()
 	cookies := cookieDiagnostics(cookiesPath)
 	legacyCommands := legacyCommandsStatus()
 	dependencies := dependencyDiagnostics(cookiesPath)
-	skillsOK := false
-	for _, raw := range skills {
-		if status, ok := raw.(map[string]any); ok {
-			if value, _ := status["ok"].(bool); value {
-				skillsOK = true
-			}
-		}
-	}
 	cookiesOK, _ := cookies["ok"].(bool)
 	return map[string]any{
-		"ok":      skillsOK && cookiesOK,
+		"ok":      cookiesOK,
 		"version": version,
 		"runtime": "go",
 		"capabilities": map[string]bool{
@@ -2545,7 +2358,6 @@ func collectDiagnostics(cookiesPath string) map[string]any {
 			"messengerSendPlan":  true,
 			"messengerSendApply": true,
 		},
-		"skills":         skills,
 		"cookies":        cookies,
 		"docs":           docsDiagnostics(),
 		"dependencies":   dependencies,
@@ -2639,7 +2451,7 @@ func updateDependencyStatus() map[string]any {
 	}
 	result["ok"] = true
 	if boolFromMap(result, "updateAvailable") {
-		result["remediation"] = "Run `ixf update self --apply --json`, then `ixf update skills --runtimes auto --json`."
+		result["remediation"] = "Run `ixf update self --apply --json`, then use the host plugin manager to update ixf-toolbox."
 	}
 	return result
 }
@@ -2737,7 +2549,7 @@ func agentRoutingStatus() map[string]any {
 		"currentGuidance": []string{
 			"AGENTS.md",
 			"docs/agent-routing.md",
-			"skills/*/*/SKILL.md",
+			"skills/*/SKILL.md",
 		},
 		"historicalGuidanceIgnored": []string{
 			"CHANGELOG.md",
@@ -2762,23 +2574,6 @@ func legacyCommandsStatus() []map[string]string {
 			"status":  "ignored",
 			"note":    "legacy command present; Toolbox skills use ixf only",
 		})
-	}
-	return result
-}
-
-func skillsStatus() map[string]any {
-	result := map[string]any{}
-	for _, target := range detectRuntimeTargets() {
-		installed := map[string]bool{}
-		ok := true
-		for _, skillName := range skillNames {
-			exists := pathExists(filepath.Join(target.SkillsDir, skillName, "SKILL.md"))
-			installed[skillName] = exists
-			if !exists {
-				ok = false
-			}
-		}
-		result[target.Key] = map[string]any{"ok": ok, "dir": target.SkillsDir, "installed": installed}
 	}
 	return result
 }
@@ -2868,22 +2663,6 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 		boolFromMap(capabilities, "messengerSendPlan"),
 		boolFromMap(capabilities, "messengerSendApply"),
 	)
-
-	if skills, ok := payload["skills"].(map[string]any); ok {
-		runtimes := make([]string, 0, len(skills))
-		for runtime := range skills {
-			runtimes = append(runtimes, runtime)
-		}
-		sort.Strings(runtimes)
-		for _, runtime := range runtimes {
-			status, _ := skills[runtime].(map[string]any)
-			fmt.Fprintf(w, "skill %s ok=%t", runtime, boolFromMap(status, "ok"))
-			if dir, _ := status["dir"].(string); dir != "" {
-				fmt.Fprintf(w, " dir=%s", dir)
-			}
-			fmt.Fprintln(w)
-		}
-	}
 
 	if cookies, ok := payload["cookies"].(map[string]any); ok {
 		fmt.Fprintf(

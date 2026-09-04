@@ -829,96 +829,7 @@ func TestMessengerSendApplyFlagsAreAcceptedAndValidatedBeforeBrowserLaunch(t *te
 	}
 }
 
-func TestNormalizeRuntimesSupportsAutoAliasesAndValidation(t *testing.T) {
-	tests := []struct {
-		name string
-		raw  []string
-		want []string
-	}{
-		{name: "auto", raw: []string{"auto"}, want: []string{"codex", "claude-code"}},
-		{name: "all", raw: []string{"all"}, want: []string{"codex", "claude-code"}},
-		{name: "empty", raw: []string{""}, want: []string{"codex", "claude-code"}},
-		{name: "claude alias", raw: []string{"claude"}, want: []string{"claude-code"}},
-		{name: "claude underscore alias", raw: []string{"claude_code"}, want: []string{"claude-code"}},
-		{name: "dedupe", raw: []string{"codex", "codex", "claude"}, want: []string{"codex", "claude-code"}},
-		{name: "none", raw: []string{"none"}, want: []string{}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got, err := normalizeRuntimes(test.raw)
-			if err != nil {
-				t.Fatalf("normalizeRuntimes(%v) error = %v", test.raw, err)
-			}
-			if len(got) != len(test.want) {
-				t.Fatalf("normalizeRuntimes(%v) = %v, want %v", test.raw, got, test.want)
-			}
-			for i := range got {
-				if got[i] != test.want[i] {
-					t.Fatalf("normalizeRuntimes(%v) = %v, want %v", test.raw, got, test.want)
-				}
-			}
-		})
-	}
-
-	if _, err := normalizeRuntimes([]string{"unknown"}); err == nil {
-		t.Fatal("normalizeRuntimes accepted unsupported runtime")
-	}
-}
-
-func TestInstallSkillsWritesEmbeddedCodexSkillsAndPreservesExistingWithoutForce(t *testing.T) {
-	home := t.TempDir()
-	codexDir := filepath.Join(home, "codex-skills")
-	t.Setenv("HOME", home)
-	t.Setenv("IXF_TOOLBOX_CODEX_SKILLS_DIR", codexDir)
-	t.Setenv("IXF_TOOLBOX_CLAUDE_CODE_SKILLS_DIR", filepath.Join(home, "claude-skills"))
-
-	payload, err := installSkills([]string{"codex"}, false)
-	if err != nil {
-		t.Fatalf("installSkills returned error: %v", err)
-	}
-	installed := payload["installed"].([]skillResult)
-	skipped := payload["skipped"].([]skillResult)
-	if len(installed) != len(skillNames) || len(skipped) != 0 {
-		t.Fatalf("installed=%d skipped=%d, want installed=%d skipped=0", len(installed), len(skipped), len(skillNames))
-	}
-	for _, skillName := range skillNames {
-		content, err := os.ReadFile(filepath.Join(codexDir, skillName, "SKILL.md"))
-		if err != nil {
-			t.Fatalf("installed skill %s missing: %v", skillName, err)
-		}
-		if !strings.Contains(string(content), "name: "+skillName) {
-			t.Fatalf("installed skill %s missing frontmatter name", skillName)
-		}
-	}
-	docsWriterContent := string(mustReadFile(t, filepath.Join(codexDir, "ixf-docs-writer", "SKILL.md")))
-	for _, expected := range []string{
-		"Do not treat top-level `doctor.ok=false` alone as an authentication failure",
-		"Inspect `.cookies.ok` and `.capabilities.docsPublish`",
-		"derive the tenant base URL from the user's i讯飞 link",
-	} {
-		if !strings.Contains(docsWriterContent, expected) {
-			t.Fatalf("ixf-docs-writer skill missing publish guard %q", expected)
-		}
-	}
-
-	marker := filepath.Join(codexDir, "ixf-docs-reader", "marker.txt")
-	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
-		t.Fatalf("write marker: %v", err)
-	}
-	payload, err = installSkills([]string{"codex"}, false)
-	if err != nil {
-		t.Fatalf("second installSkills returned error: %v", err)
-	}
-	if string(mustReadFile(t, marker)) != "keep" {
-		t.Fatal("installSkills overwrote an existing skill without --force")
-	}
-	skipped = payload["skipped"].([]skillResult)
-	if len(skipped) != len(skillNames) || skipped[0].Reason != "exists" {
-		t.Fatalf("skipped = %+v, want every skill skipped because it exists", skipped)
-	}
-}
-
-func TestCollectDiagnosticsReportsGoRuntimeSkillsCookiesAndNoSecrets(t *testing.T) {
+func TestCollectDiagnosticsReportsGoRuntimeCookiesAndNoSecrets(t *testing.T) {
 	stubDependencyRelease(t, version)
 	home := t.TempDir()
 	cookiesPath := filepath.Join(home, "cookies.json")
@@ -935,12 +846,6 @@ func TestCollectDiagnosticsReportsGoRuntimeSkillsCookiesAndNoSecrets(t *testing.
 		t.Fatalf("mkdir empty bin: %v", err)
 	}
 	t.Setenv("PATH", emptyBin)
-	t.Setenv("IXF_TOOLBOX_CODEX_SKILLS_DIR", filepath.Join(home, "codex-skills"))
-	t.Setenv("IXF_TOOLBOX_CLAUDE_CODE_SKILLS_DIR", filepath.Join(home, "claude-skills"))
-	if _, err := installSkills([]string{"codex"}, false); err != nil {
-		t.Fatalf("installSkills returned error: %v", err)
-	}
-
 	payload := collectDiagnostics(cookiesPath)
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -1016,7 +921,7 @@ func TestCollectDiagnosticsReportsAgentRoutingContract(t *testing.T) {
 	if !ok {
 		t.Fatalf("currentGuidance = %#v, want []string", routing["currentGuidance"])
 	}
-	for _, expected := range []string{"AGENTS.md", "docs/agent-routing.md", "skills/*/*/SKILL.md"} {
+	for _, expected := range []string{"AGENTS.md", "docs/agent-routing.md", "skills/*/SKILL.md"} {
 		if !containsString(guidance, expected) {
 			t.Fatalf("currentGuidance missing %q: %+v", expected, guidance)
 		}
@@ -1055,12 +960,6 @@ func TestCollectDiagnosticsReportsLegacyCommandShimsAsIgnored(t *testing.T) {
 		t.Setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
 	}
 	t.Setenv("HOME", home)
-	t.Setenv("IXF_TOOLBOX_CODEX_SKILLS_DIR", filepath.Join(home, "codex-skills"))
-	t.Setenv("IXF_TOOLBOX_CLAUDE_CODE_SKILLS_DIR", filepath.Join(home, "claude-skills"))
-	if _, err := installSkills([]string{"codex"}, false); err != nil {
-		t.Fatalf("installSkills returned error: %v", err)
-	}
-
 	payload := collectDiagnostics(cookiesPath)
 	legacy, ok := payload["legacyCommands"].([]map[string]string)
 	if !ok || len(legacy) != 2 {
@@ -1099,9 +998,6 @@ func TestCollectDiagnosticsMarksMissingAndInvalidCookieFilesUnhealthy(t *testing
 	stubDependencyRelease(t, version)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("IXF_TOOLBOX_CODEX_SKILLS_DIR", filepath.Join(home, "codex-skills"))
-	t.Setenv("IXF_TOOLBOX_CLAUDE_CODE_SKILLS_DIR", filepath.Join(home, "claude-skills"))
-
 	missing := collectDiagnostics(filepath.Join(home, "missing.json"))
 	if ok, _ := missing["ok"].(bool); ok {
 		t.Fatalf("missing setup should be unhealthy: %+v", missing)
@@ -1143,13 +1039,6 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 			"messengerSendPlan":  true,
 			"messengerSendApply": true,
 		},
-		"skills": map[string]any{
-			"codex": map[string]any{
-				"ok":        true,
-				"dir":       "/tmp/skills",
-				"installed": map[string]bool{"ixf-docs-reader": true},
-			},
-		},
 		"cookies": map[string]any{
 			"ok":          true,
 			"exists":      true,
@@ -1188,7 +1077,6 @@ func TestFormatDiagnosticsIncludesCapabilitiesAndCookieMetadataWithoutCookieName
 		"ixf-toolbox " + version,
 		"overall fail",
 		"native docsRead=true docsPublish=true sheetsRead=true sheetsUpdateDryRun=true sheetsUpdateApply=true okrRead=true okrWrite=true cookiesExport=true messengerDoctor=true messengerOpenPlan=true messengerOpenApply=true messengerReadPlan=true messengerReadApply=true messengerSendPlan=true messengerSendApply=true",
-		"skill codex ok=true",
 		"cookies ok count=1 csrf=true lgw_csrf=false",
 		"dependencies ok=false mermaid=false messenger=false update=true",
 		"agent_routing go_only=true background=true default=read-only",
@@ -1210,12 +1098,6 @@ func TestDoctorCommandJSONAndTextUseGoDiagnostics(t *testing.T) {
 		t.Fatalf("write cookies: %v", err)
 	}
 	t.Setenv("HOME", home)
-	t.Setenv("IXF_TOOLBOX_CODEX_SKILLS_DIR", filepath.Join(home, "codex-skills"))
-	t.Setenv("IXF_TOOLBOX_CLAUDE_CODE_SKILLS_DIR", filepath.Join(home, "claude-skills"))
-	if _, err := installSkills([]string{"codex"}, false); err != nil {
-		t.Fatalf("installSkills returned error: %v", err)
-	}
-
 	var jsonOut bytes.Buffer
 	var jsonErr bytes.Buffer
 	if code := run([]string{"doctor", "--cookies", cookiesPath, "--json"}, &jsonOut, &jsonErr); code != 0 {

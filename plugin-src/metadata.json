@@ -1,0 +1,18 @@
+{
+  "name": "ixf-toolbox",
+  "description": "Use authorized i讯飞 and LarkShell workflows through the Go ixf runtime.",
+  "author": {"name": "serialq7ic4"},
+  "homepage": "https://github.com/serialq7ic4/ixf-toolbox",
+  "repository": "https://github.com/serialq7ic4/ixf-toolbox",
+  "license": "Apache-2.0",
+  "keywords": ["ixf", "i讯飞", "LarkShell", "docx", "okr", "bitable", "messenger"],
+  "interface": {
+    "displayName": "i讯飞 Toolbox",
+    "shortDescription": "Authorized i讯飞 workflows",
+    "longDescription": "Use authorized i讯飞 and LarkShell workflows through the Go ixf runtime.",
+    "developerName": "serialq7ic4",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": ["Read an i讯飞 document", "Plan an approved document update"]
+  }
+}

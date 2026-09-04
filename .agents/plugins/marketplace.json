@@ -1,0 +1,20 @@
+{
+  "name": "ixf-toolbox",
+  "owner": {
+    "name": "serialq7ic4"
+  },
+  "plugins": [
+    {
+      "name": "ixf-toolbox",
+      "description": "Use authorized i讯飞 and LarkShell workflows through the Go ixf runtime.",
+      "source": {
+        "path": "./plugins/codex/ixf-toolbox"
+      },
+      "category": "Productivity",
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      }
+    }
+  ]
+}

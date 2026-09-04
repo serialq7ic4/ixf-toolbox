@@ -1,6 +1,7 @@
 package ixftoolbox
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -76,9 +77,12 @@ func TestVersionIsOwnedByVersionFileNotLdflags(t *testing.T) {
 		}
 	}
 
-	embedSource := readRepoFile(t, "skills_embed.go")
+	embedSource := readRepoFile(t, "version_embed.go")
 	if strings.Contains(embedSource, "override main.version") {
-		t.Fatalf("skills_embed.go still describes release ldflags as the version source")
+		t.Fatalf("version_embed.go still describes release ldflags as the version source")
+	}
+	if _, err := os.Stat(filepath.Join(repoRoot(t), "skills_embed.go")); !os.IsNotExist(err) {
+		t.Fatalf("skills_embed.go must be absent, stat error = %v", err)
 	}
 }
 
@@ -127,7 +131,7 @@ func TestCurrentAgentGuidanceForbidsPythonAndLegacyFallbacks(t *testing.T) {
 		"README.md",
 		"README.en.md",
 		"docs/go-python-parity.md",
-		"skills_embed.go",
+		"version_embed.go",
 	} {
 		text := readRepoFile(t, relative)
 		for _, forbidden := range []string{
@@ -160,8 +164,9 @@ func TestAgentRoutingContractIsAuthoritativeAndNatural(t *testing.T) {
 		}
 	}
 
-	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
-		routing := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, "using-ixf-toolbox", "SKILL.md")))
+	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
+		routingPath := filepath.ToSlash(filepath.Join(skillRoot, "using-ixf-toolbox", "SKILL.md"))
+		routing := readRepoFile(t, routingPath)
 		for _, expected := range []string{
 			"Users do not need to name this skill",
 			"background routing",
@@ -170,7 +175,7 @@ func TestAgentRoutingContractIsAuthoritativeAndNatural(t *testing.T) {
 			"Do not route from historical implementation notes",
 		} {
 			if !strings.Contains(routing, expected) {
-				t.Fatalf("%s routing skill missing %q:\n%s", runtimeDir, expected, routing)
+				t.Fatalf("%s routing skill missing %q:\n%s", routingPath, expected, routing)
 			}
 		}
 	}
@@ -202,8 +207,8 @@ func TestLocalMarkdownDoesNotDefaultToIxfDocsReader(t *testing.T) {
 		}
 	}
 
-	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
-		routingPath := filepath.ToSlash(filepath.Join(runtimeDir, "using-ixf-toolbox", "SKILL.md"))
+	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
+		routingPath := filepath.ToSlash(filepath.Join(skillRoot, "using-ixf-toolbox", "SKILL.md"))
 		routing := readRepoFile(t, routingPath)
 		for _, forbidden := range []string{"local Markdown reading", "local Markdown sources"} {
 			if strings.Contains(routing, forbidden) {
@@ -216,7 +221,7 @@ func TestLocalMarkdownDoesNotDefaultToIxfDocsReader(t *testing.T) {
 			}
 		}
 
-		readerPath := filepath.ToSlash(filepath.Join(runtimeDir, "ixf-docs-reader", "SKILL.md"))
+		readerPath := filepath.ToSlash(filepath.Join(skillRoot, "ixf-docs-reader", "SKILL.md"))
 		reader := readRepoFile(t, readerPath)
 		for _, forbidden := range []string{"local Markdown sources", "local Markdown files into local artifacts"} {
 			if strings.Contains(reader, forbidden) {
@@ -232,12 +237,13 @@ func TestLocalMarkdownDoesNotDefaultToIxfDocsReader(t *testing.T) {
 }
 
 func TestIxfSkillsRejectPythonAndLegacyFallbacks(t *testing.T) {
-	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
+	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
 		for _, skillName := range skillNamesForContract() {
-			text := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, skillName, "SKILL.md")))
+			path := filepath.ToSlash(filepath.Join(skillRoot, skillName, "SKILL.md"))
+			text := readRepoFile(t, path)
 			for _, expected := range []string{"Go `ixf` only", "Do not call `ixfdoc` or `ixfwrite`", "Do not use Python fallback"} {
 				if !strings.Contains(text, expected) {
-					t.Fatalf("%s/%s missing no-legacy rule %q:\n%s", runtimeDir, skillName, expected, text)
+					t.Fatalf("%s missing no-legacy rule %q:\n%s", path, expected, text)
 				}
 			}
 		}
@@ -245,33 +251,33 @@ func TestIxfSkillsRejectPythonAndLegacyFallbacks(t *testing.T) {
 }
 
 func TestMessengerSkillsAreRoutedAndDocumentDryRunSafety(t *testing.T) {
-	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
-		routing := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, "using-ixf-toolbox", "SKILL.md")))
+	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
+		routing := readRepoFile(t, filepath.ToSlash(filepath.Join(skillRoot, "using-ixf-toolbox", "SKILL.md")))
 		for _, expected := range []string{"ixf-messenger-reader", "ixf-messenger-writer", "Default to read-only"} {
 			if !strings.Contains(routing, expected) {
-				t.Fatalf("%s routing skill missing %q:\n%s", runtimeDir, expected, routing)
+				t.Fatalf("%s routing skill missing %q:\n%s", skillRoot, expected, routing)
 			}
 		}
 
-		reader := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, "ixf-messenger-reader", "SKILL.md")))
+		reader := readRepoFile(t, filepath.ToSlash(filepath.Join(skillRoot, "ixf-messenger-reader", "SKILL.md")))
 		for _, expected := range []string{"name: ixf-messenger-reader", "ixf messenger doctor --json", "ixf messenger read", "read-only", "--apply", "never sends", "Chrome/Chromium-only", "may mark opened chats as read"} {
 			if !strings.Contains(reader, expected) {
-				t.Fatalf("%s messenger reader missing %q:\n%s", runtimeDir, expected, reader)
+				t.Fatalf("%s messenger reader missing %q:\n%s", skillRoot, expected, reader)
 			}
 		}
 
-		writer := readRepoFile(t, filepath.ToSlash(filepath.Join(runtimeDir, "ixf-messenger-writer", "SKILL.md")))
+		writer := readRepoFile(t, filepath.ToSlash(filepath.Join(skillRoot, "ixf-messenger-writer", "SKILL.md")))
 		for _, expected := range []string{"name: ixf-messenger-writer", "ixf messenger send", "dry-run", "--apply", "fresh-session verification", "targetVerified:true", "localEchoMatched:true", "verifiedPresent:true"} {
 			if !strings.Contains(writer, expected) {
-				t.Fatalf("%s messenger writer missing %q:\n%s", runtimeDir, expected, writer)
+				t.Fatalf("%s messenger writer missing %q:\n%s", skillRoot, expected, writer)
 			}
 		}
 	}
 }
 
 func TestDocsWriterSkillDoesNotOverclaimExistingDocumentUpdate(t *testing.T) {
-	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
-		writerPath := filepath.ToSlash(filepath.Join(runtimeDir, "ixf-docs-writer", "SKILL.md"))
+	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
+		writerPath := filepath.ToSlash(filepath.Join(skillRoot, "ixf-docs-writer", "SKILL.md"))
 		writer := readRepoFile(t, writerPath)
 		for _, expected := range []string{
 			"create-only",
@@ -296,7 +302,7 @@ func TestDocsWriterSkillDoesNotOverclaimExistingDocumentUpdate(t *testing.T) {
 			}
 		}
 
-		routingPath := filepath.ToSlash(filepath.Join(runtimeDir, "using-ixf-toolbox", "SKILL.md"))
+		routingPath := filepath.ToSlash(filepath.Join(skillRoot, "using-ixf-toolbox", "SKILL.md"))
 		routing := readRepoFile(t, routingPath)
 		for _, expected := range []string{
 			"approved Markdown publishing as a new docx document",
@@ -310,8 +316,8 @@ func TestDocsWriterSkillDoesNotOverclaimExistingDocumentUpdate(t *testing.T) {
 }
 
 func TestDocsWriterSkillRoutesLocalizedInsertToPatch(t *testing.T) {
-	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
-		writerPath := filepath.ToSlash(filepath.Join(runtimeDir, "ixf-docs-writer", "SKILL.md"))
+	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
+		writerPath := filepath.ToSlash(filepath.Join(skillRoot, "ixf-docs-writer", "SKILL.md"))
 		writer := readRepoFile(t, writerPath)
 		for _, expected := range []string{
 			"ixf docs patch insert",
@@ -358,8 +364,8 @@ func TestSheetsRoutingAndUpdateBoundaryAreDocumented(t *testing.T) {
 		}
 	}
 
-	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
-		routingPath := filepath.ToSlash(filepath.Join(runtimeDir, "using-ixf-toolbox", "SKILL.md"))
+	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
+		routingPath := filepath.ToSlash(filepath.Join(skillRoot, "using-ixf-toolbox", "SKILL.md"))
 		routing := readRepoFile(t, routingPath)
 		for _, expected := range []string{"Classify the request as docs, sheets, bitable, OKR, or messenger", "direct sheets link reads", "ixf sheets update --dry-run"} {
 			if !strings.Contains(routing, expected) {
@@ -367,7 +373,7 @@ func TestSheetsRoutingAndUpdateBoundaryAreDocumented(t *testing.T) {
 			}
 		}
 
-		readerPath := filepath.ToSlash(filepath.Join(runtimeDir, "ixf-docs-reader", "SKILL.md"))
+		readerPath := filepath.ToSlash(filepath.Join(skillRoot, "ixf-docs-reader", "SKILL.md"))
 		reader := readRepoFile(t, readerPath)
 		for _, expected := range []string{"direct sheets link", "ixf sheets read"} {
 			if !strings.Contains(reader, expected) {
@@ -375,7 +381,7 @@ func TestSheetsRoutingAndUpdateBoundaryAreDocumented(t *testing.T) {
 			}
 		}
 
-		writerPath := filepath.ToSlash(filepath.Join(runtimeDir, "ixf-docs-writer", "SKILL.md"))
+		writerPath := filepath.ToSlash(filepath.Join(skillRoot, "ixf-docs-writer", "SKILL.md"))
 		writer := readRepoFile(t, writerPath)
 		for _, expected := range []string{"does not edit embedded or direct sheet cell data", "ixf sheets update --dry-run"} {
 			if !strings.Contains(writer, expected) {
@@ -400,8 +406,8 @@ func TestBitableRoutingAndAttachBoundaryAreDocumented(t *testing.T) {
 		}
 	}
 
-	for _, runtimeDir := range []string{"skills/codex", "skills/claude-code"} {
-		routingPath := filepath.ToSlash(filepath.Join(runtimeDir, "using-ixf-toolbox", "SKILL.md"))
+	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
+		routingPath := filepath.ToSlash(filepath.Join(skillRoot, "using-ixf-toolbox", "SKILL.md"))
 		routing := readRepoFile(t, routingPath)
 		for _, expected := range []string{"bitable record or attachment/image upload requests", "ixf bitable record create --dry-run", "ixf bitable attach --dry-run", "do not route those requests through docs or sheets"} {
 			if !strings.Contains(routing, expected) {
@@ -423,14 +429,45 @@ func TestReadmeCommandTablesDocumentSetupDeps(t *testing.T) {
 }
 
 func skillNamesForContract() []string {
-	return []string{
-		"using-ixf-toolbox",
-		"ixf-docs-reader",
-		"ixf-docs-writer",
-		"ixf-okr-reader",
-		"ixf-okr-writer",
-		"ixf-messenger-reader",
-		"ixf-messenger-writer",
+	return canonicalSkillNames
+}
+
+var canonicalSkillNames = []string{
+	"using-ixf-toolbox",
+	"ixf-docs-reader",
+	"ixf-docs-writer",
+	"ixf-okr-reader",
+	"ixf-okr-writer",
+	"ixf-messenger-reader",
+	"ixf-messenger-writer",
+}
+
+func TestCanonicalSkillsHaveGeneratedHostCopies(t *testing.T) {
+	for _, oldRoot := range []string{"skills/codex", "skills/claude-code"} {
+		if _, err := os.Stat(filepath.Join(repoRoot(t), filepath.FromSlash(oldRoot))); !os.IsNotExist(err) {
+			t.Fatalf("%s must not exist, stat error = %v", oldRoot, err)
+		}
+	}
+
+	for _, name := range canonicalSkillNames {
+		canonicalPath := filepath.Join(repoRoot(t), "skills", name, "SKILL.md")
+		canonical, err := os.ReadFile(canonicalPath)
+		if err != nil {
+			t.Fatalf("read canonical skill %s: %v", name, err)
+		}
+		for _, generatedRoot := range []string{
+			filepath.Join(repoRoot(t), "plugins/codex/ixf-toolbox/skills"),
+			filepath.Join(repoRoot(t), "plugins/claude/ixf-toolbox/skills"),
+		} {
+			generatedPath := filepath.Join(generatedRoot, name, "SKILL.md")
+			generated, err := os.ReadFile(generatedPath)
+			if err != nil {
+				t.Fatalf("read generated skill %s: %v", generatedPath, err)
+			}
+			if !bytes.Equal(canonical, generated) {
+				t.Fatalf("%s differs from %s", generatedPath, canonicalPath)
+			}
+		}
 	}
 }
 

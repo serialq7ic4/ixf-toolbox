@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ixf-toolbox",
+  "owner": {
+    "name": "serialq7ic4"
+  },
+  "plugins": [
+    {
+      "name": "ixf-toolbox",
+      "description": "Use authorized i讯飞 and LarkShell workflows through the Go ixf runtime.",
+      "source": "./plugins/claude/ixf-toolbox",
+      "category": "Productivity"
+    }
+  ]
+}

@@ -1,12 +1,29 @@
 #!/bin/sh
 set -eu
 
+host_lifecycle=false
+case "$#" in
+    0) ;;
+    1)
+        if [ "$1" != "--host-lifecycle" ]; then
+            echo "usage: scripts/smoke-native-plugins.sh [--host-lifecycle]" >&2
+            exit 2
+        fi
+        host_lifecycle=true
+        ;;
+    *)
+        echo "usage: scripts/smoke-native-plugins.sh [--host-lifecycle]" >&2
+        exit 2
+        ;;
+esac
+
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 smoke_root=$(mktemp -d "${TMPDIR:-/tmp}/ixf-toolbox-plugin-smoke.XXXXXX")
 trap 'rm -rf "$smoke_root"' EXIT HUP INT TERM
 
 smoke_home="$smoke_root/home"
-mkdir -p "$smoke_home/.config" "$smoke_home/localappdata"
+mkdir -p "$smoke_home/.codex" "$smoke_home/.claude" "$smoke_home/.config" "$smoke_home/localappdata"
+printf '{}\n' > "$smoke_home/.claude/.claude.json"
 
 cd "$repo_root"
 HOME="$smoke_home" XDG_CONFIG_HOME="$smoke_home/.config" go run ./cmd/pluginpack --check
@@ -30,3 +47,60 @@ if command -v claude >/dev/null 2>&1; then
     HOME="$smoke_home" XDG_CONFIG_HOME="$smoke_home/.config" \
         claude plugin validate --strict plugins/claude/ixf-toolbox >/dev/null
 fi
+
+if [ "$host_lifecycle" != true ]; then
+    exit 0
+fi
+
+command -v codex >/dev/null 2>&1 || {
+    echo "codex is required for --host-lifecycle" >&2
+    exit 1
+}
+command -v claude >/dev/null 2>&1 || {
+    echo "claude is required for --host-lifecycle" >&2
+    exit 1
+}
+
+HOME="$smoke_home" CODEX_HOME="$smoke_home/.codex" XDG_CONFIG_HOME="$smoke_home/.config" \
+    codex plugin marketplace add "$repo_root" >/dev/null
+HOME="$smoke_home" CODEX_HOME="$smoke_home/.codex" XDG_CONFIG_HOME="$smoke_home/.config" \
+    codex plugin add ixf-toolbox@ixf-toolbox >/dev/null
+codex_plugins=$(HOME="$smoke_home" CODEX_HOME="$smoke_home/.codex" XDG_CONFIG_HOME="$smoke_home/.config" \
+    codex plugin list --json)
+codex_compact=$(printf '%s' "$codex_plugins" | tr -d '[:space:]')
+case "$codex_compact" in
+    *'"name":"ixf-toolbox"'*'"installed":true'*'"enabled":true'*) ;;
+    *)
+        echo "Codex did not report installed and enabled ixf-toolbox" >&2
+        exit 1
+        ;;
+esac
+test ! -d plugins/codex/ixf-toolbox/hooks
+
+HOME="$smoke_home" CLAUDE_CONFIG_DIR="$smoke_home/.claude" XDG_CONFIG_HOME="$smoke_home/.config" \
+    claude plugin marketplace add "$repo_root" >/dev/null
+HOME="$smoke_home" CLAUDE_CONFIG_DIR="$smoke_home/.claude" XDG_CONFIG_HOME="$smoke_home/.config" \
+    claude plugin install ixf-toolbox@ixf-toolbox --scope user --yes >/dev/null
+claude_plugins=$(HOME="$smoke_home" CLAUDE_CONFIG_DIR="$smoke_home/.claude" XDG_CONFIG_HOME="$smoke_home/.config" \
+    claude plugin list --json)
+claude_compact=$(printf '%s' "$claude_plugins" | tr -d '[:space:]')
+case "$claude_compact" in
+    *'"id":"ixf-toolbox@ixf-toolbox"'*'"enabled":true'*) ;;
+    *)
+        echo "Claude did not report installed and enabled ixf-toolbox" >&2
+        exit 1
+        ;;
+esac
+
+hook_output=$(printf '{}\n' | bash plugins/claude/ixf-toolbox/hooks/session-start)
+case "$hook_output" in
+    *'"hookEventName":"SessionStart"'*'i讯飞 / LarkShell'*) ;;
+    *)
+        echo "Claude SessionStart hook did not emit the routing hint" >&2
+        exit 1
+        ;;
+esac
+
+bootstrap_target="$smoke_home/bootstrap"
+HOME="$smoke_home" plugins/codex/ixf-toolbox/scripts/bootstrap-runtime.sh --dry-run --install-dir "$bootstrap_target" >/dev/null
+test ! -e "$bootstrap_target/ixf"

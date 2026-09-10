@@ -699,6 +699,27 @@ func TestNativePluginArtifacts(t *testing.T) {
 	}
 }
 
+func TestNativePluginSmokeCoversIsolatedHostLifecycle(t *testing.T) {
+	content := readRepoFile(t, "scripts/smoke-native-plugins.sh")
+	for _, expected := range []string{
+		"--host-lifecycle",
+		"CODEX_HOME=",
+		"CLAUDE_CONFIG_DIR=",
+		"codex plugin marketplace add",
+		"codex plugin add ixf-toolbox@ixf-toolbox",
+		"codex plugin list --json",
+		"claude plugin marketplace add",
+		"claude plugin install ixf-toolbox@ixf-toolbox --scope user --yes",
+		"claude plugin list --json",
+		"hooks/session-start",
+		"bootstrap-runtime.sh --dry-run --install-dir",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("native plugin smoke missing host lifecycle contract %q:\n%s", expected, content)
+		}
+	}
+}
+
 func TestMessengerGADocumentationCoversOperationalBoundaries(t *testing.T) {
 	messengerDoc := readRepoFile(t, "docs/messenger.md")
 	for _, expected := range []string{

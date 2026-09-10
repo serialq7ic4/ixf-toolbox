@@ -76,16 +76,20 @@ func bootstrapEnv(t *testing.T, overrides map[string]string) []string {
 	for _, entry := range os.Environ() {
 		key, value, ok := strings.Cut(entry, "=")
 		if ok {
-			values[key] = value
+			values[bootstrapEnvKey(key)] = value
 		}
 	}
-	if _, ok := overrides["HOME"]; !ok {
+	normalizedOverrides := make(map[string]string, len(overrides))
+	for key, value := range overrides {
+		normalizedOverrides[bootstrapEnvKey(key)] = value
+	}
+	if _, ok := normalizedOverrides["HOME"]; !ok {
 		values["HOME"] = t.TempDir()
 	}
-	if _, ok := overrides["LOCALAPPDATA"]; !ok {
+	if _, ok := normalizedOverrides["LOCALAPPDATA"]; !ok {
 		values["LOCALAPPDATA"] = values["HOME"]
 	}
-	for key, value := range overrides {
+	for key, value := range normalizedOverrides {
 		values[key] = value
 	}
 	keys := make([]string, 0, len(values))
@@ -98,6 +102,38 @@ func bootstrapEnv(t *testing.T, overrides map[string]string) []string {
 		env = append(env, key+"="+values[key])
 	}
 	return env
+}
+
+func bootstrapEnvKey(key string) string {
+	upper := strings.ToUpper(key)
+	if runtime.GOOS == "windows" {
+		return upper
+	}
+	switch upper {
+	case "HOME", "LOCALAPPDATA", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY":
+		return upper
+	}
+	if strings.HasPrefix(upper, "IXF_BOOTSTRAP_") {
+		return upper
+	}
+	return key
+}
+
+func TestBootstrapEnvReplacesCaseVariantControlKeys(t *testing.T) {
+	t.Setenv("LocalAppData", "stale")
+	env := bootstrapEnv(t, map[string]string{"LOCALAPPDATA": "fresh"})
+	count := 0
+	value := ""
+	for _, entry := range env {
+		key, entryValue, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(key, "LOCALAPPDATA") {
+			count++
+			value = entryValue
+		}
+	}
+	if count != 1 || value != "fresh" {
+		t.Fatalf("LOCALAPPDATA entries = %d, value = %q", count, value)
+	}
 }
 
 func runBootstrapCommand(t *testing.T, root string, overrides map[string]string, args ...string) ([]byte, error) {

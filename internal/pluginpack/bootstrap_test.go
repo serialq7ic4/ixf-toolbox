@@ -491,13 +491,8 @@ func TestPowerShellBootstrapRevalidatesInstallDirectoryBeforeWrite(t *testing.T)
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write(asset)
 		case strings.HasSuffix(r.URL.Path, "/"+checksumName):
-			cmdExe := os.Getenv("ComSpec")
-			if cmdExe == "" {
-				cmdExe = "cmd.exe"
-			}
-			commandLine := fmt.Sprintf(`mklink /J "%s" "%s"`, junction, outside)
-			if output, err := exec.Command(cmdExe, "/d", "/s", "/c", commandLine).CombinedOutput(); err != nil {
-				junctionErrors <- fmt.Errorf("create junction: %w: %s", err, output)
+			if err := os.Symlink(outside, junction); err != nil {
+				junctionErrors <- fmt.Errorf("create directory symlink: %w", err)
 				http.Error(w, "junction setup failed", http.StatusInternalServerError)
 				return
 			}

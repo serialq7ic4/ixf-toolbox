@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "repository": "serialq7ic4/ixf-toolbox",
+  "releaseVersion": "3.26.3",
+  "minimumVersion": "3.26.3",
+  "installPaths": {
+    "unix": "~/.local/share/ixf-toolbox/bin/ixf",
+    "windows": "%LOCALAPPDATA%\\ixf-toolbox\\bin\\ixf.exe"
+  },
+  "artifacts": [
+    "darwin/amd64",
+    "darwin/arm64",
+    "linux/amd64",
+    "linux/arm64",
+    "windows/amd64"
+  ]
+}

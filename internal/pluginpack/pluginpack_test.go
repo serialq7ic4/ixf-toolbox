@@ -57,6 +57,9 @@ func TestGeneratedMarketplacesPointAtHostPackages(t *testing.T) {
 	if codexMarketplace["name"] != "ixf-toolbox" || claudeMarketplace["name"] != "ixf-toolbox" {
 		t.Fatalf("marketplace names = %#v, %#v", codexMarketplace["name"], claudeMarketplace["name"])
 	}
+	if claudeMarketplace["description"] != "fixture" {
+		t.Fatalf("Claude marketplace description = %#v", claudeMarketplace["description"])
+	}
 	codexInterface, ok := codexMarketplace["interface"].(map[string]any)
 	if !ok || codexInterface["displayName"] != "i讯飞 Toolbox" {
 		t.Fatalf("Codex marketplace interface = %#v", codexMarketplace["interface"])
@@ -108,6 +111,24 @@ func newPluginFixture(t *testing.T, version string) string {
 	}
 	if err := os.WriteFile(filepath.Join(root, "plugin-src", "metadata.json"), []byte(metadata+"\n"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	for path, fixture := range map[string]struct {
+		content string
+		mode    os.FileMode
+	}{
+		"scripts/bootstrap-runtime.sh":  {content: "#!/bin/sh\nprintf '%s\\n' '__IXF_RELEASE_VERSION__ __IXF_REPOSITORY__'\n", mode: 0o755},
+		"scripts/bootstrap-runtime.ps1": {content: "Write-Output '__IXF_RELEASE_VERSION__ __IXF_REPOSITORY__'\n", mode: 0o755},
+		"claude/hooks/hooks.json":       {content: "{}\n", mode: 0o644},
+		"claude/hooks/run-hook.cmd":     {content: "exit 0\n", mode: 0o755},
+		"claude/hooks/session-start":    {content: "printf '%s\\n' '{}'\n", mode: 0o755},
+	} {
+		target := filepath.Join(root, "plugin-src", filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, []byte(fixture.content), fixture.mode); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for _, name := range canonicalSkillNames {
 		dir := filepath.Join(root, "skills", name)

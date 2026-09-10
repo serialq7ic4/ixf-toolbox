@@ -30,6 +30,12 @@ var canonicalSkillNames = []string{
 
 var versionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
+const releaseRepository = "serialq7ic4/ixf-toolbox"
+
+var templateReplacements = map[string]string{
+	"__IXF_REPOSITORY__": releaseRepository,
+}
+
 type metadata struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
@@ -109,10 +115,11 @@ type codexPluginPolicy struct {
 }
 
 type claudeMarketplace struct {
-	Schema  string                    `json:"$schema"`
-	Name    string                    `json:"name"`
-	Owner   author                    `json:"owner"`
-	Plugins []claudeMarketplacePlugin `json:"plugins"`
+	Schema      string                    `json:"$schema"`
+	Name        string                    `json:"name"`
+	Description string                    `json:"description"`
+	Owner       author                    `json:"owner"`
+	Plugins     []claudeMarketplacePlugin `json:"plugins"`
 }
 
 type claudeMarketplacePlugin struct {
@@ -120,6 +127,20 @@ type claudeMarketplacePlugin struct {
 	Description string `json:"description"`
 	Source      string `json:"source"`
 	Category    string `json:"category"`
+}
+
+type runtimeMetadata struct {
+	SchemaVersion  int                 `json:"schemaVersion"`
+	Repository     string              `json:"repository"`
+	ReleaseVersion string              `json:"releaseVersion"`
+	MinimumVersion string              `json:"minimumVersion"`
+	InstallPaths   runtimeInstallPaths `json:"installPaths"`
+	Artifacts      []string            `json:"artifacts"`
+}
+
+type runtimeInstallPaths struct {
+	Unix    string `json:"unix"`
+	Windows string `json:"windows"`
 }
 
 type fileEntry struct {
@@ -243,6 +264,23 @@ func buildPackages(root, buildRoot, version string, info metadata) error {
 			}
 		}
 	}
+	replacements := make(map[string]string, len(templateReplacements)+1)
+	for token, value := range templateReplacements {
+		replacements[token] = value
+	}
+	replacements["__IXF_RELEASE_VERSION__"] = version
+	for _, host := range []string{"codex", "claude"} {
+		destination := filepath.Join(buildRoot, "plugins", host, "ixf-toolbox", "scripts")
+		if err := copyRenderedTree(filepath.Join(root, "plugin-src", "scripts"), destination, replacements); err != nil {
+			return fmt.Errorf("copy runtime bootstrap scripts: %w", err)
+		}
+	}
+	if err := copyRegularTree(
+		filepath.Join(root, "plugin-src", "claude", "hooks"),
+		filepath.Join(buildRoot, "plugins", "claude", "ixf-toolbox", "hooks"),
+	); err != nil {
+		return fmt.Errorf("copy Claude hooks: %w", err)
+	}
 
 	codex := codexManifest{
 		Name: info.Name, Version: version, Description: info.Description, Author: info.Author,
@@ -259,6 +297,28 @@ func buildPackages(root, buildRoot, version string, info metadata) error {
 	if err := writeJSON(filepath.Join(buildRoot, "plugins/claude/ixf-toolbox/.claude-plugin/plugin.json"), claude); err != nil {
 		return err
 	}
+	runtimeInfo := runtimeMetadata{
+		SchemaVersion:  1,
+		Repository:     releaseRepository,
+		ReleaseVersion: version,
+		MinimumVersion: version,
+		InstallPaths: runtimeInstallPaths{
+			Unix:    "~/.local/share/ixf-toolbox/bin/ixf",
+			Windows: `%LOCALAPPDATA%\ixf-toolbox\bin\ixf.exe`,
+		},
+		Artifacts: []string{
+			"darwin/amd64",
+			"darwin/arm64",
+			"linux/amd64",
+			"linux/arm64",
+			"windows/amd64",
+		},
+	}
+	for _, host := range []string{"codex", "claude"} {
+		if err := writeJSON(filepath.Join(buildRoot, "plugins", host, "ixf-toolbox", "runtime.json"), runtimeInfo); err != nil {
+			return err
+		}
+	}
 
 	codexMarket := codexMarketplace{
 		Name: info.Name, Interface: codexMarketplaceInterface{DisplayName: info.Interface.DisplayName}, Owner: info.Author,
@@ -269,7 +329,7 @@ func buildPackages(root, buildRoot, version string, info metadata) error {
 		}},
 	}
 	claudeMarket := claudeMarketplace{
-		Schema: "https://anthropic.com/claude-code/marketplace.schema.json", Name: info.Name, Owner: info.Author,
+		Schema: "https://anthropic.com/claude-code/marketplace.schema.json", Name: info.Name, Description: info.Description, Owner: info.Author,
 		Plugins: []claudeMarketplacePlugin{{
 			Name: info.Name, Description: info.Description, Source: "./plugins/claude/ixf-toolbox", Category: info.Interface.Category,
 		}},
@@ -281,6 +341,50 @@ func buildPackages(root, buildRoot, version string, info metadata) error {
 		return err
 	}
 	return nil
+}
+
+func copyRenderedTree(source, destination string, replacements map[string]string) error {
+	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		target := destination
+		if relative != "." {
+			target = filepath.Join(destination, relative)
+		}
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symlink is not allowed: %s", path)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("only regular files are allowed: %s", path)
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rendered := string(content)
+		for token, value := range replacements {
+			rendered = strings.ReplaceAll(rendered, token, value)
+		}
+		if strings.Contains(rendered, "__IXF_") {
+			return fmt.Errorf("unresolved template token in %s", path)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, []byte(rendered), info.Mode().Perm())
+	})
 }
 
 func copyRegularTree(source, destination string) error {

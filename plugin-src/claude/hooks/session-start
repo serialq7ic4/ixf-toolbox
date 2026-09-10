@@ -1,0 +1,4 @@
+while IFS= read -r line || [ -n "$line" ]; do
+    :
+done
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"For i讯飞 / LarkShell links or document, sheets, bitable, OKR, and Messenger requests, consider the ixf-toolbox skills before choosing generic tools."}}'

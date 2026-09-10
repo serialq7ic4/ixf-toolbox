@@ -10,6 +10,88 @@ $ReleaseVersion = "3.27.0"
 $Repository = "serialq7ic4/ixf-toolbox"
 
 try {
+    if (-not ("IxfToolboxBootstrap.NativePath" -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace IxfToolboxBootstrap {
+    public static class NativePath {
+        private const uint FileShareRead = 0x00000001;
+        private const uint FileShareWrite = 0x00000002;
+        private const uint FileShareDelete = 0x00000004;
+        private const uint OpenExisting = 3;
+        private const uint FileFlagBackupSemantics = 0x02000000;
+        private static readonly IntPtr InvalidHandleValue = new IntPtr(-1);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr CreateFileW(
+            string fileName,
+            uint desiredAccess,
+            uint shareMode,
+            IntPtr securityAttributes,
+            uint creationDisposition,
+            uint flagsAndAttributes,
+            IntPtr templateFile);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint GetFinalPathNameByHandleW(
+            IntPtr file,
+            StringBuilder path,
+            uint pathLength,
+            uint flags);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CloseHandle(IntPtr handle);
+
+        public static string Resolve(string path) {
+            IntPtr handle = CreateFileW(
+                path,
+                0,
+                FileShareRead | FileShareWrite | FileShareDelete,
+                IntPtr.Zero,
+                OpenExisting,
+                FileFlagBackupSemantics,
+                IntPtr.Zero);
+            if (handle == InvalidHandleValue) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+
+            try {
+                StringBuilder buffer = new StringBuilder(512);
+                uint length = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
+                if (length == 0) {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                if (length >= (uint)buffer.Capacity) {
+                    buffer = new StringBuilder(checked((int)length));
+                    length = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
+                    if (length == 0 || length >= (uint)buffer.Capacity) {
+                        throw new Win32Exception(Marshal.GetLastWin32Error());
+                    }
+                }
+
+                string resolved = buffer.ToString();
+                if (resolved.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase)) {
+                    return @"\\" + resolved.Substring(8);
+                }
+                if (resolved.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase)) {
+                    return resolved.Substring(4);
+                }
+                return resolved;
+            }
+            finally {
+                CloseHandle(handle);
+            }
+        }
+    }
+}
+"@
+    }
+
     if ($DryRun -and $Apply) {
         throw "-DryRun and -Apply are mutually exclusive"
     }
@@ -20,7 +102,7 @@ try {
     if ([string]::IsNullOrWhiteSpace($LocalRoot) -or -not (Test-Path -LiteralPath $LocalRoot -PathType Container)) {
         throw "LOCALAPPDATA must name an existing current user directory"
     }
-    $RootReal = (Resolve-Path -LiteralPath $LocalRoot).Path.TrimEnd('\', '/')
+    $RootReal = [IxfToolboxBootstrap.NativePath]::Resolve($LocalRoot).TrimEnd('\', '/')
     if ([string]::IsNullOrWhiteSpace($InstallDir)) {
         $InstallDir = Join-Path $LocalRoot "ixf-toolbox\bin"
     }
@@ -49,16 +131,13 @@ try {
     if (-not (Test-Path -LiteralPath $Probe -PathType Container)) {
         throw "install directory ancestor is not a directory"
     }
-    $InstallReal = (Resolve-Path -LiteralPath $Probe).Path
+    $InstallReal = [IxfToolboxBootstrap.NativePath]::Resolve($Probe)
     foreach ($Part in $Suffix) {
         $InstallReal = Join-Path $InstallReal $Part
     }
     $InstallReal = [IO.Path]::GetFullPath($InstallReal).TrimEnd('\', '/')
     $RootPrefix = $RootReal + [IO.Path]::DirectorySeparatorChar
     if ($InstallReal -ne $RootReal -and -not $InstallReal.StartsWith($RootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-        if ($env:IXF_BOOTSTRAP_TESTING -eq "1") {
-            throw "install directory must resolve inside the current user directory: root=$RootReal install=$InstallReal input=$InstallDir probe=$Probe"
-        }
         throw "install directory must resolve inside the current user directory"
     }
 

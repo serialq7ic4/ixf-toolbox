@@ -2,13 +2,20 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/serialq7ic4/ixf-toolbox/internal/agentinstall"
 	ixfbitable "github.com/serialq7ic4/ixf-toolbox/internal/bitable"
 	"github.com/serialq7ic4/ixf-toolbox/internal/docspublish"
 	ixfupdate "github.com/serialq7ic4/ixf-toolbox/internal/update"
@@ -937,6 +944,151 @@ func TestCollectDiagnosticsReportsAgentRoutingContract(t *testing.T) {
 	if !strings.Contains(stdout.String(), "agent_routing go_only=true background=true default=read-only") {
 		t.Fatalf("diagnostics text missing agent routing line:\n%s", stdout.String())
 	}
+}
+
+func TestCollectDiagnosticsReportsAgentInstallation(t *testing.T) {
+	stubDependencyRelease(t, version)
+	home := t.TempDir()
+	legacyPath := filepath.Join(home, ".codex", "skills", "ixf-docs-reader", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPath, []byte("legacy\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	payload := collectDiagnosticsWithOptions(filepath.Join(home, "missing-cookies.json"), agentinstall.Options{
+		Home:    home,
+		Timeout: time.Second,
+		Run: func(_ context.Context, name string, _ ...string) ([]byte, error) {
+			if name == "codex" {
+				return []byte(`{"installed":[{"pluginId":"ixf-toolbox@ixf-toolbox","version":"3.27.0"}]}`), nil
+			}
+			return nil, &exec.Error{Name: name, Err: exec.ErrNotFound}
+		},
+	})
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	routing := decoded["agentRouting"].(map[string]any)
+	installation := routing["installation"].(map[string]any)
+	native := installation["nativePlugin"].(map[string]any)
+	legacy := installation["legacyRawSkills"].(map[string]any)
+	if native["codex"].(map[string]any)["status"] != "installed" || native["codex"].(map[string]any)["version"] != "3.27.0" {
+		t.Fatalf("Codex native plugin = %#v", native["codex"])
+	}
+	if native["claudeCode"].(map[string]any)["status"] != "unknown" || native["claudeCode"].(map[string]any)["reason"] != "command-unavailable" {
+		t.Fatalf("Claude native plugin = %#v", native["claudeCode"])
+	}
+	if legacy["codex"].(map[string]any)["status"] != "installed" || installation["duplicateLoadRisk"] != true {
+		t.Fatalf("installation = %#v", installation)
+	}
+	if decoded["ok"] != false {
+		t.Fatalf("missing cookies must remain the only top-level health failure: %#v", decoded["ok"])
+	}
+
+	var stdout bytes.Buffer
+	formatDiagnostics(&stdout, payload)
+	for _, expected := range []string{
+		"agent_installation codex native=installed legacy=installed",
+		"agent_installation claudeCode native=unknown legacy=not-installed",
+		"duplicate_load_risk=true",
+	} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("doctor text missing %q:\n%s", expected, stdout.String())
+		}
+	}
+}
+
+func TestDoctorDoesNotInstallOrModifyAgentFiles(t *testing.T) {
+	home := t.TempDir()
+	emptyBin := filepath.Join(home, "empty-bin")
+	if err := os.MkdirAll(emptyBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", emptyBin)
+	stubDependencyRelease(t, version)
+	before := snapshotHomeTree(t, home)
+	_ = collectDiagnosticsWithOptions(filepath.Join(home, "cookies.json"), agentinstall.Options{
+		Home: home,
+		Run: func(_ context.Context, name string, _ ...string) ([]byte, error) {
+			if name == "codex" {
+				return []byte(`{"installed":[]}`), nil
+			}
+			return []byte(`[]`), nil
+		},
+	})
+	after := snapshotHomeTree(t, home)
+	if diff := compareHomeTree(before, after); diff != "" {
+		t.Fatalf("doctor modified HOME:\n%s", diff)
+	}
+}
+
+type homeTreeEntry struct {
+	Mode os.FileMode
+	Data []byte
+}
+
+func snapshotHomeTree(t *testing.T, root string) map[string]homeTreeEntry {
+	t.Helper()
+	result := map[string]homeTreeEntry{}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s is not regular", path)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		result[filepath.ToSlash(relative)] = homeTreeEntry{Mode: info.Mode().Perm(), Data: data}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func compareHomeTree(before, after map[string]homeTreeEntry) string {
+	paths := map[string]bool{}
+	for path := range before {
+		paths[path] = true
+	}
+	for path := range after {
+		paths[path] = true
+	}
+	sorted := make([]string, 0, len(paths))
+	for path := range paths {
+		sorted = append(sorted, path)
+	}
+	sort.Strings(sorted)
+	for _, path := range sorted {
+		oldValue, oldOK := before[path]
+		newValue, newOK := after[path]
+		if !oldOK || !newOK || oldValue.Mode != newValue.Mode || !bytes.Equal(oldValue.Data, newValue.Data) {
+			return fmt.Sprintf("changed %s", path)
+		}
+	}
+	return ""
 }
 
 func TestCollectDiagnosticsReportsLegacyCommandShimsAsIgnored(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	ixftoolbox "github.com/serialq7ic4/ixf-toolbox"
+	"github.com/serialq7ic4/ixf-toolbox/internal/agentinstall"
 	ixfbitable "github.com/serialq7ic4/ixf-toolbox/internal/bitable"
 	ixfcookies "github.com/serialq7ic4/ixf-toolbox/internal/cookies"
 	"github.com/serialq7ic4/ixf-toolbox/internal/docslocal"
@@ -2333,9 +2334,15 @@ func goCommandUnavailable(stderr io.Writer, command string, hint string) int {
 }
 
 func collectDiagnostics(cookiesPath string) map[string]any {
+	home, _ := os.UserHomeDir()
+	return collectDiagnosticsWithOptions(cookiesPath, agentinstall.Options{Home: home})
+}
+
+func collectDiagnosticsWithOptions(cookiesPath string, agentOptions agentinstall.Options) map[string]any {
 	cookies := cookieDiagnostics(cookiesPath)
 	legacyCommands := legacyCommandsStatus()
 	dependencies := dependencyDiagnostics(cookiesPath)
+	agentReport := agentinstall.Diagnose(context.Background(), agentOptions)
 	cookiesOK, _ := cookies["ok"].(bool)
 	return map[string]any{
 		"ok":      cookiesOK,
@@ -2362,7 +2369,7 @@ func collectDiagnostics(cookiesPath string) map[string]any {
 		"docs":           docsDiagnostics(),
 		"dependencies":   dependencies,
 		"legacyCommands": legacyCommands,
-		"agentRouting":   agentRoutingStatus(),
+		"agentRouting":   agentRoutingStatus(agentReport),
 	}
 }
 
@@ -2541,7 +2548,7 @@ func formatSetupDeps(w io.Writer, payload map[string]any) {
 	}
 }
 
-func agentRoutingStatus() map[string]any {
+func agentRoutingStatus(report agentinstall.Report) map[string]any {
 	return map[string]any{
 		"goOnly":                 true,
 		"backgroundRouting":      true,
@@ -2556,6 +2563,7 @@ func agentRoutingStatus() map[string]any {
 			"docs/superpowers/",
 		},
 		"routingSkill": "using-ixf-toolbox",
+		"installation": report,
 		"note":         "Users describe the task naturally; installed skills route docs, OKR, sheets, and Messenger requests in the background.",
 	}
 }
@@ -2704,6 +2712,24 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 			boolFromMap(routing, "backgroundRouting"),
 			routing["defaultAmbiguousIntent"],
 		)
+		if installation, ok := routing["installation"].(agentinstall.Report); ok {
+			for _, host := range []string{"codex", "claudeCode"} {
+				native := installation.NativePlugin[host]
+				legacy := installation.LegacyRawSkills[host]
+				fmt.Fprintf(w, "agent_installation %s native=%s legacy=%s", host, native.Status, legacy.Status)
+				if native.Reason != "" {
+					fmt.Fprintf(w, " reason=%s", native.Reason)
+				}
+				if native.Version != "" {
+					fmt.Fprintf(w, " version=%s", native.Version)
+				}
+				fmt.Fprintln(w)
+			}
+			fmt.Fprintf(w, "agent_installation duplicate_load_risk=%t\n", installation.DuplicateLoadRisk)
+			for _, item := range installation.Remediation {
+				fmt.Fprintf(w, "remediation %s\n", item)
+			}
+		}
 	}
 	if legacyCommands, ok := payload["legacyCommands"].([]map[string]string); ok {
 		for _, item := range legacyCommands {

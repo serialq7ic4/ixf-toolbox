@@ -56,6 +56,9 @@ try {
     $InstallReal = [IO.Path]::GetFullPath($InstallReal).TrimEnd('\', '/')
     $RootPrefix = $RootReal + [IO.Path]::DirectorySeparatorChar
     if ($InstallReal -ne $RootReal -and -not $InstallReal.StartsWith($RootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        if ($env:IXF_BOOTSTRAP_TESTING -eq "1") {
+            throw "install directory must resolve inside the current user directory: root=$RootReal install=$InstallReal input=$InstallDir probe=$Probe"
+        }
         throw "install directory must resolve inside the current user directory"
     }
 

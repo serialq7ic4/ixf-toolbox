@@ -181,6 +181,56 @@ func TestAgentRoutingContractIsAuthoritativeAndNatural(t *testing.T) {
 	}
 }
 
+var routingTriggers = []string{
+	"i讯飞", "讯飞文档", "LarkShell", "/docx/", "/wiki/", "/base/",
+	"docx", "wiki", "sheets", "bitable", "OKR", "Messenger",
+	"read", "publish", "update", "patch", "append row", "upload image", "attachment",
+}
+
+func TestRoutingSkillTriggersNativePluginDiscovery(t *testing.T) {
+	const frontmatter = "description: Use when a request mentions i讯飞, 讯飞文档, or LarkShell and involves /docx/, /wiki/, /base/, docx, wiki, sheets, bitable, OKR, or Messenger, including read, publish, update, patch, append-row, image upload, attachment upload, or message workflows; do not use for ordinary local Markdown reading or editing."
+	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
+		path := filepath.ToSlash(filepath.Join(skillRoot, "using-ixf-toolbox", "SKILL.md"))
+		content := readRepoFile(t, path)
+		if !strings.Contains(content, frontmatter) {
+			t.Fatalf("%s missing native plugin routing frontmatter:\n%s", path, content)
+		}
+		for _, trigger := range routingTriggers {
+			if !strings.Contains(content, trigger) {
+				t.Fatalf("%s missing routing trigger %q:\n%s", path, trigger, content)
+			}
+		}
+	}
+}
+
+func TestSkillRuntimeBootstrapContract(t *testing.T) {
+	required := []string{
+		"Resolve the Go `ixf` runtime before running a business command.",
+		"Do not download or install anything without explicit user confirmation.",
+		"Run the packaged bootstrap with `--dry-run` before `--apply`.",
+		"Run `ixf doctor --json` after bootstrap succeeds.",
+		"Use `ixf deps install`, not bootstrap, for Mermaid dependencies.",
+		"filepath.Dir(filepath.Dir(filepath.Dir(skillFile)))",
+		"runtime.json",
+		"scripts/bootstrap-runtime.sh",
+		"scripts/bootstrap-runtime.ps1",
+		"minimumVersion",
+		"~/.local/share/ixf-toolbox/bin/ixf",
+		`%LOCALAPPDATA%\ixf-toolbox\bin\ixf.exe`,
+	}
+	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
+		for _, name := range canonicalSkillNames {
+			path := filepath.ToSlash(filepath.Join(skillRoot, name, "SKILL.md"))
+			content := readRepoFile(t, path)
+			for _, expected := range required {
+				if !strings.Contains(content, expected) {
+					t.Fatalf("%s missing runtime bootstrap contract %q:\n%s", path, expected, content)
+				}
+			}
+		}
+	}
+}
+
 func TestLocalMarkdownDoesNotDefaultToIxfDocsReader(t *testing.T) {
 	routingDoc := readRepoFile(t, "docs/agent-routing.md")
 	normalizedRoutingDoc := strings.Join(strings.Fields(routingDoc), " ")
@@ -210,7 +260,7 @@ func TestLocalMarkdownDoesNotDefaultToIxfDocsReader(t *testing.T) {
 	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
 		routingPath := filepath.ToSlash(filepath.Join(skillRoot, "using-ixf-toolbox", "SKILL.md"))
 		routing := readRepoFile(t, routingPath)
-		for _, forbidden := range []string{"local Markdown reading", "local Markdown sources"} {
+		for _, forbidden := range []string{"Use this skill for local Markdown reading", "local Markdown sources"} {
 			if strings.Contains(routing, forbidden) {
 				t.Fatalf("%s still routes ordinary local Markdown through ixf docs reader with %q:\n%s", routingPath, forbidden, routing)
 			}

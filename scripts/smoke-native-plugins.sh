@@ -24,6 +24,10 @@ trap 'rm -rf "$smoke_root"' EXIT HUP INT TERM
 smoke_home="$smoke_root/home"
 mkdir -p "$smoke_home/.codex" "$smoke_home/.claude" "$smoke_home/.config" "$smoke_home/localappdata"
 printf '{}\n' > "$smoke_home/.claude/.claude.json"
+powershell_localappdata="$smoke_home/localappdata"
+if command -v cygpath >/dev/null 2>&1; then
+    powershell_localappdata=$(cygpath -w "$powershell_localappdata")
+fi
 
 cd "$repo_root"
 HOME="$smoke_home" XDG_CONFIG_HOME="$smoke_home/.config" go run ./cmd/pluginpack --check
@@ -37,9 +41,9 @@ case "$(uname -s)" in
 esac
 
 if command -v pwsh >/dev/null 2>&1; then
-    HOME="$smoke_home" LOCALAPPDATA="$smoke_home/localappdata" \
+    HOME="$smoke_home" LOCALAPPDATA="$powershell_localappdata" \
         pwsh -NoProfile -File plugins/codex/ixf-toolbox/scripts/bootstrap-runtime.ps1 -DryRun >/dev/null
-    HOME="$smoke_home" LOCALAPPDATA="$smoke_home/localappdata" \
+    HOME="$smoke_home" LOCALAPPDATA="$powershell_localappdata" \
         pwsh -NoProfile -File plugins/claude/ixf-toolbox/scripts/bootstrap-runtime.ps1 -DryRun >/dev/null
 fi
 
@@ -102,5 +106,22 @@ case "$hook_output" in
 esac
 
 bootstrap_target="$smoke_home/bootstrap"
-HOME="$smoke_home" plugins/codex/ixf-toolbox/scripts/bootstrap-runtime.sh --dry-run --install-dir "$bootstrap_target" >/dev/null
-test ! -e "$bootstrap_target/ixf"
+case "$(uname -s)" in
+    Darwin|Linux)
+        HOME="$smoke_home" plugins/codex/ixf-toolbox/scripts/bootstrap-runtime.sh --dry-run --install-dir "$bootstrap_target" >/dev/null
+        test ! -e "$bootstrap_target/ixf"
+        ;;
+    *)
+        command -v pwsh >/dev/null 2>&1 || {
+            echo "pwsh is required for Windows host lifecycle smoke" >&2
+            exit 1
+        }
+        powershell_bootstrap_target="$bootstrap_target"
+        if command -v cygpath >/dev/null 2>&1; then
+            powershell_bootstrap_target=$(cygpath -w "$powershell_bootstrap_target")
+        fi
+        HOME="$smoke_home" LOCALAPPDATA="$powershell_localappdata" \
+            pwsh -NoProfile -File plugins/codex/ixf-toolbox/scripts/bootstrap-runtime.ps1 -DryRun -InstallDir "$powershell_bootstrap_target" >/dev/null
+        test ! -e "$bootstrap_target/ixf.exe"
+        ;;
+esac

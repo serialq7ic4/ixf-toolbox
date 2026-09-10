@@ -713,6 +713,7 @@ func TestNativePluginSmokeCoversIsolatedHostLifecycle(t *testing.T) {
 		"claude plugin list --json",
 		"hooks/session-start",
 		"bootstrap-runtime.sh --dry-run --install-dir",
+		"cygpath -w",
 	} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("native plugin smoke missing host lifecycle contract %q:\n%s", expected, content)

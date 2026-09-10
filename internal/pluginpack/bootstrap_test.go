@@ -468,6 +468,69 @@ func TestPowerShellBootstrapRejectsInvalidModesPathsAndChecksum(t *testing.T) {
 	}
 }
 
+func TestPowerShellBootstrapRevalidatesInstallDirectoryBeforeWrite(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows PowerShell bootstrap test")
+	}
+	root := generateRepositoryFixture(t)
+	asset := []byte("fixture ixf binary")
+	assetName := "ixf_1.2.3_windows_amd64.exe"
+	checksumName := "ixf_1.2.3_checksums.txt"
+	digest := sha256.Sum256(asset)
+	checksum := fmt.Sprintf("%x  %s\n", digest, assetName)
+	localAppData := t.TempDir()
+	outside := t.TempDir()
+	junction := filepath.Join(localAppData, "redirect")
+	targetDir := filepath.Join(junction, "bin")
+	junctionErrors := make(chan error, 1)
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/"+assetName):
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(asset)
+		case strings.HasSuffix(r.URL.Path, "/"+checksumName):
+			cmdExe := os.Getenv("ComSpec")
+			if cmdExe == "" {
+				cmdExe = "cmd.exe"
+			}
+			commandLine := fmt.Sprintf(`mklink /J "%s" "%s"`, junction, outside)
+			if output, err := exec.Command(cmdExe, "/d", "/s", "/c", commandLine).CombinedOutput(); err != nil {
+				junctionErrors <- fmt.Errorf("create junction: %w: %s", err, output)
+				http.Error(w, "junction setup failed", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, checksum)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { _ = os.Remove(junction) })
+
+	output, err := runPowerShellBootstrapCommand(t, root, map[string]string{
+		"LOCALAPPDATA":                   localAppData,
+		"IXF_BOOTSTRAP_TESTING":          "1",
+		"IXF_BOOTSTRAP_RELEASE_BASE_URL": server.URL,
+	}, "-Apply", "-InstallDir", targetDir)
+	select {
+	case junctionErr := <-junctionErrors:
+		t.Fatal(junctionErr)
+	default:
+	}
+	if err == nil || !strings.Contains(string(output), "inside the current user directory") {
+		t.Fatalf("PowerShell bootstrap accepted replaced install directory: err=%v output=%s", err, output)
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("PowerShell bootstrap requests = %d", requests.Load())
+	}
+	if _, statErr := os.Stat(filepath.Join(outside, "bin", "ixf.exe")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("PowerShell bootstrap wrote outside LOCALAPPDATA: %v", statErr)
+	}
+}
+
 func TestClaudeSessionStartHookOnlyInjectsRoutingHint(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX hook test; Windows host validation uses Claude's shell dispatcher")

@@ -18,6 +18,7 @@ case "$#" in
 esac
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+host_os=$(uname -s)
 smoke_root=$(mktemp -d "${TMPDIR:-/tmp}/ixf-toolbox-plugin-smoke.XXXXXX")
 trap 'rm -rf "$smoke_root"' EXIT HUP INT TERM
 
@@ -33,19 +34,23 @@ cd "$repo_root"
 HOME="$smoke_home" XDG_CONFIG_HOME="$smoke_home/.config" go run ./cmd/pluginpack --check
 HOME="$smoke_home" XDG_CONFIG_HOME="$smoke_home/.config" go test . -run '^TestNativePluginArtifacts$' -count=1
 
-case "$(uname -s)" in
+case "$host_os" in
     Darwin|Linux)
         HOME="$smoke_home" plugins/codex/ixf-toolbox/scripts/bootstrap-runtime.sh --dry-run >/dev/null
         HOME="$smoke_home" plugins/claude/ixf-toolbox/scripts/bootstrap-runtime.sh --dry-run >/dev/null
         ;;
 esac
 
-if command -v pwsh >/dev/null 2>&1; then
-    HOME="$smoke_home" LOCALAPPDATA="$powershell_localappdata" \
-        pwsh -NoProfile -File plugins/codex/ixf-toolbox/scripts/bootstrap-runtime.ps1 -DryRun >/dev/null
-    HOME="$smoke_home" LOCALAPPDATA="$powershell_localappdata" \
-        pwsh -NoProfile -File plugins/claude/ixf-toolbox/scripts/bootstrap-runtime.ps1 -DryRun >/dev/null
-fi
+case "$host_os" in
+    MINGW*|MSYS*|CYGWIN*)
+        if command -v pwsh >/dev/null 2>&1; then
+            HOME="$smoke_home" LOCALAPPDATA="$powershell_localappdata" \
+                pwsh -NoProfile -File plugins/codex/ixf-toolbox/scripts/bootstrap-runtime.ps1 -DryRun >/dev/null
+            HOME="$smoke_home" LOCALAPPDATA="$powershell_localappdata" \
+                pwsh -NoProfile -File plugins/claude/ixf-toolbox/scripts/bootstrap-runtime.ps1 -DryRun >/dev/null
+        fi
+        ;;
+esac
 
 if command -v claude >/dev/null 2>&1; then
     HOME="$smoke_home" XDG_CONFIG_HOME="$smoke_home/.config" \
@@ -106,12 +111,12 @@ case "$hook_output" in
 esac
 
 bootstrap_target="$smoke_home/bootstrap"
-case "$(uname -s)" in
+case "$host_os" in
     Darwin|Linux)
         HOME="$smoke_home" plugins/codex/ixf-toolbox/scripts/bootstrap-runtime.sh --dry-run --install-dir "$bootstrap_target" >/dev/null
         test ! -e "$bootstrap_target/ixf"
         ;;
-    *)
+    MINGW*|MSYS*|CYGWIN*)
         command -v pwsh >/dev/null 2>&1 || {
             echo "pwsh is required for Windows host lifecycle smoke" >&2
             exit 1
@@ -123,5 +128,9 @@ case "$(uname -s)" in
         HOME="$smoke_home" LOCALAPPDATA="$powershell_localappdata" \
             pwsh -NoProfile -File plugins/codex/ixf-toolbox/scripts/bootstrap-runtime.ps1 -DryRun -InstallDir "$powershell_bootstrap_target" >/dev/null
         test ! -e "$bootstrap_target/ixf.exe"
+        ;;
+    *)
+        echo "unsupported host lifecycle smoke platform: $host_os" >&2
+        exit 1
         ;;
 esac

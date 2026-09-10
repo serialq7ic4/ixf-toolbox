@@ -79,6 +79,21 @@ func TestWorkflowsCheckGeneratedPluginsBeforeGoVerification(t *testing.T) {
 	}
 }
 
+func TestPluginSourcesAndGeneratedPackagesUseLFCheckout(t *testing.T) {
+	content := readRepoFile(t, ".gitattributes")
+	for _, expected := range []string{
+		"plugin-src/** text eol=lf",
+		"skills/** text eol=lf",
+		"plugins/** text eol=lf",
+		".agents/plugins/marketplace.json text eol=lf",
+		".claude-plugin/marketplace.json text eol=lf",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf(".gitattributes missing plugin LF contract %q:\n%s", expected, content)
+		}
+	}
+}
+
 func TestGoBinarySmokeUsesDependencyDryRunWithoutSkillInstallation(t *testing.T) {
 	content := readRepoFile(t, "scripts/smoke-go-binary.sh")
 	if !strings.Contains(content, "deps install --dry-run --json") {
@@ -714,6 +729,7 @@ func TestNativePluginSmokeCoversIsolatedHostLifecycle(t *testing.T) {
 		"hooks/session-start",
 		"bootstrap-runtime.sh --dry-run --install-dir",
 		"cygpath -w",
+		"MINGW*|MSYS*|CYGWIN*)",
 	} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("native plugin smoke missing host lifecycle contract %q:\n%s", expected, content)

@@ -1,0 +1,5 @@
+plugin-src/** text eol=lf
+skills/** text eol=lf
+plugins/** text eol=lf
+.agents/plugins/marketplace.json text eol=lf
+.claude-plugin/marketplace.json text eol=lf

@@ -6,7 +6,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$ReleaseVersion = "3.26.3"
+$ReleaseVersion = "3.27.0"
 $Repository = "serialq7ic4/ixf-toolbox"
 
 try {

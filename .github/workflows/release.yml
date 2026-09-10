@@ -27,6 +27,8 @@ jobs:
             echo "tag ${actual} does not match VERSION ${expected}" >&2
             exit 1
           fi
+      - name: Check generated plugin packages
+        run: go run ./cmd/pluginpack --check
       - name: Run Go tests
         run: go test ./...
       - name: Run Go vet
@@ -55,6 +57,9 @@ jobs:
           set -euo pipefail
           RELEASE_VERSION="${GITHUB_REF_NAME#v}"
           scripts/smoke-go-binary.sh "dist/ixf_${RELEASE_VERSION}_linux_amd64" "${RELEASE_VERSION}"
+      - name: Smoke native plugins
+        shell: bash
+        run: scripts/smoke-native-plugins.sh
       - name: Extract release notes
         shell: bash
         env:

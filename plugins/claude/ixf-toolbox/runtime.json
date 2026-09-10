@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "repository": "serialq7ic4/ixf-toolbox",
-  "releaseVersion": "3.26.3",
-  "minimumVersion": "3.26.3",
+  "releaseVersion": "3.27.0",
+  "minimumVersion": "3.27.0",
   "installPaths": {
     "unix": "~/.local/share/ixf-toolbox/bin/ixf",
     "windows": "%LOCALAPPDATA%\\ixf-toolbox\\bin\\ixf.exe"

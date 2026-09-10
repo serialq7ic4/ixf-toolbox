@@ -34,11 +34,7 @@ fi
 printf '%s\n' "$version_output"
 HOME="$smoke_home" "$binary" --help >/dev/null
 HOME="$smoke_home" "$binary" doctor --json >/dev/null || true
-HOME="$smoke_home" "$binary" setup skills --runtimes codex --json >/dev/null
-
-skill_path="$smoke_home/.codex/skills/ixf-docs-reader/SKILL.md"
-test -f "$skill_path"
-grep -q "ixf docs read" "$skill_path"
+HOME="$smoke_home" "$binary" deps install --dry-run --json >/dev/null
 
 sample="$smoke_root/sample.md"
 out_dir="$smoke_root/out"

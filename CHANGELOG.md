@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 3.27.0 - 2026-09-10
+
+- Added native Codex and Claude Code plugin marketplaces so each host owns skill discovery, updates, disablement, and uninstall.
+- Added confirmed, checksum-verified bootstrap of the Go `ixf` runtime into user-local directories without modifying `PATH`.
+- Consolidated the seven agent skills into one canonical source tree with deterministic host-specific generated plugin packages.
+- Added a Claude-only SessionStart routing hint while keeping Codex packages hook-free.
+- Extended read-only `ixf doctor --json` diagnostics for native plugin installation, absent/unknown states, and legacy raw-skill duplicate risk.
+- Replaced setup dependency commands with dry-run-first `ixf deps install` and explicit `--apply` for optional Mermaid rendering dependencies.
+- Removed `ixf setup skills`, `ixf update skills`, and the complete `ixf setup` command family; native host plugins now own skill installation.
+
 ## 3.26.3 - 2026-08-28
 
 - Fixed Markdown blockquotes so published, updated, and patched docx content creates native quote containers instead of literal `>` text.

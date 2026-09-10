@@ -2,6 +2,7 @@ package ixftoolbox
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -59,6 +60,49 @@ func TestWorkflowsUseGoToolchainOnly(t *testing.T) {
 			if !strings.Contains(text, expected) {
 				t.Fatalf("%s missing %q", relative, expected)
 			}
+		}
+	}
+}
+
+func TestWorkflowsCheckGeneratedPluginsBeforeGoVerification(t *testing.T) {
+	for _, relative := range []string{".github/workflows/ci.yml", ".github/workflows/release.yml"} {
+		content := readRepoFile(t, relative)
+		for _, expected := range []string{
+			"go run ./cmd/pluginpack --check",
+			"go test ./...",
+			"go vet ./...",
+		} {
+			if !strings.Contains(content, expected) {
+				t.Fatalf("%s missing release gate %q:\n%s", relative, expected, content)
+			}
+		}
+	}
+}
+
+func TestGoBinarySmokeUsesDependencyDryRunWithoutSkillInstallation(t *testing.T) {
+	content := readRepoFile(t, "scripts/smoke-go-binary.sh")
+	if !strings.Contains(content, "deps install --dry-run --json") {
+		t.Fatalf("binary smoke missing dependency dry-run:\n%s", content)
+	}
+	if strings.Contains(content, "setup skills") {
+		t.Fatalf("binary smoke still installs raw skills:\n%s", content)
+	}
+}
+
+func TestReleaseWorkflowPublishesOnlyVersionedBinariesAndChecksums(t *testing.T) {
+	content := readRepoFile(t, ".github/workflows/release.yml")
+	for _, expected := range []string{
+		"for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64",
+		`artifact="ixf_${RELEASE_VERSION}_${goos}_${goarch}"`,
+		`"ixf_${RELEASE_VERSION}_checksums.txt"`,
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("release workflow missing artifact contract %q:\n%s", expected, content)
+		}
+	}
+	for _, forbidden := range []string{".whl", "sdist", "plugin.zip", "plugin.tar"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("release workflow publishes unsupported artifact %q:\n%s", forbidden, content)
 		}
 	}
 }
@@ -616,6 +660,45 @@ func TestCanonicalSkillsHaveGeneratedHostCopies(t *testing.T) {
 	}
 }
 
+func TestNativePluginArtifacts(t *testing.T) {
+	version := strings.TrimSpace(readRepoFile(t, "VERSION"))
+	codex := decodeRepoJSON(t, "plugins/codex/ixf-toolbox/.codex-plugin/plugin.json")
+	claude := decodeRepoJSON(t, "plugins/claude/ixf-toolbox/.claude-plugin/plugin.json")
+	for name, manifest := range map[string]map[string]any{"codex": codex, "claude": claude} {
+		if manifest["name"] != "ixf-toolbox" || manifest["version"] != version {
+			t.Fatalf("%s manifest name/version = %#v/%#v, want ixf-toolbox/%s", name, manifest["name"], manifest["version"], version)
+		}
+	}
+	if codex["skills"] != "./skills/" {
+		t.Fatalf("Codex skills = %#v, want ./skills/", codex["skills"])
+	}
+	if _, exists := codex["hooks"]; exists {
+		t.Fatalf("Codex manifest must not declare hooks: %#v", codex)
+	}
+
+	if _, err := os.Stat(filepath.Join(repoRoot(t), "plugins", "claude", "ixf-toolbox", "hooks", "hooks.json")); err != nil {
+		t.Fatalf("Claude hooks missing: %v", err)
+	}
+	for _, name := range canonicalSkillNames {
+		path := filepath.Join(repoRoot(t), "plugins", "claude", "ixf-toolbox", "skills", name)
+		info, err := os.Stat(path)
+		if err != nil || !info.IsDir() {
+			t.Fatalf("Claude root skill directory %s missing or invalid: %v", name, err)
+		}
+	}
+
+	codexMarketplace := decodeRepoJSON(t, ".agents/plugins/marketplace.json")
+	claudeMarketplace := decodeRepoJSON(t, ".claude-plugin/marketplace.json")
+	codexEntry := codexMarketplace["plugins"].([]any)[0].(map[string]any)
+	claudeEntry := claudeMarketplace["plugins"].([]any)[0].(map[string]any)
+	if codexEntry["name"] != "ixf-toolbox" || codexEntry["source"].(map[string]any)["path"] != "./plugins/codex/ixf-toolbox" {
+		t.Fatalf("Codex marketplace entry = %#v", codexEntry)
+	}
+	if claudeEntry["name"] != "ixf-toolbox" || claudeEntry["source"] != "./plugins/claude/ixf-toolbox" {
+		t.Fatalf("Claude marketplace entry = %#v", claudeEntry)
+	}
+}
+
 func TestMessengerGADocumentationCoversOperationalBoundaries(t *testing.T) {
 	messengerDoc := readRepoFile(t, "docs/messenger.md")
 	for _, expected := range []string{
@@ -689,6 +772,16 @@ func extractMarkdownSection(markdown string, heading string) string {
 		body = body[:len(header)+next]
 	}
 	return strings.TrimSpace(body)
+}
+
+func decodeRepoJSON(t *testing.T, relative string) map[string]any {
+	t.Helper()
+	content := readRepoFile(t, relative)
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(content), &payload); err != nil {
+		t.Fatalf("decode %s: %v", relative, err)
+	}
+	return payload
 }
 
 func readRepoFile(t *testing.T, relative string) string {

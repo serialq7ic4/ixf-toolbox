@@ -408,8 +408,13 @@ func TestPowerShellBootstrapRequiresApplyAndVerifiesChecksum(t *testing.T) {
 		t.Fatalf("PowerShell apply failed: %v\n%s", err, applyOutput)
 	}
 	var apply bootstrapResult
-	if err := json.Unmarshal(applyOutput, &apply); err != nil || !apply.OK || !apply.Apply || apply.TargetPath != target || requests.Load() != 2 {
+	if err := json.Unmarshal(applyOutput, &apply); err != nil || !apply.OK || !apply.Apply || requests.Load() != 2 {
 		t.Fatalf("PowerShell apply = %s, requests=%d, err=%v", applyOutput, requests.Load(), err)
+	}
+	targetInfo, targetErr := os.Stat(target)
+	reportedInfo, reportedErr := os.Stat(apply.TargetPath)
+	if targetErr != nil || reportedErr != nil || !os.SameFile(targetInfo, reportedInfo) {
+		t.Fatalf("PowerShell target paths differ: requested=%q reported=%q requestedErr=%v reportedErr=%v", target, apply.TargetPath, targetErr, reportedErr)
 	}
 	if got := readBootstrapFile(t, target); !bytes.Equal(got, asset) {
 		t.Fatalf("PowerShell installed bytes = %q", got)
@@ -422,10 +427,12 @@ func TestPowerShellBootstrapRejectsInvalidModesPathsAndChecksum(t *testing.T) {
 	}
 	root := generateRepositoryFixture(t)
 	localAppData := t.TempDir()
+	separator := string(os.PathSeparator)
+	traversalDir := localAppData + separator + "child" + separator + ".." + separator + "bin"
 	for _, args := range [][]string{
 		{"-DryRun", "-Apply"},
 		{"-Apply", "-InstallDir", t.TempDir()},
-		{"-Apply", "-InstallDir", filepath.Join(localAppData, "child", "..", "bin")},
+		{"-Apply", "-InstallDir", traversalDir},
 	} {
 		output, err := runPowerShellBootstrapCommand(t, root, map[string]string{"LOCALAPPDATA": localAppData}, args...)
 		if err == nil || (!strings.Contains(string(output), "mutually exclusive") &&

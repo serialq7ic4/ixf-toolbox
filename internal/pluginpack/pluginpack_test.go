@@ -57,8 +57,13 @@ func TestGeneratedMarketplacesPointAtHostPackages(t *testing.T) {
 	if codexMarketplace["name"] != "ixf-toolbox" || claudeMarketplace["name"] != "ixf-toolbox" {
 		t.Fatalf("marketplace names = %#v, %#v", codexMarketplace["name"], claudeMarketplace["name"])
 	}
+	codexInterface, ok := codexMarketplace["interface"].(map[string]any)
+	if !ok || codexInterface["displayName"] != "i讯飞 Toolbox" {
+		t.Fatalf("Codex marketplace interface = %#v", codexMarketplace["interface"])
+	}
 	codexEntry := codexMarketplace["plugins"].([]any)[0].(map[string]any)
-	if codexEntry["source"].(map[string]any)["path"] != "./plugins/codex/ixf-toolbox" {
+	codexSource := codexEntry["source"].(map[string]any)
+	if codexSource["source"] != "local" || codexSource["path"] != "./plugins/codex/ixf-toolbox" {
 		t.Fatalf("Codex source = %#v", codexEntry["source"])
 	}
 	if codexEntry["policy"].(map[string]any)["installation"] != "AVAILABLE" ||

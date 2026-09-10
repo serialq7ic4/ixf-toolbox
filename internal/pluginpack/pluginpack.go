@@ -80,9 +80,14 @@ type claudeManifest struct {
 }
 
 type codexMarketplace struct {
-	Name    string                   `json:"name"`
-	Owner   author                   `json:"owner"`
-	Plugins []codexMarketplacePlugin `json:"plugins"`
+	Name      string                    `json:"name"`
+	Interface codexMarketplaceInterface `json:"interface"`
+	Owner     author                    `json:"owner"`
+	Plugins   []codexMarketplacePlugin  `json:"plugins"`
+}
+
+type codexMarketplaceInterface struct {
+	DisplayName string `json:"displayName"`
 }
 
 type codexMarketplacePlugin struct {
@@ -94,7 +99,8 @@ type codexMarketplacePlugin struct {
 }
 
 type codexPluginSource struct {
-	Path string `json:"path"`
+	Source string `json:"source"`
+	Path   string `json:"path"`
 }
 
 type codexPluginPolicy struct {
@@ -255,10 +261,10 @@ func buildPackages(root, buildRoot, version string, info metadata) error {
 	}
 
 	codexMarket := codexMarketplace{
-		Name: info.Name, Owner: info.Author,
+		Name: info.Name, Interface: codexMarketplaceInterface{DisplayName: info.Interface.DisplayName}, Owner: info.Author,
 		Plugins: []codexMarketplacePlugin{{
 			Name: info.Name, Description: info.Description,
-			Source: codexPluginSource{Path: "./plugins/codex/ixf-toolbox"}, Category: info.Interface.Category,
+			Source: codexPluginSource{Source: "local", Path: "./plugins/codex/ixf-toolbox"}, Category: info.Interface.Category,
 			Policy: codexPluginPolicy{Installation: "AVAILABLE", Authentication: "ON_USE"},
 		}},
 	}

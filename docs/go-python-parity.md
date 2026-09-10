@@ -6,8 +6,10 @@ runtime, release artifacts, and agent skill execution path.
 
 ## Go-owned Runtime
 
-The GitHub Release Go binary is the default and supported runtime for new
-installs and for the agent skills installed by `ixf setup skills`.
+Native Codex and Claude plugins are the supported skill installation path. The
+plugins discover or, after explicit confirmation, bootstrap the GitHub Release
+Go binary that executes all business workflows. Canonical skill sources live at
+`skills/*/SKILL.md`; host packages contain generated copies.
 
 | Command family | Go ownership | Notes |
 |---|---|---|
@@ -23,12 +25,10 @@ installs and for the agent skills installed by `ixf setup skills`.
 | `okr read` | Owned | Reads authorized OKR pages through the OKR detail APIs. |
 | `okr write` | Owned | Writes confirmed Objective / KR JSON, including index-targeted, full-spec, and explicit prune flows. |
 | `cookies export` | Owned | Exports local desktop-session cookies on macOS and CI-covered Windows providers. |
-| `doctor` | Owned | Reports runtime, skill, and cookie metadata without printing cookie values. |
-| `setup skills` | Owned | Installs Codex and Claude Code skill wrappers that call the local `ixf` binary. |
-| `setup deps` | Owned | Dry-runs or explicitly installs optional Mermaid rendering dependencies; desktop/browser login dependencies remain diagnostic-only. |
+| `doctor` | Owned | Read-only report of runtime, native plugin, legacy skill, cookie, and dependency metadata without printing cookie values. |
+| `deps install` | Owned | Dry-runs or, with explicit `--apply`, installs optional Mermaid rendering dependencies; desktop/browser login dependencies remain diagnostic-only. |
 | `update check` | Owned | Checks the latest GitHub Release without mutating local files. |
 | `update self` | Owned | Plans or applies local binary/package replacement with explicit `--apply`. |
-| `update skills` | Owned | Refreshes installed local skill wrappers. |
 
 Markdown Mermaid image publishing remains in the Go CLI path. The Go runtime
 detects Mermaid fences, creates docx image blocks, and invokes external Mermaid
@@ -51,9 +51,21 @@ The repository test harness is Go-only:
 There is no Python package API, wheel, sdist, or Python runtime implementation.
 Direct Python package API callers must migrate to the Go CLI.
 
+## Native Plugin Lifecycle
+
+Codex and Claude plugin commands own skill discovery, update, disablement, and
+uninstall. The plugin checks `PATH` and the documented user-local binary path on
+first use. If the runtime is missing or too old, it presents a bootstrap dry-run,
+requires user confirmation, verifies the release checksum, installs in the user
+directory, and does not change `PATH`.
+
+`ixf doctor --json` is read-only. `ixf deps install --apply` is the only optional
+dependency mutation path. Existing raw skill directories are reported as legacy
+duplicate risk and are never deleted automatically.
+
 ## No Legacy Fallback
 
-All current docs, wiki, docx, sheets, OKR, cookie, setup, update, and Messenger
+All current docs, wiki, docx, sheets, bitable, OKR, cookie, dependency, update, and Messenger
 workflows use Go `ixf` only. Do not use Python fallback, Python-compatible
 readers, Python-compatible writers, `ixfdoc`, or `ixfwrite`. Old changelog
 entries and `docs/superpowers/` implementation plans are historical records, not
@@ -65,7 +77,7 @@ Python runtime deletion is complete:
 
 - Go owns every documented CLI command family and every installed skill calls Go.
 - Fixture parity covers document read/publish, OKR read/write, cookie export,
-  diagnostics, setup, and update flows.
+  diagnostics, dependency, plugin packaging, and update flows.
 - No user-facing docs recommend Python for new installs.
 - CI and release workflows publish supported Go binaries and do not require the
   Python runtime implementation for CLI behavior.

@@ -43,46 +43,33 @@
 
 ## 安装到 Codex / Claude Code
 
-推荐让当前正在使用的 agent 直接完成安装。默认安装方式是下载 GitHub Release Go 二进制，再把七个 skill 注册到 Codex 或 Claude Code；不要求本机具备 Python 环境。
+优先使用宿主原生 plugin 安装。plugin 负责 skill 发现、启用、升级和卸载；Go `ixf` 二进制仍是唯一业务 runtime。
 
-如果你正在使用 Codex，可以直接对 Codex 说：
-
-> 请帮我安装 https://github.com/serialq7ic4/ixf-toolbox。使用 GitHub Release Go 二进制安装本地 `ixf`（macOS Apple Silicon 用 `ixf_3.26.3_darwin_arm64`，macOS Intel 用 `ixf_3.26.3_darwin_amd64`，Windows 用 `ixf_3.26.3_windows_amd64.exe`），然后运行 `ixf setup skills --runtimes codex --json` 注册 skill，最后用 `ixf --version` 和 `ixf doctor --json` 验证。
-
-### macOS Apple Silicon
+### Codex
 
 ```bash
-mkdir -p ~/.local/bin
-curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.26.3/ixf_3.26.3_darwin_arm64
-chmod +x ~/.local/bin/ixf
-ixf setup skills --runtimes codex --json
-ixf --version
-ixf doctor --json
+codex plugin marketplace add serialq7ic4/ixf-toolbox
+codex plugin add ixf-toolbox@ixf-toolbox
 ```
 
-macOS Intel 将文件名换成 `ixf_3.26.3_darwin_amd64`。
+### Claude Code
 
-### Windows PowerShell
-
-```powershell
-New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.26.3/ixf_3.26.3_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
-$env:PATH = "$HOME\bin;$env:PATH"
-ixf setup skills --runtimes codex --json
-ixf --version
-ixf doctor --json
+```bash
+claude plugin marketplace add serialq7ic4/ixf-toolbox
+claude plugin install ixf-toolbox@ixf-toolbox --scope user --yes
 ```
 
-### 同时安装到两个 agent
+首次使用 i讯飞工作流时，plugin 会先查找 `PATH` 中的 `ixf`，再检查用户目录中的 runtime。缺失或版本过旧时，它只展示 bootstrap dry-run，包括版本、平台、GitHub Release 主机和目标路径；获得明确确认后才会校验 checksum 并安装到 `~/.local/share/ixf-toolbox/bin/ixf`，Windows 则安装到 `%LOCALAPPDATA%\ixf-toolbox\bin\ixf.exe`。bootstrap 不会修改 `PATH`，agent 会直接调用该安装路径并运行 `ixf doctor --json`。
 
-将上面的 `--runtimes codex` 换成 `--runtimes auto`，即可同时注册 Codex 和 Claude Code skill。
+如果 bootstrap 失败，可从 GitHub Release 手动安装对应平台的 Go 二进制；这只是故障排查 fallback，不是 plugin 安装后的第二个必做步骤。
+
+旧的 `~/.codex/skills/ixf-*`、`~/.claude/skills/ixf-*` 和 `using-ixf-toolbox` 原始 skill 目录属于 legacy 安装。原生 plugin 不会自动删除它们；完成新会话路由验证并检查 `ixf doctor --json` 的 duplicate risk 后，再由用户手动清理。
 
 ### Go-only runtime
 
 v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只保留 Go `ixf` 作为受支持的执行入口。开发、CI 和发布验证统一使用 Go 工具链。
 
-当前版本所有文档、wiki、docx、sheets、OKR、cookie、setup、update 和 Messenger 能力都只走 Go `ixf`。不要使用 Python fallback，不要调用旧的 `ixfdoc` 或 `ixfwrite` 命令；历史 changelog 和 `docs/superpowers/` 计划文件不能作为当前路由依据。当前路由契约见 [`docs/agent-routing.md`](docs/agent-routing.md)，`ixf doctor --json` 会输出 `agentRouting` 诊断。
+当前版本所有文档、wiki、docx、sheets、OKR、cookie、依赖诊断、runtime 更新和 Messenger 能力都只走 Go `ixf`。不要使用 Python fallback，不要调用旧的 `ixfdoc` 或 `ixfwrite` 命令；历史 changelog 和 `docs/superpowers/` 计划文件不能作为当前路由依据。当前路由契约见 [`docs/agent-routing.md`](docs/agent-routing.md)，`ixf doctor --json` 会输出 `agentRouting` 和原生 plugin 安装诊断。
 
 ## 在 Agent 里使用
 
@@ -151,13 +138,11 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --dry-run --json` | 规划发送消息，不启动浏览器、不回显完整消息正文 |
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --apply --json` | 发送确认消息，并通过 fresh-session 复核后报告成功 |
 | `ixf cookies export` | 从本机桌面端会话导出 cookie |
-| `ixf doctor --json` | 检查运行环境、skill、cookie 和全功能依赖元数据，不打印 cookie 值 |
-| `ixf setup skills --runtimes auto --json` | 安装 Codex / Claude Code skill |
-| `ixf setup deps --json` | dry-run 检查可自动安装的可选依赖命令 |
-| `ixf setup deps --apply --json` | 显式安装 Mermaid CLI / Puppeteer 浏览器依赖，不改 Messenger 桌面环境 |
+| `ixf doctor --json` | 只读检查 runtime、原生 plugin、legacy skill、cookie 和全功能依赖元数据，不打印 cookie 值 |
+| `ixf deps install --dry-run --json` | 规划可脚本化的 Mermaid 可选依赖安装，不修改本机 |
+| `ixf deps install --apply --json` | 显式安装 Mermaid CLI / Puppeteer 浏览器依赖，不改 Messenger 桌面环境 |
 | `ixf update check --json` | 检查最新 GitHub Release |
 | `ixf update self --json` | 规划或执行 Toolbox 自升级 |
-| `ixf update skills --runtimes auto --json` | 刷新本地 skill wrapper |
 
 ### 当前运行边界
 
@@ -182,17 +167,13 @@ ixf update check --json
 ixf update self --json
 ```
 
-确认后执行升级，并刷新本地 skill：
+确认后执行 runtime 升级：
 
 ```bash
 ixf update self --apply --json
 ```
 
-如果只想刷新本地 skill wrapper：
-
-```bash
-ixf update skills --runtimes auto --json
-```
+Codex / Claude plugin 的升级、禁用和卸载由各自的原生 plugin 命令负责；`ixf update check/self` 只管理 Go runtime，不修改 plugin 或 skill 目录。
 
 ## 依赖检查与安装
 
@@ -202,8 +183,8 @@ ixf update skills --runtimes auto --json
 |---|---|---|---|
 | i讯飞/LarkShell 桌面端登录态 | 私有 docs / sheets / OKR / Messenger 授权访问 | `ixf doctor --json` 的 `cookies`，以及 `dependencies.messenger.cookies` | 否；需用户登录桌面端后运行 `ixf cookies export` |
 | macOS Keychain / Windows DPAPI | 解密本机 LarkShell Chromium cookie | `ixf cookies export` 和 `ixf doctor --json` | 否；属于系统授权能力 |
-| Mermaid CLI `mmdc` | 将 Markdown Mermaid 图渲染为 SVG/PNG 图片块 | `dependencies.mermaid.available/ready`，以及 docs dry-run 的 `mermaidRendererReady` | 是；`ixf setup deps --apply --json` 可安装 |
-| Puppeteer `chrome-headless-shell` | `mmdc` 内部 headless browser 渲染环境 | `dependencies.mermaid.ready/error/remediation` | 是；`ixf setup deps --apply --json` 会运行 Puppeteer browser 安装命令 |
+| Mermaid CLI `mmdc` | 将 Markdown Mermaid 图渲染为 SVG/PNG 图片块 | `dependencies.mermaid.available/ready`，以及 docs dry-run 的 `mermaidRendererReady` | 是；`ixf deps install --apply --json` 可安装 |
+| Puppeteer `chrome-headless-shell` | `mmdc` 内部 headless browser 渲染环境 | `dependencies.mermaid.ready/error/remediation` | 是；`ixf deps install --apply --json` 会运行 Puppeteer browser 安装命令 |
 | Chrome 或 Chromium | Messenger 浏览器自动化 | `dependencies.messenger.browser` 或 `ixf messenger doctor --json` | 否；只提示安装或通过 `--browser-path` / `IXF_MESSENGER_BROWSER_PATH` 指定 |
 | LarkShell `profile_explorer` | Messenger cloned profile 自动化 | `dependencies.messenger.profile` 或 `ixf messenger doctor --json` | 否；需要桌面端已登录并存在 profile |
 | GitHub Release 访问 | `ixf update check/self` 和 release 安装 | `dependencies.update` | 否；网络或代理由用户环境提供 |
@@ -219,16 +200,16 @@ ixf doctor --json
 查看可自动安装的依赖计划：
 
 ```bash
-ixf setup deps --json
+ixf deps install --dry-run --json
 ```
 
 确认后安装 Mermaid 渲染工具链：
 
 ```bash
-ixf setup deps --apply --json
+ixf deps install --apply --json
 ```
 
-`setup deps --apply` 只会尝试安装 Mermaid CLI / Puppeteer browser 这类可脚本化依赖；不会静默安装 Chrome、修改 LarkShell 登录态、写系统代理，或改动 Messenger 桌面环境。
+`ixf doctor --json` 始终只读。`ixf deps install --apply` 是唯一的可选依赖修改入口，只会尝试安装 Mermaid CLI / Puppeteer browser 这类可脚本化依赖；不会静默安装 Chrome、修改 LarkShell 登录态、写系统代理，或改动 Messenger 桌面环境。
 
 ## 手动读取流程
 
@@ -573,7 +554,7 @@ ixf okr write \
 - 本地 Markdown 显式分块、artifact 生成、发布和测试；普通本地 Markdown 阅读由宿主文件系统完成。
 - 授权 OKR 页面读取、指定 Objective 更新/创建、按 Objective 文本写入多个 Objective、KR 创建/修改/排序、显式 prune 和发布。
 - Messenger 自动化就绪诊断、profile 发现、profile 安全克隆（cloned profile）、dry-run 打开规划、显式 --apply 打开并验证目标会话、只读读取最近/未读会话，以及确认后的消息发送和 fresh-session 复核。
-- 本机 macOS / Windows 桌面端 cookie 导出、诊断和 skill 安装。
+- 本机 macOS / Windows 桌面端 cookie 导出、原生 plugin 诊断和确认后的用户目录 runtime bootstrap。
 
 部分云文档 block 格式无法和 Markdown 一一对应。当前转换器优先保证 agent 分析可用，而不是完全还原原始文档视觉效果。
 

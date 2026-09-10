@@ -43,40 +43,27 @@ Compared with browser export tools, Toolbox is optimized for agent workflows:
 
 ## Install Into Codex / Claude Code
 
-The recommended path is to let the agent you are already using install Toolbox. The default install path is the GitHub Release Go binary, followed by seven-skill registration for Codex or Claude Code; a local Python environment is not required.
+Use the host-native plugin installation first. The plugin owns skill discovery, enablement, upgrades, and uninstall; the Go `ixf` binary remains the only business runtime.
 
-If you are using Codex, ask Codex directly:
-
-> Install https://github.com/serialq7ic4/ixf-toolbox. Use the GitHub Release Go binary for the local `ixf` engine (macOS Apple Silicon: `ixf_3.26.3_darwin_arm64`, macOS Intel: `ixf_3.26.3_darwin_amd64`, Windows: `ixf_3.26.3_windows_amd64.exe`), then run `ixf setup skills --runtimes codex --json`, and verify with `ixf --version` and `ixf doctor --json`.
-
-### macOS Apple Silicon
+### Codex
 
 ```bash
-mkdir -p ~/.local/bin
-curl -L -o ~/.local/bin/ixf \
-  https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.26.3/ixf_3.26.3_darwin_arm64
-chmod +x ~/.local/bin/ixf
-ixf setup skills --runtimes codex --json
-ixf --version
-ixf doctor --json
+codex plugin marketplace add serialq7ic4/ixf-toolbox
+codex plugin add ixf-toolbox@ixf-toolbox
 ```
 
-For macOS Intel, use `ixf_3.26.3_darwin_amd64` instead.
+### Claude Code
 
-### Windows PowerShell
-
-```powershell
-New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.26.3/ixf_3.26.3_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
-$env:PATH = "$HOME\bin;$env:PATH"
-ixf setup skills --runtimes codex --json
-ixf --version
-ixf doctor --json
+```bash
+claude plugin marketplace add serialq7ic4/ixf-toolbox
+claude plugin install ixf-toolbox@ixf-toolbox --scope user --yes
 ```
 
-### Both Agents
+On first use of an i讯飞 workflow, the plugin checks `PATH` and then the user-local runtime. If `ixf` is missing or too old, it presents a bootstrap dry-run with the version, platform, GitHub Release host, and target path. Only after explicit confirmation does it verify the checksum and install to `~/.local/share/ixf-toolbox/bin/ixf`, or `%LOCALAPPDATA%\ixf-toolbox\bin\ixf.exe` on Windows. Bootstrap does not modify `PATH`; the agent invokes the installed path directly and runs `ixf doctor --json`.
 
-Use `--runtimes auto` instead of `--runtimes codex` to register both Codex and Claude Code skills.
+If bootstrap fails, manually install the matching Go binary from GitHub Releases. This is a troubleshooting fallback, not a second mandatory install phase after the plugin.
+
+Existing `~/.codex/skills/ixf-*`, `~/.claude/skills/ixf-*`, and `using-ixf-toolbox` raw skill directories are legacy installs. They are not deleted automatically. After a fresh session routes correctly and `ixf doctor --json` reports the duplicate risk, the user may remove them manually.
 
 ### Go-only Runtime
 
@@ -84,7 +71,7 @@ Starting with v3.1, the repository no longer contains the Python runtime/package
 implementation or Python test harness. The supported runtime is the Go `ixf`
 binary, and development, CI, and release checks use the Go toolchain.
 
-All current document, wiki, docx, sheets, OKR, cookie, setup, update, and Messenger workflows use Go `ixf` only. Do not use Python fallback, and do not call the legacy `ixfdoc` or `ixfwrite` commands; historical changelog entries and `docs/superpowers/` plans are not current routing guidance. See [`docs/agent-routing.md`](docs/agent-routing.md) for the current routing contract; `ixf doctor --json` exposes `agentRouting` diagnostics.
+All current document, wiki, docx, sheets, OKR, cookie, dependency diagnosis, runtime update, and Messenger workflows use Go `ixf` only. Do not use Python fallback, and do not call the legacy `ixfdoc` or `ixfwrite` commands; historical changelog entries and `docs/superpowers/` plans are not current routing guidance. See [`docs/agent-routing.md`](docs/agent-routing.md) for the current routing contract; `ixf doctor --json` exposes `agentRouting` and native plugin installation diagnostics.
 
 ## Agent Usage
 
@@ -151,13 +138,11 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --dry-run --json` | Plan a send without launching a browser or echoing the full message body |
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --apply --json` | Send an approved message and report success only after fresh-session verification |
 | `ixf cookies export` | Export cookies from the local desktop session |
-| `ixf doctor --json` | Inspect runtime, skills, and cookie metadata without printing cookie values |
-| `ixf setup skills --runtimes auto --json` | Install Codex / Claude Code skills |
-| `ixf setup deps --json` | Dry-run the optional dependency installer plan |
-| `ixf setup deps --apply --json` | Install Mermaid CLI / Puppeteer browser dependencies without changing the Messenger desktop environment |
+| `ixf doctor --json` | Read-only inspection of runtime, native plugins, legacy skills, cookies, and full dependency metadata without printing cookie values |
+| `ixf deps install --dry-run --json` | Plan scriptable Mermaid dependency installation without modifying the machine |
+| `ixf deps install --apply --json` | Explicitly install Mermaid CLI / Puppeteer browser dependencies without changing the Messenger desktop environment |
 | `ixf update check --json` | Check the latest GitHub Release |
 | `ixf update self --json` | Plan or apply a Toolbox package upgrade |
-| `ixf update skills --runtimes auto --json` | Refresh installed skill wrappers |
 
 ### Runtime Boundaries
 
@@ -167,6 +152,26 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 - Current routing for docs, sheets, bitable, OKR, and Messenger lives in [`docs/agent-routing.md`](docs/agent-routing.md).
 - Messenger boundaries live in [`docs/messenger.md`](docs/messenger.md), including Chrome/Chromium-only discovery, cloned profile isolation, read side effects, and send success criteria.
 - Version-by-version capability history lives in [`CHANGELOG.md`](CHANGELOG.md).
+
+## Runtime And Dependency Lifecycle
+
+Codex and Claude plugin commands own skill discovery, plugin upgrades, disablement, and uninstall. `ixf update check/self` manages only the Go runtime and does not modify plugin or skill directories.
+
+```bash
+ixf update check --json
+ixf update self --json
+ixf update self --apply --json
+```
+
+`ixf doctor --json` is always read-only. Use the separate dependency command to inspect and, only after confirmation, repair the optional Mermaid CLI and Puppeteer browser toolchain:
+
+```bash
+ixf doctor --json
+ixf deps install --dry-run --json
+ixf deps install --apply --json
+```
+
+`ixf deps install --apply` is the only optional dependency mutation path. It does not silently install Chrome, change LarkShell login state, configure a proxy, or modify the Messenger desktop environment.
 
 ## Manual Read Flow
 
@@ -474,7 +479,7 @@ Toolbox currently supports:
 - Explicit local Markdown chunking, artifact generation, publishing, and test workflows; ordinary local Markdown reading uses the host filesystem.
 - Authorized OKR reading, selected Objective update/create, multi-Objective writes by Objective text, KR create/update/order, explicit prune, and publish-after-edit.
 - Messenger readiness diagnostics, profile discovery, safe cloned profile usage, dry-run open planning, explicit --apply target verification, read-only recent/unread extraction, and approved sends with fresh-session verification.
-- macOS and experimental Windows desktop-session cookie export, diagnostics, and skill installation.
+- macOS and experimental Windows desktop-session cookie export, native plugin diagnostics, and confirmed user-local runtime bootstrap.
 
 Some cloud document blocks do not map perfectly to Markdown. The converter prioritizes agent analysis usefulness over visual fidelity.
 

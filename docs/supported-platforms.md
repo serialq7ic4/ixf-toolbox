@@ -1,6 +1,6 @@
 # Supported Platforms
 
-`ixf-toolbox` targets desktop i讯飞/LarkShell environments with local authenticated session data. The Go binary is the default local runtime. The CLI owns cookie export, diagnostics, document workflows, OKR workflows, and staged Messenger automation foundations; agent skills call the CLI.
+`ixf-toolbox` targets desktop i讯飞/LarkShell environments with local authenticated session data. Native Codex and Claude plugins provide the skills; the Go binary is the only business runtime. The CLI owns cookie export, diagnostics, document workflows, OKR workflows, dependency repair, runtime updates, and staged Messenger automation foundations.
 
 | Platform | Status | Notes |
 |---|---|---|
@@ -8,6 +8,24 @@
 | Windows | CI-tested / experimental | `ixf cookies export --provider windows-larkshell` reads the local Chromium profile and decrypts cookies with Windows DPAPI. Messenger profile discovery uses the LarkShell Chromium profile under `%APPDATA%`; Messenger automation still uses a cloned profile and needs more live desktop validation. |
 
 Linux desktop-session export and Messenger automation are not supported because i讯飞 does not ship a Linux desktop client. Pure parsing and dry-run document/OKR components may still work, but authenticated remote operations require a supported cookie source.
+
+## Plugin Bootstrap Paths
+
+On first use, a native plugin checks `PATH` and then the user-local runtime path.
+If the runtime is missing or too old, the packaged bootstrap shows a dry-run and
+requires explicit confirmation before downloading and checksum verification. It
+does not modify `PATH`.
+
+| Platform | User-local runtime path |
+|---|---|
+| macOS / Linux | `~/.local/share/ixf-toolbox/bin/ixf` |
+| Windows | `%LOCALAPPDATA%\ixf-toolbox\bin\ixf.exe` |
+
+Manual GitHub Release binary installation remains a troubleshooting fallback
+when bootstrap cannot reach the release host. Plugin lifecycle remains owned by
+the Codex or Claude plugin command, while `ixf update check/self` owns runtime
+updates and `ixf deps install --apply` owns confirmed optional Mermaid dependency
+repair.
 
 ## Messenger
 
@@ -33,14 +51,12 @@ See [`docs/messenger.md`](messenger.md) for the full Chrome/Chromium-only Messen
 
 ## Windows
 
-Install the Go binary with:
+After plugin bootstrap or manual runtime installation, export and diagnose the
+local Windows session with:
 
 ```powershell
-New-Item -ItemType Directory -Force $HOME\bin | Out-Null
-Invoke-WebRequest -Uri https://github.com/serialq7ic4/ixf-toolbox/releases/download/v3.8.0/ixf_3.8.0_windows_amd64.exe -OutFile $HOME\bin\ixf.exe
-$env:PATH = "$HOME\bin;$env:PATH"
-ixf cookies export --provider windows-larkshell --output $env:TEMP\ixf_cookies.json
-ixf doctor --json --cookies $env:TEMP\ixf_cookies.json
+& "$env:LOCALAPPDATA\ixf-toolbox\bin\ixf.exe" cookies export --provider windows-larkshell --output $env:TEMP\ixf_cookies.json
+& "$env:LOCALAPPDATA\ixf-toolbox\bin\ixf.exe" doctor --json --cookies $env:TEMP\ixf_cookies.json
 ```
 
 Exported cookie files are sensitive. Do not log, screenshot, commit, or retain them longer than needed.

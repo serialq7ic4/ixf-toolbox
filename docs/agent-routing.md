@@ -6,7 +6,7 @@ Use these files as the current routing source of truth:
 
 - `AGENTS.md`
 - `docs/agent-routing.md`
-- `skills/*/*/SKILL.md`
+- `skills/*/SKILL.md`
 - `README.md` and `README.en.md` for user-facing examples
 
 Do not use `docs/superpowers/`, old changelog entries, or historical release
@@ -29,6 +29,24 @@ correct domain skill.
 5. Use dry-run-first workflows before any remote mutation or message send.
 6. Run `ixf doctor --json` when the installed routing or local auth state is unclear; `ixf doctor --json` exposes `agentRouting` for machine-readable verification.
 7. For docs publish readiness, inspect `cookies.ok`, `capabilities.docsPublish`, and `docs.defaultBaseURL`; do not treat top-level `doctor.ok=false` alone as an auth failure.
+
+## Native Plugin And Runtime Boundary
+
+Codex and Claude native plugin commands own skill discovery, updates, disablement,
+and uninstall. The plugin package contains the canonical skills, runtime metadata,
+and bootstrap scripts; the Go `ixf` executable remains the only business runtime.
+
+On first use, resolve `ixf` from `PATH` or the documented user-local runtime path.
+If it is missing or older than the plugin minimum, present the packaged bootstrap
+dry-run and require explicit user confirmation before `--apply`. Bootstrap verifies
+the GitHub Release checksum, installs under the current user's directory, and does
+not modify `PATH`. Run `ixf doctor --json` after bootstrap succeeds.
+
+`ixf doctor --json` is read-only. Optional Mermaid dependency mutation is separate
+and requires confirmed `ixf deps install --apply`; never invoke it silently.
+Canonical skill sources live under `skills/*/SKILL.md`; generated host copies live
+under `plugins/codex/ixf-toolbox/skills/` and
+`plugins/claude/ixf-toolbox/skills/`.
 
 ## Local Markdown Boundary
 

@@ -467,13 +467,108 @@ func TestBitableRoutingAndAttachBoundaryAreDocumented(t *testing.T) {
 	}
 }
 
-func TestReadmeCommandTablesDocumentSetupDeps(t *testing.T) {
-	for _, relative := range []string{"README.md", "README.en.md"} {
-		text := readRepoFile(t, relative)
-		for _, expected := range []string{"ixf setup deps --json", "ixf setup deps --apply --json"} {
-			if !strings.Contains(text, expected) {
-				t.Fatalf("%s missing setup dependency command %q:\n%s", relative, expected, text)
+var currentGuidanceFiles = []string{
+	"README.md",
+	"README.en.md",
+	"AGENTS.md",
+	"SECURITY.md",
+	"docs/agent-routing.md",
+	"docs/go-python-parity.md",
+	"docs/python-removal-readiness.md",
+	"docs/python-api-sunset.md",
+	"docs/release.md",
+	"docs/supported-platforms.md",
+}
+
+var removedCommands = []string{
+	"ixf setup skills",
+	"ixf setup deps",
+	"ixf update skills",
+}
+
+func TestCurrentGuidanceUsesNativePluginsAndCanonicalSkillPaths(t *testing.T) {
+	for _, relative := range currentGuidanceFiles {
+		content := readRepoFile(t, relative)
+		for _, forbidden := range append([]string{
+			"skills/codex",
+			"skills/claude-code",
+			"skills/*/*/SKILL.md",
+		}, removedCommands...) {
+			if strings.Contains(content, forbidden) {
+				t.Fatalf("%s contains removed current guidance %q:\n%s", relative, forbidden, content)
 			}
+		}
+	}
+
+	for _, relative := range []string{"AGENTS.md", "docs/agent-routing.md", "docs/go-python-parity.md"} {
+		content := readRepoFile(t, relative)
+		if !strings.Contains(content, "skills/*/SKILL.md") {
+			t.Fatalf("%s missing canonical skill source path:\n%s", relative, content)
+		}
+	}
+}
+
+func TestReadmeNativePluginInstallationAndDependencyLifecycle(t *testing.T) {
+	common := []string{
+		"codex plugin marketplace add serialq7ic4/ixf-toolbox",
+		"codex plugin add ixf-toolbox@ixf-toolbox",
+		"claude plugin marketplace add serialq7ic4/ixf-toolbox",
+		"claude plugin install ixf-toolbox@ixf-toolbox --scope user --yes",
+		"ixf doctor --json",
+		"ixf deps install --dry-run --json",
+		"ixf deps install --apply --json",
+		"~/.codex/skills/ixf-*",
+		"~/.claude/skills/ixf-*",
+	}
+	for _, tc := range []struct {
+		path     string
+		expected []string
+	}{
+		{path: "README.md", expected: []string{"首次使用", "明确确认", "不会修改 `PATH`", "不会自动删除"}},
+		{path: "README.en.md", expected: []string{"first use", "explicit confirmation", "does not modify `PATH`", "not deleted automatically"}},
+	} {
+		content := readRepoFile(t, tc.path)
+		for _, expected := range append(common, tc.expected...) {
+			if !strings.Contains(content, expected) {
+				t.Fatalf("%s missing native plugin lifecycle text %q:\n%s", tc.path, expected, content)
+			}
+		}
+	}
+}
+
+func TestMigrationDocumentMarksRemovedCommandsAndManualLegacyCleanup(t *testing.T) {
+	content := readRepoFile(t, "docs/migration-from-legacy.md")
+	for _, expected := range []string{"Removed commands", "native plugin", "do not delete automatically"} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("migration document missing %q:\n%s", expected, content)
+		}
+	}
+
+	removedSection := extractMarkdownSection(content, "Removed commands")
+	if removedSection == "" {
+		t.Fatal("migration document has no Removed commands section")
+	}
+	outsideRemovedSection := strings.Replace(content, removedSection, "", 1)
+	for _, command := range removedCommands {
+		if !strings.Contains(removedSection, command) {
+			t.Fatalf("Removed commands section missing %q:\n%s", command, removedSection)
+		}
+		if strings.Contains(outsideRemovedSection, command) {
+			t.Fatalf("migration document uses removed command outside Removed commands section %q:\n%s", command, content)
+		}
+	}
+}
+
+func TestReleaseDocumentationUsesEmbeddedVersionAndNativePluginSmoke(t *testing.T) {
+	content := readRepoFile(t, "docs/release.md")
+	for _, forbidden := range append([]string{"-X main.version"}, removedCommands...) {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("release documentation contains removed instruction %q:\n%s", forbidden, content)
+		}
+	}
+	for _, expected := range []string{"VERSION", "pluginpack --check", "smoke-native-plugins.sh", "ixf deps install --dry-run --json"} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("release documentation missing %q:\n%s", expected, content)
 		}
 	}
 }
@@ -578,6 +673,20 @@ func extractChangelogSection(markdown string, version string) string {
 	next := strings.Index(body, "\n## ")
 	if next >= 0 {
 		body = body[:next]
+	}
+	return strings.TrimSpace(body)
+}
+
+func extractMarkdownSection(markdown string, heading string) string {
+	header := "## " + heading
+	start := strings.Index(markdown, header)
+	if start < 0 {
+		return ""
+	}
+	body := markdown[start:]
+	next := strings.Index(body[len(header):], "\n## ")
+	if next >= 0 {
+		body = body[:len(header)+next]
 	}
 	return strings.TrimSpace(body)
 }

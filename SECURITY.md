@@ -24,6 +24,6 @@ Do not share:
 
 ## Reporting
 
-When reporting an issue, include OS, Python version, `ixf --version`, and redacted command output. Replace private hosts and identifiers with synthetic placeholders.
+When reporting an issue, include OS, `ixf --version`, the relevant native plugin version or installation state, and redacted command output. Replace private hosts and identifiers with synthetic placeholders.
 
 Never attach cookie files, raw network captures, private screenshots, internal response bodies, or private document content to public issues.

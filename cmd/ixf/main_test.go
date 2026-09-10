@@ -17,6 +17,7 @@ import (
 
 	"github.com/serialq7ic4/ixf-toolbox/internal/agentinstall"
 	ixfbitable "github.com/serialq7ic4/ixf-toolbox/internal/bitable"
+	"github.com/serialq7ic4/ixf-toolbox/internal/dependencies"
 	"github.com/serialq7ic4/ixf-toolbox/internal/docspublish"
 	ixfupdate "github.com/serialq7ic4/ixf-toolbox/internal/update"
 )
@@ -56,10 +57,13 @@ func TestRootHelpListsCommands(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr=%q", code, stderr.String())
 	}
-	for _, expected := range []string{"usage: ixf", "docs", "sheets", "bitable", "okr", "messenger", "update"} {
+	for _, expected := range []string{"usage: ixf", "docs", "sheets", "bitable", "okr", "messenger", "deps", "doctor", "update"} {
 		if !strings.Contains(stdout.String(), expected) {
 			t.Fatalf("stdout missing %q: %s", expected, stdout.String())
 		}
+	}
+	if strings.Contains(stdout.String(), "setup") {
+		t.Fatalf("root help still lists removed setup command: %s", stdout.String())
 	}
 }
 
@@ -1282,63 +1286,75 @@ func TestDoctorCommandJSONAndTextUseGoDiagnostics(t *testing.T) {
 	}
 }
 
-func TestSetupDepsDryRunPlansMermaidDependencyInstall(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell fixture is POSIX-only")
+func TestDepsInstallDryRunPlansMermaidToolchain(t *testing.T) {
+	original := dependencyInstall
+	var captured dependencies.InstallOptions
+	dependencyInstall = func(options dependencies.InstallOptions) (map[string]any, error) {
+		captured = options
+		return map[string]any{
+			"ok":      true,
+			"dryRun":  true,
+			"apply":   false,
+			"applied": false,
+			"dependencies": map[string]any{
+				"update": map[string]any{"ok": true, "checked": false},
+			},
+		}, nil
 	}
-	stubDependencyRelease(t, version)
-	home := t.TempDir()
-	emptyBin := filepath.Join(home, "empty-bin")
-	if err := os.MkdirAll(emptyBin, 0o755); err != nil {
-		t.Fatalf("mkdir empty bin: %v", err)
-	}
-	t.Setenv("PATH", emptyBin)
-
-	stdout, stderr, code := runCLITest(t, "setup", "deps", "--json")
-	if code != 0 {
-		t.Fatalf("setup deps dry-run exit code = %d, stdout=%q stderr=%q", code, stdout, stderr)
+	t.Cleanup(func() { dependencyInstall = original })
+	stdout, stderr, code := runCLITest(t, "deps", "install", "--dry-run", "--json")
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 	payload := decodeCLIJSON(t, stdout)
-	if payload["dryRun"] != true || payload["apply"] != false {
-		t.Fatalf("setup deps payload = %+v, want dry-run", payload)
+	if payload["dryRun"] != true || payload["apply"] != false || payload["applied"] != false {
+		t.Fatalf("payload = %#v", payload)
 	}
-	commands := payload["commands"].([]any)
-	text := strings.Join(anyStrings(commands), "\n")
-	for _, expected := range []string{"npm install -g @mermaid-js/mermaid-cli", "npx puppeteer browsers install chrome-headless-shell"} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("setup deps commands missing %q: %+v", expected, commands)
-		}
+	if payload["dependencies"].(map[string]any)["update"].(map[string]any)["checked"] != false {
+		t.Fatalf("dry-run unexpectedly checked update release: %#v", payload["dependencies"])
+	}
+	if captured.Apply {
+		t.Fatalf("captured options requested apply: %#v", captured)
 	}
 }
 
-func TestSetupDepsApplyInstallsMermaidToolchainWithExplicitApply(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell fixture is POSIX-only")
+func TestDepsInstallApplyPassesExplicitMutationFlag(t *testing.T) {
+	original := dependencyInstall
+	var captured dependencies.InstallOptions
+	dependencyInstall = func(options dependencies.InstallOptions) (map[string]any, error) {
+		captured = options
+		return map[string]any{"ok": true, "dryRun": false, "apply": true, "applied": true}, nil
 	}
-	stubDependencyRelease(t, version)
-	home := t.TempDir()
-	bin := filepath.Join(home, "bin")
-	if err := os.MkdirAll(bin, 0o755); err != nil {
-		t.Fatalf("mkdir bin: %v", err)
+	t.Cleanup(func() { dependencyInstall = original })
+	stdout, stderr, code := runCLITest(t, "deps", "install", "--apply", "--cookies", "/tmp/test-cookies.json", "--json")
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	writeSetupDepsFixtureCommand(t, bin, "npm", "npm-ran", bin)
-	writeSetupDepsFixtureCommand(t, bin, "npx", "npx-ran", bin)
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+"/bin"+string(os.PathListSeparator)+"/usr/bin")
+	if !captured.Apply || captured.CookiesPath != "/tmp/test-cookies.json" || captured.CurrentVersion != version {
+		t.Fatalf("captured options = %#v", captured)
+	}
+}
 
-	stdout, stderr, code := runCLITest(t, "setup", "deps", "--apply", "--json")
-	if code != 0 {
-		t.Fatalf("setup deps apply exit code = %d, stdout=%q stderr=%q", code, stdout, stderr)
+func TestDepsInstallRejectsConflictingModesWithoutCallingInstaller(t *testing.T) {
+	original := dependencyInstall
+	called := false
+	dependencyInstall = func(options dependencies.InstallOptions) (map[string]any, error) {
+		called = true
+		return nil, nil
 	}
-	payload := decodeCLIJSON(t, stdout)
-	if payload["dryRun"] != false || payload["apply"] != true || payload["applied"] != true {
-		t.Fatalf("setup deps payload = %+v, want applied", payload)
+	t.Cleanup(func() { dependencyInstall = original })
+	_, stderr, code := runCLITest(t, "deps", "install", "--dry-run", "--apply", "--json")
+	if code != 2 || called || !strings.Contains(stderr, "mutually exclusive") {
+		t.Fatalf("code=%d called=%t stderr=%q", code, called, stderr)
 	}
-	assertFileText(t, filepath.Join(bin, "npm-ran"), "ran\n")
-	assertFileText(t, filepath.Join(bin, "npx-ran"), "ran\n")
-	dependencies := payload["dependencies"].(map[string]any)
-	mermaid := dependencies["mermaid"].(map[string]any)
-	if mermaid["ok"] != true || mermaid["ready"] != true {
-		t.Fatalf("mermaid dependency after setup = %+v, want ready", mermaid)
+}
+
+func TestRemovedSetupAndUpdateSkillsCommandsFailClosed(t *testing.T) {
+	for _, args := range [][]string{{"setup", "skills"}, {"setup", "deps"}, {"update", "skills"}} {
+		_, _, code := runCLITest(t, args...)
+		if code != 2 {
+			t.Fatalf("run(%v) code = %d, want 2", args, code)
+		}
 	}
 }
 
@@ -1355,38 +1371,6 @@ func stubDependencyRelease(t *testing.T, latest string) {
 	t.Cleanup(func() {
 		dependencyReleaseLoader = original
 	})
-}
-
-func writeSetupDepsFixtureCommand(t *testing.T, dir string, name string, marker string, bin string) {
-	t.Helper()
-	path := filepath.Join(dir, name)
-	script := "#!/bin/sh\n" +
-		"printf 'ran\\n' > " + shellQuote(filepath.Join(dir, marker)) + "\n" +
-		"cat > " + shellQuote(filepath.Join(bin, "mmdc")) + " <<'EOS'\n" +
-		"#!/bin/sh\n" +
-		"out=\"\"\n" +
-		"while [ \"$#\" -gt 0 ]; do\n" +
-		"  case \"$1\" in\n" +
-		"    -o) out=\"$2\"; shift 2 ;;\n" +
-		"    *) shift ;;\n" +
-		"  esac\n" +
-		"done\n" +
-		"printf '<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"></svg>' > \"$out\"\n" +
-		"EOS\n" +
-		"chmod +x " + shellQuote(filepath.Join(bin, "mmdc")) + "\n"
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatalf("write %s fixture: %v", name, err)
-	}
-}
-
-func anyStrings(values []any) []string {
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		if text, ok := value.(string); ok {
-			result = append(result, text)
-		}
-	}
-	return result
 }
 
 func shellQuote(value string) string {

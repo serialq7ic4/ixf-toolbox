@@ -19,6 +19,7 @@ import (
 	"github.com/serialq7ic4/ixf-toolbox/internal/agentinstall"
 	ixfbitable "github.com/serialq7ic4/ixf-toolbox/internal/bitable"
 	ixfcookies "github.com/serialq7ic4/ixf-toolbox/internal/cookies"
+	"github.com/serialq7ic4/ixf-toolbox/internal/dependencies"
 	"github.com/serialq7ic4/ixf-toolbox/internal/docslocal"
 	"github.com/serialq7ic4/ixf-toolbox/internal/docspublish"
 	"github.com/serialq7ic4/ixf-toolbox/internal/markdown"
@@ -35,6 +36,8 @@ const globalDefaultBaseURLEnv = "IXF_DEFAULT_BASE_URL"
 var version = ixftoolbox.DefaultVersion
 
 var dependencyReleaseLoader = ixfupdate.LoadRelease
+var dependencyDiagnose = dependencies.Diagnose
+var dependencyInstall = dependencies.Install
 var bitableInspect = ixfbitable.Inspect
 var bitableAttach = ixfbitable.Attach
 var bitableRecordCreate = ixfbitable.RecordCreate
@@ -69,10 +72,10 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runOKR(args[1:], stdout, stderr)
 	case "messenger":
 		return runMessenger(args[1:], stdout, stderr)
+	case "deps":
+		return runDeps(args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(args[1:], stdout, stderr)
-	case "setup":
-		return runSetup(args[1:], stdout, stderr)
 	case "cookies":
 		return runCookies(args[1:], stdout, stderr)
 	case "update":
@@ -91,8 +94,8 @@ func printRootHelp(w io.Writer) {
 		{"bitable", "Inspect, plan, or apply approved bitable changes."},
 		{"okr", "Read or plan approved OKR changes."},
 		{"messenger", "Inspect and plan safe i讯飞 Messenger automation."},
-		{"doctor", "Inspect local Toolbox setup without printing secrets."},
-		{"setup", "Inspect or install optional dependencies."},
+		{"deps", "Inspect or install optional local dependencies."},
+		{"doctor", "Inspect local Toolbox and dependency readiness without changing it."},
 		{"cookies", "Export local desktop session cookies."},
 		{"update", "Check, apply, or refresh Toolbox updates."},
 	}
@@ -145,31 +148,31 @@ func printUsageHelp(w io.Writer, usage string, options [][2]string) {
 	}
 }
 
-func runSetup(args []string, stdout io.Writer, stderr io.Writer) int {
+func runDeps(args []string, stdout io.Writer, stderr io.Writer) int {
 	rows := [][2]string{
-		{"deps", "Inspect or install optional local dependencies."},
+		{"install", "Dry-run or apply an optional local dependency repair."},
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "ERROR setup requires subcommand: deps")
-		printCommandHelp(stderr, "ixf setup", rows)
+		fmt.Fprintln(stderr, "ERROR deps requires subcommand: install")
+		printCommandHelp(stderr, "ixf deps", rows)
 		return 2
 	}
 	if isHelpArg(args[0]) {
-		printCommandHelp(stdout, "ixf setup", rows)
+		printCommandHelp(stdout, "ixf deps", rows)
 		return 0
 	}
 	switch args[0] {
-	case "deps":
-		return runSetupDeps(args[1:], stdout, stderr)
+	case "install":
+		return runDepsInstall(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "ERROR unsupported setup subcommand: %s\n", args[0])
-		printCommandHelp(stderr, "ixf setup", rows)
+		fmt.Fprintf(stderr, "ERROR unsupported deps subcommand: %s\n", args[0])
+		printCommandHelp(stderr, "ixf deps", rows)
 		return 2
 	}
 }
 
-func runSetupDeps(args []string, stdout io.Writer, stderr io.Writer) int {
-	flags := flag.NewFlagSet("ixf setup deps", flag.ContinueOnError)
+func runDepsInstall(args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("ixf deps install", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	cookiesPath := flags.String("cookies", defaultCookies, "")
 	apply := flags.Bool("apply", false, "")
@@ -184,11 +187,21 @@ func runSetupDeps(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 	if *apply && *dryRun {
-		fmt.Fprintln(stderr, "ERROR setup deps accepts only one of --dry-run or --apply")
+		fmt.Fprintln(stderr, "ERROR --dry-run and --apply are mutually exclusive")
 		return 2
 	}
-	payload, err := setupDependencies(*cookiesPath, *apply)
+	payload, err := dependencyInstall(dependencies.InstallOptions{
+		Options: dependencies.Options{
+			CurrentVersion: version,
+			CookiesPath:    *cookiesPath,
+			ReleaseLoader:  dependencyReleaseLoader,
+		},
+		Apply: *apply,
+	})
 	if err != nil {
+		if *asJSON && payload != nil {
+			writeJSON(stdout, payload)
+		}
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
 		return 1
 	}
@@ -196,7 +209,7 @@ func runSetupDeps(args []string, stdout io.Writer, stderr io.Writer) int {
 		writeJSON(stdout, payload)
 		return 0
 	}
-	formatSetupDeps(stdout, payload)
+	formatDependencyInstall(stdout, payload)
 	return 0
 }
 
@@ -2374,160 +2387,14 @@ func collectDiagnosticsWithOptions(cookiesPath string, agentOptions agentinstall
 }
 
 func dependencyDiagnostics(cookiesPath string) map[string]any {
-	mermaid := docspublish.MermaidDependencyStatus()
-	messengerStatus := messengerDependencyStatus(cookiesPath)
-	updateStatus := updateDependencyStatus()
-	return map[string]any{
-		"ok":        boolFromMap(mermaid, "ok") && boolFromMap(messengerStatus, "ok") && boolFromMap(updateStatus, "ok"),
-		"mermaid":   mermaid,
-		"messenger": messengerStatus,
-		"update":    updateStatus,
-	}
+	return dependencyDiagnose(dependencies.Options{
+		CurrentVersion: version,
+		CookiesPath:    cookiesPath,
+		ReleaseLoader:  dependencyReleaseLoader,
+	})
 }
 
-func messengerDependencyStatus(cookiesPath string) map[string]any {
-	payload := messenger.Doctor(messenger.Config{CookiesPath: cookiesPath})
-	profile := map[string]any{"ok": false}
-	if value, ok := payload["profile"].(messenger.ProfileDiscovery); ok {
-		profile["ok"] = value.OK
-		if value.Source != "" {
-			profile["source"] = value.Source
-		}
-		if value.Error != "" {
-			profile["error"] = value.Error
-		}
-	}
-	browser := map[string]any{"ok": false}
-	if value, ok := payload["browser"].(messenger.BrowserDiscovery); ok {
-		browser["ok"] = value.OK
-		if value.Source != "" {
-			browser["source"] = value.Source
-		}
-		if value.Error != "" {
-			browser["error"] = value.Error
-		}
-	}
-	cookies := map[string]any{
-		"ok":          boolFromMap(payload["cookies"], "ok"),
-		"exists":      boolFromMap(payload["cookies"], "exists"),
-		"cookieCount": intFromMap(payload["cookies"], "cookieCount"),
-		"hasCsrf":     boolFromMap(payload["cookies"], "hasCsrf"),
-		"hasLgwCsrf":  boolFromMap(payload["cookies"], "hasLgwCsrf"),
-	}
-	result := map[string]any{
-		"ok":          boolFromMap(payload, "ok"),
-		"installable": false,
-		"requiredFor": "messenger browser automation",
-		"profile":     profile,
-		"browser":     browser,
-		"cookies":     cookies,
-	}
-	if messengerInfo, ok := payload["messenger"].(map[string]any); ok {
-		result["supportedPlatform"] = boolFromMap(messengerInfo, "supportedPlatform")
-		if goosValue, _ := messengerInfo["goos"].(string); goosValue != "" {
-			result["goos"] = goosValue
-		}
-	}
-	if remediation, ok := payload["remediation"].([]string); ok && len(remediation) > 0 {
-		result["remediation"] = remediation
-	}
-	return result
-}
-
-func updateDependencyStatus() map[string]any {
-	result := map[string]any{
-		"ok":          false,
-		"repo":        ixfupdate.DefaultReleaseRepo,
-		"requiredFor": "update check and self-update",
-		"installable": false,
-	}
-	release, err := dependencyReleaseLoader(ixfupdate.DefaultReleaseRepo, "")
-	if err != nil {
-		result["error"] = err.Error()
-		result["remediation"] = "Ensure GitHub Releases are reachable. If a proxy is required, set HTTPS_PROXY, HTTP_PROXY, and ALL_PROXY before running update commands."
-		return result
-	}
-	check, err := ixfupdate.CheckLatestRelease(ixfupdate.DefaultReleaseRepo, version, release)
-	if err != nil {
-		result["error"] = err.Error()
-		result["remediation"] = "Check the release metadata returned by GitHub and retry `ixf update check --json`."
-		return result
-	}
-	for key, value := range check {
-		result[key] = value
-	}
-	result["ok"] = true
-	if boolFromMap(result, "updateAvailable") {
-		result["remediation"] = "Run `ixf update self --apply --json`, then use the host plugin manager to update ixf-toolbox."
-	}
-	return result
-}
-
-type setupDependencyCommand struct {
-	Name    string
-	Args    []string
-	Display string
-}
-
-func setupDependencies(cookiesPath string, apply bool) (map[string]any, error) {
-	before := dependencyDiagnostics(cookiesPath)
-	commands := plannedSetupDependencyCommands(before)
-	displays := setupDependencyCommandDisplays(commands)
-	payload := map[string]any{
-		"ok":           true,
-		"dryRun":       !apply,
-		"apply":        apply,
-		"applied":      false,
-		"commands":     displays,
-		"dependencies": before,
-	}
-	if !apply {
-		return payload, nil
-	}
-	for _, command := range commands {
-		path, err := exec.LookPath(command.Name)
-		if err != nil {
-			return nil, fmt.Errorf("setup dependency command %q not found; install Node.js/npm first or run manually: %s", command.Name, command.Display)
-		}
-		output, err := exec.Command(path, command.Args...).CombinedOutput()
-		if err != nil {
-			return nil, fmt.Errorf("setup dependency command failed: %s: %s", command.Display, strings.TrimSpace(string(output)))
-		}
-	}
-	payload["applied"] = len(commands) > 0
-	payload["dependencies"] = dependencyDiagnostics(cookiesPath)
-	return payload, nil
-}
-
-func plannedSetupDependencyCommands(dependencies map[string]any) []setupDependencyCommand {
-	mermaid := mapFromAny(dependencies["mermaid"])
-	commands := []setupDependencyCommand{}
-	if !boolFromMap(mermaid, "available") {
-		commands = append(commands, setupDependencyCommand{
-			Name:    "npm",
-			Args:    []string{"install", "-g", "@mermaid-js/mermaid-cli"},
-			Display: "npm install -g @mermaid-js/mermaid-cli",
-		})
-	}
-	if !boolFromMap(mermaid, "ready") {
-		commands = append(commands, setupDependencyCommand{
-			Name:    "npx",
-			Args:    []string{"puppeteer", "browsers", "install", "chrome-headless-shell"},
-			Display: "npx puppeteer browsers install chrome-headless-shell",
-		})
-	}
-	return commands
-}
-
-func setupDependencyCommandDisplays(commands []setupDependencyCommand) []string {
-	result := make([]string, 0, len(commands))
-	for _, command := range commands {
-		result = append(result, command.Display)
-	}
-	return result
-}
-
-func formatSetupDeps(w io.Writer, payload map[string]any) {
+func formatDependencyInstall(w io.Writer, payload map[string]any) {
 	fmt.Fprintf(w, "dry_run %t\n", boolFromMap(payload, "dryRun"))
 	fmt.Fprintf(w, "apply %t\n", boolFromMap(payload, "apply"))
 	fmt.Fprintf(w, "applied %t\n", boolFromMap(payload, "applied"))

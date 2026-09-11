@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 3.27.2 - 2026-09-11
+
+- Fixed Claude Code native plugin routing for natural-language i讯飞/LarkShell requests by adding a prompt-aware `UserPromptSubmit` hook, exact namespaced skill guidance, and a local Markdown opt-out boundary.
+
 ## 3.27.1 - 2026-09-11
 
 - Fixed Windows runtime bootstrap path validation for 8.3 aliases and reparse-point replacement, including destination revalidation before directory creation and binary replacement.

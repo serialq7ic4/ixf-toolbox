@@ -103,12 +103,24 @@ esac
 
 hook_output=$(printf '{}\n' | bash plugins/claude/ixf-toolbox/hooks/session-start)
 case "$hook_output" in
-    *'"hookEventName":"SessionStart"'*'i讯飞 / LarkShell'*) ;;
+    *'"hookEventName":"SessionStart"'*'i讯飞/LarkShell'*'ixf-toolbox:using-ixf-toolbox'*) ;;
     *)
         echo "Claude SessionStart hook did not emit the routing hint" >&2
         exit 1
         ;;
 esac
+
+prompt_hook_output=$(printf '%s\n' '{"prompt":"Read https://yf2ljykclb.xfchat.iflytek.com/docx/example123"}' | bash plugins/claude/ixf-toolbox/hooks/user-prompt-submit)
+case "$prompt_hook_output" in
+    *'"hookEventName":"UserPromptSubmit"'*'ixf-toolbox:using-ixf-toolbox'*'`ixf-toolbox` alone is not a valid identifier'*) ;;
+    *)
+        echo "Claude UserPromptSubmit hook did not emit the namespaced routing instruction" >&2
+        exit 1
+        ;;
+esac
+
+local_prompt_hook_output=$(printf '%s\n' '{"prompt":"Read ./README.md locally"}' | bash plugins/claude/ixf-toolbox/hooks/user-prompt-submit)
+test -z "$local_prompt_hook_output"
 
 bootstrap_target="$smoke_home/bootstrap"
 case "$host_os" in

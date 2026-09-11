@@ -183,7 +183,7 @@ func runPowerShellBootstrapCommand(t *testing.T, root string, overrides map[stri
 	return command.CombinedOutput()
 }
 
-func runSessionStart(t *testing.T, pluginRoot, input string) []byte {
+func runHook(t *testing.T, pluginRoot, hookName, input string) []byte {
 	t.Helper()
 	dispatcher := filepath.Join(pluginRoot, "hooks", "run-hook.cmd")
 	var command *exec.Cmd
@@ -192,23 +192,33 @@ func runSessionStart(t *testing.T, pluginRoot, input string) []byte {
 		if err != nil {
 			t.Fatal("cmd.exe is required on Windows")
 		}
-		command = exec.Command(cmdExe, "/d", "/c", dispatcher, "session-start")
+		command = exec.Command(cmdExe, "/d", "/c", dispatcher, hookName)
 	} else {
 		bash, err := exec.LookPath("bash")
 		if err != nil {
 			t.Skip("bash is required to execute the polyglot hook dispatcher")
 		}
-		command = exec.Command(bash, dispatcher, "session-start")
+		command = exec.Command(bash, dispatcher, hookName)
 	}
 	command.Stdin = strings.NewReader(input)
 	output, err := command.Output()
 	if err != nil {
-		t.Fatalf("session-start: %v\n%s", err, output)
+		t.Fatalf("%s: %v\n%s", hookName, err, output)
 	}
 	if runtime.GOOS == "windows" && len(bytes.TrimSpace(output)) == 0 {
 		t.Skip("Windows hook dispatcher found no supported Bash executable")
 	}
 	return output
+}
+
+func runSessionStart(t *testing.T, pluginRoot, input string) []byte {
+	t.Helper()
+	return runHook(t, pluginRoot, "session-start", input)
+}
+
+func runUserPromptSubmit(t *testing.T, pluginRoot, input string) []byte {
+	t.Helper()
+	return runHook(t, pluginRoot, "user-prompt-submit", input)
 }
 
 func TestGeneratedRuntimeMetadataAndHostBoundaries(t *testing.T) {
@@ -526,7 +536,7 @@ func TestPowerShellBootstrapRevalidatesInstallDirectoryBeforeWrite(t *testing.T)
 	}
 }
 
-func TestClaudeSessionStartHookOnlyInjectsRoutingHint(t *testing.T) {
+func TestClaudeSessionStartHookRequiresNamespacedRoutingSkill(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX hook test; Windows host validation uses Claude's shell dispatcher")
 	}
@@ -541,7 +551,7 @@ func TestClaudeSessionStartHookOnlyInjectsRoutingHint(t *testing.T) {
 	if err := json.Unmarshal(output, &payload); err != nil {
 		t.Fatal(err)
 	}
-	const want = "For i讯飞 / LarkShell links or document, sheets, bitable, OKR, and Messenger requests, consider the ixf-toolbox skills before choosing generic tools."
+	const want = "The ixf-toolbox routing contract applies to requests for i讯飞/LarkShell documents, sheets, bitable, OKR, or Messenger resources. For a matching request, the first operation is the Claude Skill tool call `Skill(skill=\"ixf-toolbox:using-ixf-toolbox\")`. The exact skill identifier includes the `ixf-toolbox:` namespace; `ixf-toolbox` alone is not a valid identifier. The routing skill selects the domain skill before any generic tool or direct answer. Loading the routing skill does not access the target, so the same route applies to planning-only or no-access requests. Ordinary local Markdown reading or editing is outside this route.\n\n这条用户请求命中 i讯飞/LarkShell 路由。对于此类请求，首个操作是调用 Claude Skill 工具，skill 标识为 `ixf-toolbox:using-ixf-toolbox`；仅写 `ixf-toolbox` 不是有效标识。路由 skill 会在通用工具或直接回答之前选择具体领域 skill。加载路由 skill 不会访问目标，因此仅制定计划或暂不访问目标时也适用。普通本地 Markdown 读写不属于此路由。"
 	if payload.Hook.Event != "SessionStart" || payload.Hook.Context != want {
 		t.Fatalf("hook payload = %#v", payload)
 	}
@@ -576,5 +586,51 @@ func TestClaudeSessionStartRegistration(t *testing.T) {
 	hook := registrations[0].Hooks[0]
 	if hook.Type != "command" || hook.Command != `"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start` || hook.Shell != "bash" || hook.Async {
 		t.Fatalf("SessionStart command = %#v", hook)
+	}
+	userPromptRegistrations := payload.Hooks["UserPromptSubmit"]
+	if len(userPromptRegistrations) != 1 || userPromptRegistrations[0].Matcher != "" || len(userPromptRegistrations[0].Hooks) != 1 {
+		t.Fatalf("UserPromptSubmit registrations = %#v", userPromptRegistrations)
+	}
+	userPromptHook := userPromptRegistrations[0].Hooks[0]
+	if userPromptHook.Type != "command" || userPromptHook.Command != `"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" user-prompt-submit` || userPromptHook.Shell != "bash" || userPromptHook.Async {
+		t.Fatalf("UserPromptSubmit command = %#v", userPromptHook)
+	}
+}
+
+func TestClaudeUserPromptSubmitHookRoutesRemoteResourceWithExactSkillName(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX hook test; Windows host validation uses Claude's shell dispatcher")
+	}
+	root := generateRepositoryFixture(t)
+	output := runUserPromptSubmit(t, filepath.Join(root, "plugins", "claude", "ixf-toolbox"), `{"prompt":"Read this i讯飞 document: https://yf2ljykclb.xfchat.iflytek.com/docx/example123"}`)
+	var payload struct {
+		Hook struct {
+			Event   string `json:"hookEventName"`
+			Context string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(output, &payload); err != nil {
+		t.Fatalf("decode hook output: %v\n%s", err, output)
+	}
+	const want = "The submitted prompt matches the ixf-toolbox routing contract for an i讯飞/LarkShell resource. For this request class, the first operation is the Claude Skill tool call `Skill(skill=\"ixf-toolbox:using-ixf-toolbox\")`. The exact skill identifier includes the `ixf-toolbox:` namespace; `ixf-toolbox` alone is not a valid identifier. The routing skill selects the domain skill before any generic tool or direct answer. Loading the routing skill does not access the target, so the same route applies to planning-only or no-access requests. Ordinary local Markdown reading or editing is outside this route.\n\n这条用户请求命中 i讯飞/LarkShell 路由。对于此类请求，首个操作是调用 Claude Skill 工具，skill 标识为 `ixf-toolbox:using-ixf-toolbox`；仅写 `ixf-toolbox` 不是有效标识。路由 skill 会在通用工具或直接回答之前选择具体领域 skill。加载路由 skill 不会访问目标，因此仅制定计划或暂不访问目标时也适用。普通本地 Markdown 读写不属于此路由。"
+	if payload.Hook.Event != "UserPromptSubmit" || payload.Hook.Context != want {
+		t.Fatalf("hook payload = %#v", payload)
+	}
+}
+
+func TestClaudeUserPromptSubmitHookIgnoresLocalMarkdown(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX hook test; Windows host validation uses Claude's shell dispatcher")
+	}
+	root := generateRepositoryFixture(t)
+	for _, prompt := range []string{
+		`{"prompt":"Read ./README.md and summarize it locally."}`,
+		`{"prompt":"Review a local Markdown file and fix its headings."}`,
+		`{"prompt":"Do not use ixf-toolbox; just explain what this i讯飞 link might contain: https://yf2ljykclb.xfchat.iflytek.com/docx/example123"}`,
+	} {
+		output := runUserPromptSubmit(t, filepath.Join(root, "plugins", "claude", "ixf-toolbox"), prompt)
+		if len(bytes.TrimSpace(output)) != 0 {
+			t.Fatalf("prompt %q unexpectedly produced hook output: %s", prompt, output)
+		}
 	}
 }

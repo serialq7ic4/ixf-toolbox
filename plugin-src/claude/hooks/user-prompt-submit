@@ -1,0 +1,22 @@
+#!/bin/sh
+
+input=$(cat)
+lower=$(printf '%s' "$input" | tr '[:upper:]' '[:lower:]')
+
+# Respect an explicit request to bypass this integration before checking triggers.
+case "$lower" in
+    *"do not use ixf-toolbox"*|*"don't use ixf-toolbox"*|*"without ixf-toolbox"*|*"do not use ixf"*|*"don't use ixf"*)
+        exit 0
+        ;;
+esac
+case "$input" in
+    *"不使用 ixf-toolbox"*|*"不要使用 ixf-toolbox"*|*"不用 ixf-toolbox"*|*"不要用 ixf-toolbox"*|*"不使用 ixf"*|*"不要用 ixf"*)
+        exit 0
+        ;;
+esac
+
+case "$lower" in
+    *"xfchat.iflytek.com/docx/"*|*"xfchat.iflytek.com/wiki/"*|*"xfchat.iflytek.com/base/"*|*"i讯飞"*|*"讯飞文档"*|*"larkshell"*|*"docx"*|*"wiki"*|*"sheets"*|*"bitable"*|*"okr"*|*"messenger"*)
+        printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"The submitted prompt matches the ixf-toolbox routing contract for an i讯飞/LarkShell resource. For this request class, the first operation is the Claude Skill tool call `Skill(skill=\"ixf-toolbox:using-ixf-toolbox\")`. The exact skill identifier includes the `ixf-toolbox:` namespace; `ixf-toolbox` alone is not a valid identifier. The routing skill selects the domain skill before any generic tool or direct answer. Loading the routing skill does not access the target, so the same route applies to planning-only or no-access requests. Ordinary local Markdown reading or editing is outside this route.\n\n这条用户请求命中 i讯飞/LarkShell 路由。对于此类请求，首个操作是调用 Claude Skill 工具，skill 标识为 `ixf-toolbox:using-ixf-toolbox`；仅写 `ixf-toolbox` 不是有效标识。路由 skill 会在通用工具或直接回答之前选择具体领域 skill。加载路由 skill 不会访问目标，因此仅制定计划或暂不访问目标时也适用。普通本地 Markdown 读写不属于此路由。"}}'
+        ;;
+esac

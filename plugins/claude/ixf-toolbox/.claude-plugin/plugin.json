@@ -1,6 +1,6 @@
 {
   "name": "ixf-toolbox",
-  "version": "3.27.1",
+  "version": "3.27.2",
   "description": "Use authorized i讯飞 and LarkShell workflows through the Go ixf runtime.",
   "author": {
     "name": "serialq7ic4"

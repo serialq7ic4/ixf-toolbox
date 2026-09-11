@@ -137,7 +137,7 @@ func lifecycleRepoRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "../.."))
 }
 
-func runLifecycleHook(t *testing.T, pluginRoot string, input []byte) []byte {
+func runLifecycleHookNamed(t *testing.T, pluginRoot, hookName string, input []byte) []byte {
 	t.Helper()
 	dispatcher := filepath.Join(pluginRoot, "hooks", "run-hook.cmd")
 	var command *exec.Cmd
@@ -146,23 +146,28 @@ func runLifecycleHook(t *testing.T, pluginRoot string, input []byte) []byte {
 		if err != nil {
 			t.Skip("cmd.exe is required for the Windows hook lifecycle test")
 		}
-		command = exec.Command(cmdExe, "/d", "/c", dispatcher, "session-start")
+		command = exec.Command(cmdExe, "/d", "/c", dispatcher, hookName)
 	} else {
 		bash, err := exec.LookPath("bash")
 		if err != nil {
 			t.Skip("bash is required for the POSIX hook lifecycle test")
 		}
-		command = exec.Command(bash, dispatcher, "session-start")
+		command = exec.Command(bash, dispatcher, hookName)
 	}
 	command.Stdin = bytes.NewReader(input)
 	output, err := command.CombinedOutput()
 	if err != nil {
-		t.Fatalf("session-start: %v\n%s", err, output)
+		t.Fatalf("%s: %v\n%s", hookName, err, output)
 	}
 	if runtime.GOOS == "windows" && len(bytes.TrimSpace(output)) == 0 {
 		t.Skip("Windows hook dispatcher found no supported Bash executable")
 	}
 	return output
+}
+
+func runLifecycleHook(t *testing.T, pluginRoot string, input []byte) []byte {
+	t.Helper()
+	return runLifecycleHookNamed(t, pluginRoot, "session-start", input)
 }
 
 func TestDiagnoseNativePluginStates(t *testing.T) {
@@ -386,6 +391,14 @@ func TestNativePluginHostLifecycle(t *testing.T) {
 	if registration.Type != "command" || !strings.Contains(registration.Command, "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd") || registration.Async {
 		t.Fatalf("SessionStart command = %#v", registration)
 	}
+	userPromptRegistrations := hookConfig.Hooks["UserPromptSubmit"]
+	if len(userPromptRegistrations) != 1 || userPromptRegistrations[0].Matcher != "" || len(userPromptRegistrations[0].Hooks) != 1 {
+		t.Fatalf("UserPromptSubmit registrations = %#v", userPromptRegistrations)
+	}
+	userPromptRegistration := userPromptRegistrations[0].Hooks[0]
+	if userPromptRegistration.Type != "command" || !strings.Contains(userPromptRegistration.Command, "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd") || !strings.HasSuffix(userPromptRegistration.Command, " user-prompt-submit") || userPromptRegistration.Async {
+		t.Fatalf("UserPromptSubmit command = %#v", userPromptRegistration)
+	}
 
 	home := t.TempDir()
 	homeBefore := snapshotTree(t, home)
@@ -428,9 +441,25 @@ func TestNativePluginHostLifecycle(t *testing.T) {
 	if err := json.Unmarshal(hookOutput, &hookPayload); err != nil {
 		t.Fatalf("decode hook output: %v\n%s", err, hookOutput)
 	}
-	const wantContext = "For i讯飞 / LarkShell links or document, sheets, bitable, OKR, and Messenger requests, consider the ixf-toolbox skills before choosing generic tools."
+	const wantContext = "The ixf-toolbox routing contract applies to requests for i讯飞/LarkShell documents, sheets, bitable, OKR, or Messenger resources. For a matching request, the first operation is the Claude Skill tool call `Skill(skill=\"ixf-toolbox:using-ixf-toolbox\")`. The exact skill identifier includes the `ixf-toolbox:` namespace; `ixf-toolbox` alone is not a valid identifier. The routing skill selects the domain skill before any generic tool or direct answer. Loading the routing skill does not access the target, so the same route applies to planning-only or no-access requests. Ordinary local Markdown reading or editing is outside this route.\n\n这条用户请求命中 i讯飞/LarkShell 路由。对于此类请求，首个操作是调用 Claude Skill 工具，skill 标识为 `ixf-toolbox:using-ixf-toolbox`；仅写 `ixf-toolbox` 不是有效标识。路由 skill 会在通用工具或直接回答之前选择具体领域 skill。加载路由 skill 不会访问目标，因此仅制定计划或暂不访问目标时也适用。普通本地 Markdown 读写不属于此路由。"
 	if hookPayload.Hook.Event != "SessionStart" || hookPayload.Hook.Context != wantContext {
 		t.Fatalf("hook payload = %#v", hookPayload)
+	}
+	userPromptOutput := runLifecycleHookNamed(t, claudeRoot, "user-prompt-submit", []byte(`{"prompt":"Read https://yf2ljykclb.xfchat.iflytek.com/docx/example123"}`))
+	var userPromptPayload struct {
+		Hook struct {
+			Event   string `json:"hookEventName"`
+			Context string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(userPromptOutput, &userPromptPayload); err != nil {
+		t.Fatalf("decode UserPromptSubmit hook output: %v\n%s", err, userPromptOutput)
+	}
+	if userPromptPayload.Hook.Event != "UserPromptSubmit" || !strings.Contains(userPromptPayload.Hook.Context, `Skill(skill="ixf-toolbox:using-ixf-toolbox")`) || !strings.Contains(userPromptPayload.Hook.Context, "`ixf-toolbox` alone is not a valid identifier") {
+		t.Fatalf("UserPromptSubmit hook payload = %#v", userPromptPayload)
+	}
+	if localOutput := runLifecycleHookNamed(t, claudeRoot, "user-prompt-submit", []byte(`{"prompt":"Read ./README.md locally"}`)); len(bytes.TrimSpace(localOutput)) != 0 {
+		t.Fatalf("local Markdown unexpectedly produced hook output: %s", localOutput)
 	}
 	pluginAfter := snapshotTree(t, claudeRoot)
 	if diff := cmpTree(pluginBefore, pluginAfter); diff != "" {

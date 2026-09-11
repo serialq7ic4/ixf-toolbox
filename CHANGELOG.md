@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 3.27.1 - 2026-09-11
+
+- Fixed Windows runtime bootstrap path validation for 8.3 aliases and reparse-point replacement, including destination revalidation before directory creation and binary replacement.
+
 ## 3.27.0 - 2026-09-10
 
 - Added native Codex and Claude Code plugin marketplaces so each host owns skill discovery, updates, disablement, and uninstall.

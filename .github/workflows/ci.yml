@@ -28,3 +28,9 @@ jobs:
       - name: Smoke native plugins
         shell: bash
         run: scripts/smoke-native-plugins.sh
+      - name: Smoke Windows PowerShell 5.1 bootstrap
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          & ./plugins/codex/ixf-toolbox/scripts/bootstrap-runtime.ps1 -DryRun | Out-Null
+          & ./plugins/claude/ixf-toolbox/scripts/bootstrap-runtime.ps1 -DryRun | Out-Null

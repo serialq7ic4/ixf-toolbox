@@ -92,6 +92,51 @@ namespace IxfToolboxBootstrap {
 "@
     }
 
+    function Assert-InstallPathInsideRoot {
+        param(
+            [Parameter(Mandatory = $true)][string]$ResolvedPath,
+            [Parameter(Mandatory = $true)][string]$ResolvedRoot
+        )
+
+        $RootPrefix = $ResolvedRoot + [IO.Path]::DirectorySeparatorChar
+        if ($ResolvedPath -ne $ResolvedRoot -and -not $ResolvedPath.StartsWith($RootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "install directory must resolve inside the current user directory"
+        }
+        return $ResolvedPath
+    }
+
+    function Resolve-InstallPath {
+        param(
+            [Parameter(Mandatory = $true)][string]$CandidatePath,
+            [Parameter(Mandatory = $true)][string]$ResolvedRoot
+        )
+
+        $ProbePath = $CandidatePath
+        $PathSuffix = [Collections.Generic.List[string]]::new()
+        while (-not (Test-Path -LiteralPath $ProbePath)) {
+            $Name = [IO.Path]::GetFileName($ProbePath)
+            if ([string]::IsNullOrEmpty($Name)) {
+                throw "cannot resolve install directory"
+            }
+            $PathSuffix.Insert(0, $Name)
+            $Parent = [IO.Path]::GetDirectoryName($ProbePath)
+            if ([string]::IsNullOrEmpty($Parent) -or $Parent -eq $ProbePath) {
+                throw "cannot resolve install directory"
+            }
+            $ProbePath = $Parent
+        }
+        if (-not (Test-Path -LiteralPath $ProbePath -PathType Container)) {
+            throw "install directory ancestor is not a directory"
+        }
+
+        $ResolvedPath = [IxfToolboxBootstrap.NativePath]::Resolve($ProbePath)
+        foreach ($Part in $PathSuffix) {
+            $ResolvedPath = Join-Path $ResolvedPath $Part
+        }
+        $ResolvedPath = [IO.Path]::GetFullPath($ResolvedPath).TrimEnd('\', '/')
+        return (Assert-InstallPathInsideRoot -ResolvedPath $ResolvedPath -ResolvedRoot $ResolvedRoot)
+    }
+
     if ($DryRun -and $Apply) {
         throw "-DryRun and -Apply are mutually exclusive"
     }
@@ -114,32 +159,7 @@ namespace IxfToolboxBootstrap {
     }
     $InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\', '/')
 
-    $Probe = $InstallDir
-    $Suffix = [Collections.Generic.List[string]]::new()
-    while (-not (Test-Path -LiteralPath $Probe)) {
-        $Name = [IO.Path]::GetFileName($Probe)
-        if ([string]::IsNullOrEmpty($Name)) {
-            throw "cannot resolve install directory"
-        }
-        $Suffix.Insert(0, $Name)
-        $Parent = [IO.Path]::GetDirectoryName($Probe)
-        if ([string]::IsNullOrEmpty($Parent) -or $Parent -eq $Probe) {
-            throw "cannot resolve install directory"
-        }
-        $Probe = $Parent
-    }
-    if (-not (Test-Path -LiteralPath $Probe -PathType Container)) {
-        throw "install directory ancestor is not a directory"
-    }
-    $InstallReal = [IxfToolboxBootstrap.NativePath]::Resolve($Probe)
-    foreach ($Part in $Suffix) {
-        $InstallReal = Join-Path $InstallReal $Part
-    }
-    $InstallReal = [IO.Path]::GetFullPath($InstallReal).TrimEnd('\', '/')
-    $RootPrefix = $RootReal + [IO.Path]::DirectorySeparatorChar
-    if ($InstallReal -ne $RootReal -and -not $InstallReal.StartsWith($RootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "install directory must resolve inside the current user directory"
-    }
+    $InstallReal = Resolve-InstallPath -CandidatePath $InstallDir -ResolvedRoot $RootReal
 
     $Architecture = [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()
     if ($Architecture -ne "x64") {
@@ -200,10 +220,17 @@ namespace IxfToolboxBootstrap {
             throw "checksum mismatch for $Asset"
         }
 
-        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-        $TargetTemp = Join-Path $InstallDir (".ixf." + [Guid]::NewGuid().ToString("N") + ".tmp")
+        $InstallReal = Resolve-InstallPath -CandidatePath $InstallDir -ResolvedRoot $RootReal
+        New-Item -ItemType Directory -Path $InstallReal -Force | Out-Null
+        $InstallReal = [IxfToolboxBootstrap.NativePath]::Resolve($InstallReal).TrimEnd('\', '/')
+        $InstallReal = Assert-InstallPathInsideRoot -ResolvedPath $InstallReal -ResolvedRoot $RootReal
+        $TargetPath = Join-Path $InstallReal "ixf.exe"
+        $TargetTemp = Join-Path $InstallReal (".ixf." + [Guid]::NewGuid().ToString("N") + ".tmp")
         try {
             Copy-Item -LiteralPath $DownloadedAsset -Destination $TargetTemp
+            $InstallReal = [IxfToolboxBootstrap.NativePath]::Resolve($InstallReal).TrimEnd('\', '/')
+            $InstallReal = Assert-InstallPathInsideRoot -ResolvedPath $InstallReal -ResolvedRoot $RootReal
+            $TargetPath = Join-Path $InstallReal "ixf.exe"
             Move-Item -LiteralPath $TargetTemp -Destination $TargetPath -Force
         }
         finally {

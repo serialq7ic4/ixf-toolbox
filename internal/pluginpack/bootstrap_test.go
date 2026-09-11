@@ -521,8 +521,8 @@ func TestPowerShellBootstrapRevalidatesInstallDirectoryBeforeWrite(t *testing.T)
 	if requests.Load() != 2 {
 		t.Fatalf("PowerShell bootstrap requests = %d", requests.Load())
 	}
-	if _, statErr := os.Stat(filepath.Join(outside, "bin", "ixf.exe")); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("PowerShell bootstrap wrote outside LOCALAPPDATA: %v", statErr)
+	if _, statErr := os.Stat(filepath.Join(outside, "bin")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("PowerShell bootstrap created a directory outside LOCALAPPDATA: %v", statErr)
 	}
 }
 

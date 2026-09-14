@@ -69,11 +69,12 @@ ordered_4.children = [code_4]
 3. 当前块结束后，下一块仍是 fenced code 或 Mermaid image 时继续收集；遇到普通段落、标题、
    bullet、ordered、表格、blockquote 或文件结束则停止。
 
-归属判断以一个显式递增的有序列表组为单位。解析器保留源行编号用于判断：
-只有 `1.` 后续为 `2.`、再后续为 `3.` 这类递增关系时，才把两项之间的
-fenced blocks 归入前一项；一旦关系中断，候选 fenced blocks 保持顶层。已确认
-属于该组的最后一项可接收其后紧随的 fenced blocks。单独一个 ordered item
-后接代码块不触发自动归属，避免改变不明确的旧输入。
+归属判断以连续的 ordered 语法块为单位，不要求源数字按数值递增；`1.`、`1.`
+和 `1.`、`2.` 都属于同一连续列表。解析器遇到 ordered item 后，若下一个非空
+块是 fenced code，就将其收为该项 child；代码块结束后若下一个非空块仍是
+fenced code，则继续收集。遇到普通段落、标题、列表、表格、blockquote 或文件
+结束即停止。这样既覆盖列表中间的代码块，也覆盖最后一项后的代码块；单独一个
+ordered item 后紧随代码块同样按该明确的块顺序归属，不依据数字猜测用户意图。
 
 因此以下输入会形成两个列表项，每项一个 code child：
 
@@ -133,9 +134,11 @@ fingerprint 和默认 required text。`plannedTopLevelBlocks` 只统计顶层 Sp
 3. 递归渲染其 children，子块使用比列表项更深一级的 Markdown 缩进；
 4. 将文本与 children 用稳定的空行连接。
 
-为让读取结果可以再次被解析，reader 输出的 child fenced code/image 使用与
-列表项一致的两空格缩进；parser 在识别 fenced code 时接受该层级缩进，并在
-识别 ordered/bullet/heading 时保留既有顶层规则。输出示例：
+为让读取结果可以再次被解析，reader 输出的 child fenced code 使用比列表项多
+一级的两空格缩进；parser 接受最多三个空格的 fence 缩进，并从 fence 内容每行
+去除同等数量的前导空格后再解析。识别 ordered/bullet/heading 时保留既有顶层
+规则；本次不新增普通 Markdown 图片语法的写入解析，远端 image child 仍按现有
+图片 artifact 形式导出。输出示例：
 
 ````markdown
 1. 第一步

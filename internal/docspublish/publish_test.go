@@ -205,7 +205,7 @@ func TestBuildBlocksCreatesBoldAttributedText(t *testing.T) {
 		t.Fatalf("entries = %#v, want one text entry", entries)
 	}
 	textObject := asMap(entries[0].Data["text"])
-	if !textObjectHasAttribute(textObject, "bold", true) {
+	if !textObjectHasAttribute(textObject, "bold", "true") {
 		raw, _ := json.Marshal(textObject)
 		t.Fatalf("text object missing bold attribute: %s", raw)
 	}
@@ -220,6 +220,32 @@ func TestBuildBlocksCreatesBoldAttributedText(t *testing.T) {
 	raw, _ := json.Marshal(entries)
 	if strings.Contains(string(raw), "**") {
 		t.Fatalf("generated block still contains markdown bold markers: %s", raw)
+	}
+}
+
+func TestBuildBlocksUsesStringValuesForRichTextAttributes(t *testing.T) {
+	_, specs, err := ParseMarkdown("# Title\n\nBody with **bold text**.\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, entries := buildBlocks(specs, "doxrzPage", newBlockFactory("author_fixture"))
+	if len(entries) != 1 {
+		t.Fatalf("entries = %#v, want one text entry", entries)
+	}
+	textObject := asMap(entries[0].Data["text"])
+	numToAttrib := asMap(asMap(textObject["apool"])["numToAttrib"])
+	boldAttrib := asSlice(numToAttrib["1"])
+	if len(boldAttrib) != 2 || boldAttrib[0] != "bold" || boldAttrib[1] != "true" {
+		t.Fatalf("bold attribute = %#v, want [bold true] with a string value", boldAttrib)
+	}
+	raw, err := json.Marshal(textObject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serialized := string(raw)
+	if strings.Contains(serialized, `["bold",true]`) || !strings.Contains(serialized, `["bold","true"]`) {
+		t.Fatalf("serialized text object = %s, want string-valued bold attribute", serialized)
 	}
 }
 

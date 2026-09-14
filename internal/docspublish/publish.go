@@ -997,7 +997,7 @@ func (factory *blockFactory) textObjectWithRuns(text string, runs []InlineRun) m
 	numToAttrib := map[string]any{"0": []any{"author", factory.author}}
 	nextNum := 1
 	if inlineRunsContainBold(runs) {
-		numToAttrib["1"] = []any{"bold", true}
+		numToAttrib["1"] = []any{"bold", "true"}
 		nextNum = 2
 	}
 	return map[string]any{

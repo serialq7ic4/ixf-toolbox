@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.27.3 - 2026-09-14
+
+- Fixed docs publish, update, and patch rich-text payloads so Markdown bold attributes use the string-valued schema accepted by the docx API instead of a boolean value that could cause `4000002 invalid param` write failures.
+- Added regression coverage for both generated rich-text objects and their serialized JSON wire payloads.
+
 ## 3.27.2 - 2026-09-11
 
 - Fixed Claude Code native plugin routing for natural-language i讯飞/LarkShell requests by adding a prompt-aware `UserPromptSubmit` hook, exact namespaced skill guidance, and a local Markdown opt-out boundary.

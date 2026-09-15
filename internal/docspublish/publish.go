@@ -166,6 +166,9 @@ func applyUpdateMarkdown(
 	structure map[string]any,
 	session *publishSession,
 ) (map[string]any, error) {
+	if err := validateSpecTree(specs); err != nil {
+		return nil, err
+	}
 	if len(complexTypes) > 0 && !config.AllowComplex {
 		return nil, fmt.Errorf("complex existing content requires a later explicit override: %s", strings.Join(complexTypes, ","))
 	}
@@ -218,6 +221,9 @@ func applyUpdateMarkdown(
 }
 
 func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, counts map[string]int) (map[string]any, error) {
+	if err := validateSpecTree(specs); err != nil {
+		return nil, err
+	}
 	session, err := newPublishSession(config, baseURL)
 	if err != nil {
 		return nil, err
@@ -1225,39 +1231,66 @@ func buildBlocks(specs []Spec, pageID string, factory *blockFactory) ([]string, 
 	entries := []blockEntry{}
 	imageOrdinal := 0
 	for _, spec := range specs {
-		switch spec.Kind {
-		case "quote":
-			newEntries, topID := factory.quoteBlocksWithRuns(pageID, spec.Text, spec.Runs)
-			topIDs = append(topIDs, topID)
-			entries = append(entries, newEntries...)
-		case "callout":
-			newEntries, topID := factory.calloutBlocksWithRuns(pageID, spec.Text, spec.Runs)
-			topIDs = append(topIDs, topID)
-			entries = append(entries, newEntries...)
-		case "table":
-			newEntries, topID := factory.tableBlocks(pageID, spec.Rows, spec.RowRuns)
-			topIDs = append(topIDs, topID)
-			entries = append(entries, newEntries...)
-		case "image":
-			imageOrdinal++
-			blockID := factory.blockID()
-			topIDs = append(topIDs, blockID)
-			entries = append(entries, blockEntry{
-				ID:   blockID,
-				Data: factory.imageBlock(pageID),
-				Image: &imageSource{
-					Kind:    spec.SourceKind,
-					Text:    spec.Text,
-					Ordinal: imageOrdinal,
-				},
-			})
-		default:
-			blockID := factory.blockID()
-			topIDs = append(topIDs, blockID)
-			entries = append(entries, blockEntry{ID: blockID, Data: factory.baseBlockWithRuns(spec.Kind, pageID, spec.Text, spec.Runs)})
-		}
+		blockID, newEntries := buildSpecBlock(spec, pageID, factory, &imageOrdinal)
+		topIDs = append(topIDs, blockID)
+		entries = append(entries, newEntries...)
 	}
 	return topIDs, entries
+}
+
+func buildSpecBlock(spec Spec, parentID string, factory *blockFactory, imageOrdinal *int) (string, []blockEntry) {
+	var blockID string
+	var entries []blockEntry
+	switch spec.Kind {
+	case "quote":
+		entries, blockID = factory.quoteBlocksWithRuns(parentID, spec.Text, spec.Runs)
+	case "callout":
+		entries, blockID = factory.calloutBlocksWithRuns(parentID, spec.Text, spec.Runs)
+	case "table":
+		entries, blockID = factory.tableBlocks(parentID, spec.Rows, spec.RowRuns)
+	case "image":
+		if imageOrdinal != nil {
+			*imageOrdinal = *imageOrdinal + 1
+		}
+		ordinal := 0
+		if imageOrdinal != nil {
+			ordinal = *imageOrdinal
+		}
+		blockID = factory.blockID()
+		entries = []blockEntry{{
+			ID:   blockID,
+			Data: factory.imageBlock(parentID),
+			Image: &imageSource{
+				Kind:    spec.SourceKind,
+				Text:    spec.Text,
+				Ordinal: ordinal,
+			},
+		}}
+	default:
+		blockID = factory.blockID()
+		entries = []blockEntry{{ID: blockID, Data: factory.baseBlockWithRuns(spec.Kind, parentID, spec.Text, spec.Runs)}}
+	}
+
+	if len(spec.Children) == 0 {
+		return blockID, entries
+	}
+	childIDs := make([]any, 0, len(spec.Children))
+	for _, childSpec := range spec.Children {
+		childID, childEntries := buildSpecBlock(childSpec, blockID, factory, imageOrdinal)
+		childIDs = append(childIDs, childID)
+		entries = append(entries, childEntries...)
+	}
+	setEntryChildren(entries, blockID, childIDs)
+	return blockID, entries
+}
+
+func setEntryChildren(entries []blockEntry, blockID string, childIDs []any) {
+	for index := range entries {
+		if entries[index].ID == blockID {
+			entries[index].Data["children"] = childIDs
+			return
+		}
+	}
 }
 
 func buildReplaceBodyChangeMap(

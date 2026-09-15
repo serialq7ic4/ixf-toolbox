@@ -87,6 +87,26 @@ func TestBuildPatchInsertChangeMapOnlyAddsNewBlocksAndRootLinks(t *testing.T) {
 	}
 }
 
+func TestBuildPatchInsertChangeMapLinksOnlyTopLevelIDsAtRoot(t *testing.T) {
+	specs, err := ParseMarkdownFragment("1. First\n\n```Plain\ncommand-one\n```")
+	if err != nil {
+		t.Fatal(err)
+	}
+	topIDs, entries := buildBlocks(specs, "page_1", newBlockFactory("author_fixture"))
+	changeMap := buildPatchInsertChangeMap("page_1", map[string]any{"version": 7}, 2, topIDs, entries)
+	raw, _ := json.Marshal(changeMap)
+	serialized := string(raw)
+	if !strings.Contains(serialized, "\"li\":\""+topIDs[0]+"\"") {
+		t.Fatalf("root insert missing top id: %s", serialized)
+	}
+	if strings.Count(serialized, "\"li\":\"") != 1 {
+		t.Fatalf("nested child was inserted at root: %s", serialized)
+	}
+	if !strings.Contains(serialized, "\"parent_id\":\""+topIDs[0]+"\"") {
+		t.Fatalf("nested child parent missing: %s", serialized)
+	}
+}
+
 func TestReplaceSectionChangeMapTouchesOnlySectionChildren(t *testing.T) {
 	graph := replaceSectionGraphFixture(t)
 	heading, err := graph.FindHeadingByText("Replace Me")

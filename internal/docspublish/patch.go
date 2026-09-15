@@ -148,6 +148,9 @@ func PatchInsertMarkdown(config PatchInsertConfig) (map[string]any, error) {
 	if !config.Apply {
 		return withTableFallbackMetadata(payload, specs), nil
 	}
+	if err := validateSpecTree(specs); err != nil {
+		return nil, err
+	}
 	if duplicateCandidate {
 		return nil, fmt.Errorf("duplicate insert candidate under heading %q", config.UnderHeading)
 	}
@@ -258,6 +261,9 @@ func PatchSectionMarkdown(config PatchSectionConfig) (map[string]any, error) {
 	}
 	if !config.Apply {
 		return withTableFallbackMetadata(payload, specs), nil
+	}
+	if err := validateSpecTree(specs); err != nil {
+		return nil, err
 	}
 	var changeMap map[string]any
 	attachedImageCount := 0

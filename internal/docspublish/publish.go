@@ -47,6 +47,7 @@ type Spec struct {
 	Rows       [][]string
 	Runs       []InlineRun
 	RowRuns    [][][]InlineRun
+	Children   []Spec
 }
 
 type InlineRun struct {
@@ -165,6 +166,9 @@ func applyUpdateMarkdown(
 	structure map[string]any,
 	session *publishSession,
 ) (map[string]any, error) {
+	if err := validateSpecTree(specs); err != nil {
+		return nil, err
+	}
 	if len(complexTypes) > 0 && !config.AllowComplex {
 		return nil, fmt.Errorf("complex existing content requires a later explicit override: %s", strings.Join(complexTypes, ","))
 	}
@@ -188,7 +192,7 @@ func applyUpdateMarkdown(
 	if err != nil {
 		return nil, err
 	}
-	verify, err := session.verifyMarkdownOutput(target.Token, target.Referer, config.RequiredText, specs)
+	verify, err := session.verifyMarkdownOutputWithRoots(target.Token, target.Referer, config.RequiredText, specs, topIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -217,6 +221,9 @@ func applyUpdateMarkdown(
 }
 
 func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, counts map[string]int) (map[string]any, error) {
+	if err := validateSpecTree(specs); err != nil {
+		return nil, err
+	}
 	session, err := newPublishSession(config, baseURL)
 	if err != nil {
 		return nil, err
@@ -277,7 +284,7 @@ func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, co
 	if err != nil {
 		return nil, err
 	}
-	verify, err := session.verifyMarkdownOutput(pageID, finalURL, config.RequiredText, specs)
+	verify, err := session.verifyMarkdownOutputWithRoots(pageID, finalURL, config.RequiredText, specs, topIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -450,9 +457,9 @@ func appendInlineRun(runs *[]InlineRun, run InlineRun) {
 
 func summarizeSpecs(specs []Spec) map[string]int {
 	counts := map[string]int{}
-	for _, spec := range specs {
+	walkSpecs(specs, func(spec Spec) {
 		counts[spec.Kind]++
-	}
+	})
 	return counts
 }
 
@@ -484,34 +491,34 @@ func withTableFallbackMetadata(payload map[string]any, specs []Spec) map[string]
 
 func countSpecsByKind(specs []Spec, kind string) int {
 	count := 0
-	for _, spec := range specs {
+	walkSpecs(specs, func(spec Spec) {
 		if spec.Kind == kind {
 			count++
 		}
-	}
+	})
 	return count
 }
 
 func countSpecsBySourceKind(specs []Spec, kind string, sourceKind string) int {
 	count := 0
-	for _, spec := range specs {
+	walkSpecs(specs, func(spec Spec) {
 		if spec.Kind == kind && spec.SourceKind == sourceKind {
 			count++
 		}
-	}
+	})
 	return count
 }
 
 func countBoldTextRuns(specs []Spec) int {
 	count := 0
-	for _, spec := range specs {
+	walkSpecs(specs, func(spec Spec) {
 		count += countBoldRuns(spec.Runs)
 		for _, row := range spec.RowRuns {
 			for _, cell := range row {
 				count += countBoldRuns(cell)
 			}
 		}
-	}
+	})
 	return count
 }
 
@@ -742,9 +749,24 @@ func (session *publishSession) verify(pageID string, referer string, requiredTex
 }
 
 func (session *publishSession) verifyMarkdownOutput(pageID string, referer string, requiredText []string, specs []Spec) (map[string]any, error) {
+	return session.verifyMarkdownOutputWithRoots(pageID, referer, requiredText, specs, nil)
+}
+
+func (session *publishSession) verifyMarkdownOutputWithRoots(
+	pageID string,
+	referer string,
+	requiredText []string,
+	specs []Spec,
+	expectedRootIDs []string,
+) (map[string]any, error) {
 	expectedImageCount := countSpecsByKind(specs, "image")
 	expectedQuoteCount := countSpecsByKind(specs, "quote")
 	expectedBoldTextRunCount := countBoldTextRuns(specs)
+	expectedNestedBlockCount := countNestedSpecs(specs)
+	missingNestedBlockCount := 0
+	if len(expectedRootIDs) > 0 {
+		missingNestedBlockCount = expectedNestedBlockCount
+	}
 	last := map[string]any{
 		"ok":                         false,
 		"counts":                     map[string]int{},
@@ -758,6 +780,10 @@ func (session *publishSession) verifyMarkdownOutput(pageID string, referer strin
 		"expectedBoldTextRunCount":   expectedBoldTextRunCount,
 		"boldTextRunCount":           0,
 		"missingBoldTextRunCount":    expectedBoldTextRunCount,
+		"expectedNestedBlockCount":   expectedNestedBlockCount,
+		"nestedBlockCount":           0,
+		"missingNestedBlockCount":    missingNestedBlockCount,
+		"missingImageTokenCount":     0,
 	}
 	for attempt := 0; attempt < 8; attempt++ {
 		if attempt > 0 {
@@ -816,12 +842,27 @@ func (session *publishSession) verifyMarkdownOutput(pageID string, referer strin
 		quoteContainerCount := counts["quote_container"]
 		missingQuoteContainerCount := positiveDifference(expectedQuoteCount, quoteContainerCount)
 		missingBoldTextRunCount := positiveDifference(expectedBoldTextRunCount, boldTextRunCount)
+		nestedBlockCount := 0
+		missingNestedBlockCount := 0
+		missingImageTokenCount := 0
+		nestedTreeOK := true
+		if len(expectedRootIDs) > 0 {
+			nestedBlockCount, missingNestedBlockCount, missingImageTokenCount, nestedTreeOK = verifyExpectedRoots(
+				blockMap,
+				pageID,
+				specs,
+				expectedRootIDs,
+			)
+		}
 		ok := len(missingRequiredText) == 0 &&
 			emptyCalloutCount == 0 &&
 			codeTextOK &&
 			missingImageCount == 0 &&
 			missingQuoteContainerCount == 0 &&
-			missingBoldTextRunCount == 0
+			missingBoldTextRunCount == 0 &&
+			nestedTreeOK &&
+			missingNestedBlockCount == 0 &&
+			missingImageTokenCount == 0
 		last = map[string]any{
 			"ok":                         ok,
 			"counts":                     counts,
@@ -837,12 +878,116 @@ func (session *publishSession) verifyMarkdownOutput(pageID string, referer strin
 			"expectedBoldTextRunCount":   expectedBoldTextRunCount,
 			"boldTextRunCount":           boldTextRunCount,
 			"missingBoldTextRunCount":    missingBoldTextRunCount,
+			"expectedNestedBlockCount":   expectedNestedBlockCount,
+			"nestedBlockCount":           nestedBlockCount,
+			"missingNestedBlockCount":    missingNestedBlockCount,
+			"missingImageTokenCount":     missingImageTokenCount,
 		}
 		if ok {
 			return last, nil
 		}
 	}
 	return last, nil
+}
+
+func verifyExpectedRoots(
+	blockMap map[string]any,
+	pageID string,
+	specs []Spec,
+	expectedRootIDs []string,
+) (matchedNested int, missingNested int, missingImageTokens int, valid bool) {
+	valid = len(specs) == len(expectedRootIDs)
+	rootChildren := stringSet(asSlice(dataForBlock(blockMap[pageID])["children"]))
+	for index, spec := range specs {
+		if index >= len(expectedRootIDs) {
+			missingNested += countNestedSpecs([]Spec{spec})
+			valid = false
+			continue
+		}
+		rootID := expectedRootIDs[index]
+		rootData := dataForBlock(blockMap[rootID])
+		if !rootChildren[rootID] || len(rootData) == 0 || asString(rootData["parent_id"]) != pageID || asString(rootData["type"]) != specBlockType(spec.Kind) {
+			missingNested += countNestedSpecs([]Spec{spec})
+			valid = false
+			continue
+		}
+		matched, missing, missingTokens, treeValid := verifyExpectedSpecTree(blockMap, rootID, spec)
+		matchedNested += matched
+		missingNested += missing
+		missingImageTokens += missingTokens
+		valid = valid && treeValid
+	}
+	return matchedNested, missingNested, missingImageTokens, valid
+}
+
+func verifyExpectedSpecTree(
+	blockMap map[string]any,
+	blockID string,
+	spec Spec,
+) (matchedNested int, missingNested int, missingImageTokens int, valid bool) {
+	data := dataForBlock(blockMap[blockID])
+	if len(data) == 0 || asString(data["type"]) != specBlockType(spec.Kind) {
+		return 0, countNestedSpecs([]Spec{spec}), 0, false
+	}
+	valid = true
+	if spec.Kind == "image" && asString(asMap(data["image"])["token"]) == "" {
+		missingImageTokens++
+		valid = false
+	}
+	actualChildren := stringSlice(asSlice(data["children"]))
+	if spec.Kind == "ordered" && len(actualChildren) != len(spec.Children) {
+		valid = false
+	}
+	actualIndex := 0
+	for _, childSpec := range spec.Children {
+		matchIndex := findMatchingChild(blockMap, actualChildren, actualIndex, specBlockType(childSpec.Kind))
+		if matchIndex < 0 {
+			missingNested += 1 + countNestedSpecs([]Spec{childSpec})
+			valid = false
+			continue
+		}
+		childID := actualChildren[matchIndex]
+		childData := dataForBlock(blockMap[childID])
+		actualIndex = matchIndex + 1
+		if asString(childData["parent_id"]) != blockID {
+			missingNested += 1 + countNestedSpecs([]Spec{childSpec})
+			valid = false
+			continue
+		}
+		matchedNested++
+		matched, missing, missingTokens, childValid := verifyExpectedSpecTree(blockMap, childID, childSpec)
+		matchedNested += matched
+		missingNested += missing
+		missingImageTokens += missingTokens
+		valid = valid && childValid
+	}
+	return matchedNested, missingNested, missingImageTokens, valid
+}
+
+func findMatchingChild(blockMap map[string]any, childIDs []string, start int, blockType string) int {
+	for index := start; index < len(childIDs); index++ {
+		if asString(dataForBlock(blockMap[childIDs[index]])["type"]) == blockType {
+			return index
+		}
+	}
+	return -1
+}
+
+func specBlockType(kind string) string {
+	if kind == "quote" {
+		return "quote_container"
+	}
+	return kind
+}
+
+func stringSet(values []any) map[string]bool {
+	result := map[string]bool{}
+	for _, value := range values {
+		if text := asString(value); text != "" {
+			result[text] = true
+		}
+	}
+	return result
 }
 
 func positiveDifference(expected int, actual int) int {
@@ -1224,39 +1369,66 @@ func buildBlocks(specs []Spec, pageID string, factory *blockFactory) ([]string, 
 	entries := []blockEntry{}
 	imageOrdinal := 0
 	for _, spec := range specs {
-		switch spec.Kind {
-		case "quote":
-			newEntries, topID := factory.quoteBlocksWithRuns(pageID, spec.Text, spec.Runs)
-			topIDs = append(topIDs, topID)
-			entries = append(entries, newEntries...)
-		case "callout":
-			newEntries, topID := factory.calloutBlocksWithRuns(pageID, spec.Text, spec.Runs)
-			topIDs = append(topIDs, topID)
-			entries = append(entries, newEntries...)
-		case "table":
-			newEntries, topID := factory.tableBlocks(pageID, spec.Rows, spec.RowRuns)
-			topIDs = append(topIDs, topID)
-			entries = append(entries, newEntries...)
-		case "image":
-			imageOrdinal++
-			blockID := factory.blockID()
-			topIDs = append(topIDs, blockID)
-			entries = append(entries, blockEntry{
-				ID:   blockID,
-				Data: factory.imageBlock(pageID),
-				Image: &imageSource{
-					Kind:    spec.SourceKind,
-					Text:    spec.Text,
-					Ordinal: imageOrdinal,
-				},
-			})
-		default:
-			blockID := factory.blockID()
-			topIDs = append(topIDs, blockID)
-			entries = append(entries, blockEntry{ID: blockID, Data: factory.baseBlockWithRuns(spec.Kind, pageID, spec.Text, spec.Runs)})
-		}
+		blockID, newEntries := buildSpecBlock(spec, pageID, factory, &imageOrdinal)
+		topIDs = append(topIDs, blockID)
+		entries = append(entries, newEntries...)
 	}
 	return topIDs, entries
+}
+
+func buildSpecBlock(spec Spec, parentID string, factory *blockFactory, imageOrdinal *int) (string, []blockEntry) {
+	var blockID string
+	var entries []blockEntry
+	switch spec.Kind {
+	case "quote":
+		entries, blockID = factory.quoteBlocksWithRuns(parentID, spec.Text, spec.Runs)
+	case "callout":
+		entries, blockID = factory.calloutBlocksWithRuns(parentID, spec.Text, spec.Runs)
+	case "table":
+		entries, blockID = factory.tableBlocks(parentID, spec.Rows, spec.RowRuns)
+	case "image":
+		if imageOrdinal != nil {
+			*imageOrdinal = *imageOrdinal + 1
+		}
+		ordinal := 0
+		if imageOrdinal != nil {
+			ordinal = *imageOrdinal
+		}
+		blockID = factory.blockID()
+		entries = []blockEntry{{
+			ID:   blockID,
+			Data: factory.imageBlock(parentID),
+			Image: &imageSource{
+				Kind:    spec.SourceKind,
+				Text:    spec.Text,
+				Ordinal: ordinal,
+			},
+		}}
+	default:
+		blockID = factory.blockID()
+		entries = []blockEntry{{ID: blockID, Data: factory.baseBlockWithRuns(spec.Kind, parentID, spec.Text, spec.Runs)}}
+	}
+
+	if len(spec.Children) == 0 {
+		return blockID, entries
+	}
+	childIDs := make([]any, 0, len(spec.Children))
+	for _, childSpec := range spec.Children {
+		childID, childEntries := buildSpecBlock(childSpec, blockID, factory, imageOrdinal)
+		childIDs = append(childIDs, childID)
+		entries = append(entries, childEntries...)
+	}
+	setEntryChildren(entries, blockID, childIDs)
+	return blockID, entries
+}
+
+func setEntryChildren(entries []blockEntry, blockID string, childIDs []any) {
+	for index := range entries {
+		if entries[index].ID == blockID {
+			entries[index].Data["children"] = childIDs
+			return
+		}
+	}
 }
 
 func buildReplaceBodyChangeMap(

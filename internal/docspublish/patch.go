@@ -148,6 +148,9 @@ func PatchInsertMarkdown(config PatchInsertConfig) (map[string]any, error) {
 	if !config.Apply {
 		return withTableFallbackMetadata(payload, specs), nil
 	}
+	if err := validateSpecTree(specs); err != nil {
+		return nil, err
+	}
 	if duplicateCandidate {
 		return nil, fmt.Errorf("duplicate insert candidate under heading %q", config.UnderHeading)
 	}
@@ -163,7 +166,7 @@ func PatchInsertMarkdown(config PatchInsertConfig) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	verify, err := session.verifyMarkdownOutput(target.Token, target.Referer, patchVerifyRequiredText(specs, config.RequiredText), specs)
+	verify, err := session.verifyMarkdownOutputWithRoots(target.Token, target.Referer, patchVerifyRequiredText(specs, config.RequiredText), specs, topIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -259,6 +262,9 @@ func PatchSectionMarkdown(config PatchSectionConfig) (map[string]any, error) {
 	if !config.Apply {
 		return withTableFallbackMetadata(payload, specs), nil
 	}
+	if err := validateSpecTree(specs); err != nil {
+		return nil, err
+	}
 	var changeMap map[string]any
 	attachedImageCount := 0
 	if config.DeleteOnly {
@@ -280,7 +286,7 @@ func PatchSectionMarkdown(config PatchSectionConfig) (map[string]any, error) {
 		}
 	}
 	required := patchVerifyRequiredText(specs, config.RequiredText)
-	verify, err := loaded.session.verifyMarkdownOutput(loaded.target.Token, loaded.target.Referer, required, specs)
+	verify, err := loaded.session.verifyMarkdownOutputWithRoots(loaded.target.Token, loaded.target.Referer, required, specs, topIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -409,11 +415,11 @@ func (session *publishSession) resolveWikiDocxToken(referer string) (string, err
 
 func fingerprintSpecs(specs []Spec) string {
 	parts := []string{}
-	for _, spec := range specs {
+	walkSpecs(specs, func(spec Spec) {
 		if strings.TrimSpace(spec.Text) != "" {
 			parts = append(parts, spec.Text)
 		}
-	}
+	})
 	if len(parts) == 0 {
 		return ""
 	}
@@ -434,20 +440,27 @@ func patchVerifyRequiredText(specs []Spec, requiredText []string) []string {
 		seen[value] = true
 		values = append(values, value)
 	}
-	for _, spec := range specs {
-		if spec.Kind == "table" {
-			for _, row := range spec.Rows {
-				for _, cell := range row {
-					add(cell)
+	var collect func([]Spec)
+	collect = func(items []Spec) {
+		for _, spec := range items {
+			if spec.Kind == "table" {
+				for _, row := range spec.Rows {
+					for _, cell := range row {
+						add(cell)
+					}
 				}
+				collect(spec.Children)
+				continue
 			}
-			continue
+			if spec.Kind == "image" {
+				collect(spec.Children)
+				continue
+			}
+			add(spec.Text)
+			collect(spec.Children)
 		}
-		if spec.Kind == "image" {
-			continue
-		}
-		add(spec.Text)
 	}
+	collect(specs)
 	return values
 }
 

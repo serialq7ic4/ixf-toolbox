@@ -70,16 +70,20 @@ func ConvertClientVarsWithOptions(clientVars map[string]any, objToken string, op
 	warnings := []string{}
 	orderedCounters := map[string]int{}
 	parts := []string{}
+	renderParent := block{id: "__root__", children: tree.order}
 	if tree.rootID != "" {
-		if root, ok := tree.blocks[tree.rootID]; ok && root.kind == "page" && root.text != "" {
-			parts = append(parts, "# "+root.text)
+		if root, ok := tree.blocks[tree.rootID]; ok {
+			if root.kind == "page" && root.text != "" {
+				parts = append(parts, "# "+root.text)
+			}
+			if len(root.children) > 0 {
+				renderParent = root
+			}
 		}
 	}
-	for _, blockID := range tree.order {
-		rendered := renderBlock(tree, blockID, 0, seen, &assets, &warnings, options, orderedCounters)
-		if strings.TrimSpace(rendered) != "" {
-			parts = append(parts, strings.TrimRight(rendered, "\n"))
-		}
+	rendered := renderChildren(tree, renderParent, 0, seen, &assets, &warnings, options, orderedCounters)
+	if strings.TrimSpace(rendered) != "" {
+		parts = append(parts, strings.TrimRight(rendered, "\n"))
 	}
 	markdown := strings.TrimRight(strings.Join(parts, "\n\n"), "\n")
 	if markdown != "" {
@@ -198,7 +202,9 @@ func renderBlock(
 			parentKey = "__root__"
 		}
 		orderedCounters[parentKey]++
-		return strings.TrimRight(fmt.Sprintf("%s%d. %s", strings.Repeat("  ", depth), orderedCounters[parentKey], block.text), " ")
+		line := strings.TrimRight(fmt.Sprintf("%s%d. %s", strings.Repeat("  ", depth), orderedCounters[parentKey], block.text), " ")
+		children := renderChildren(tree, block, depth+1, seen, assets, warnings, options, orderedCounters)
+		return joinNonEmpty("\n\n", line, indentMarkdownBlock(children, "  "))
 	case block.kind == "code":
 		language := normalizeCodeLanguage(block.raw["language"])
 		return fmt.Sprintf("```%s\n%s\n```", language, block.text)
@@ -270,12 +276,33 @@ func renderChildren(
 ) string {
 	parts := []string{}
 	for _, childID := range block.children {
+		child, ok := tree.blocks[childID]
+		if ok && child.kind != "ordered" {
+			delete(orderedCounters, orderedCounterKey(child))
+		}
 		rendered := renderBlock(tree, childID, depth, seen, assets, warnings, options, orderedCounters)
 		if strings.TrimSpace(rendered) != "" {
 			parts = append(parts, strings.TrimRight(rendered, "\n"))
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func orderedCounterKey(block block) string {
+	if block.parentID == "" {
+		return "__root__"
+	}
+	return block.parentID
+}
+
+func indentMarkdownBlock(value string, prefix string) string {
+	lines := strings.Split(value, "\n")
+	for index, line := range lines {
+		if line != "" {
+			lines[index] = prefix + line
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func renderTable(

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.27.4 - 2026-09-15
+
+- Fixed ordered Markdown list publishing so immediately following fenced code and Mermaid image blocks become children of their list item instead of interrupting Feishu ordered-list numbering.
+- Fixed docx reads to reset ordered numbering after non-ordered siblings and to round-trip nested code/image children with stable indentation.
+- Added recursive block-tree verification for nested parent-child edges and bound image tokens across publish, update, and patch writes.
+
 ## 3.27.3 - 2026-09-14
 
 - Fixed docs publish, update, and patch rich-text payloads so Markdown bold attributes use the string-valued schema accepted by the docx API instead of a boolean value that could cause `4000002 invalid param` write failures.

@@ -51,6 +51,38 @@ func TestBuildBlocksCreatesMermaidImageSkeleton(t *testing.T) {
 	}
 }
 
+func TestBuildBlocksNestsOrderedChildrenAndKeepsRootIDsFlat(t *testing.T) {
+	_, specs, err := ParseMarkdown("# Title\n\n1. First\n\n```Plain\ncommand-one\n```\n\n1. Second\n\n```mermaid\nflowchart LR\n  A --> B\n```\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	topIDs, entries := buildBlocks(specs, "page_1", newBlockFactory("author_fixture"))
+	if len(topIDs) != 2 || len(entries) != 4 {
+		t.Fatalf("topIDs=%#v entries=%#v, want two parents and four entries", topIDs, entries)
+	}
+	byID := map[string]map[string]any{}
+	for _, entry := range entries {
+		byID[entry.ID] = entry.Data
+	}
+	for index, topID := range topIDs {
+		parent := byID[topID]
+		if parent["type"] != "ordered" || parent["parent_id"] != "page_1" {
+			t.Fatalf("top[%d] = %#v", index, parent)
+		}
+		children := asSlice(parent["children"])
+		if len(children) != 1 {
+			t.Fatalf("top[%d] children = %#v", index, children)
+		}
+		child := byID[asString(children[0])]
+		if child["parent_id"] != topID {
+			t.Fatalf("child parent = %#v, want %q", child, topID)
+		}
+	}
+	if byID[asString(asSlice(byID[topIDs[1]]["children"])[0])]["type"] != "image" {
+		t.Fatalf("second child = %#v, want image", byID[asString(asSlice(byID[topIDs[1]]["children"])[0])])
+	}
+}
+
 func TestMarkdownTablesBuildNativeTableBlocks(t *testing.T) {
 	_, specs, err := ParseMarkdown("# Title\n\n| 告警 | 阈值 |\n|---|---|\n| P0 | 立即处理 |\n| P1 | 尽快处理 |\n")
 	if err != nil {
@@ -471,8 +503,9 @@ func TestPublishMarkdownApplyCreatesMermaidImageWithUploadedImageData(t *testing
 					textBlockID: map[string]any{
 						"version": 1,
 						"data": map[string]any{
-							"type": "text",
-							"text": attributedCLIText("Body with required text."),
+							"type":      "text",
+							"parent_id": "doxrzCreatedPage",
+							"text":      attributedCLIText("Body with required text."),
 						},
 					},
 					imageBlockID: map[string]any{

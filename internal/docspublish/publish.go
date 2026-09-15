@@ -451,9 +451,9 @@ func appendInlineRun(runs *[]InlineRun, run InlineRun) {
 
 func summarizeSpecs(specs []Spec) map[string]int {
 	counts := map[string]int{}
-	for _, spec := range specs {
+	walkSpecs(specs, func(spec Spec) {
 		counts[spec.Kind]++
-	}
+	})
 	return counts
 }
 
@@ -485,34 +485,34 @@ func withTableFallbackMetadata(payload map[string]any, specs []Spec) map[string]
 
 func countSpecsByKind(specs []Spec, kind string) int {
 	count := 0
-	for _, spec := range specs {
+	walkSpecs(specs, func(spec Spec) {
 		if spec.Kind == kind {
 			count++
 		}
-	}
+	})
 	return count
 }
 
 func countSpecsBySourceKind(specs []Spec, kind string, sourceKind string) int {
 	count := 0
-	for _, spec := range specs {
+	walkSpecs(specs, func(spec Spec) {
 		if spec.Kind == kind && spec.SourceKind == sourceKind {
 			count++
 		}
-	}
+	})
 	return count
 }
 
 func countBoldTextRuns(specs []Spec) int {
 	count := 0
-	for _, spec := range specs {
+	walkSpecs(specs, func(spec Spec) {
 		count += countBoldRuns(spec.Runs)
 		for _, row := range spec.RowRuns {
 			for _, cell := range row {
 				count += countBoldRuns(cell)
 			}
 		}
-	}
+	})
 	return count
 }
 

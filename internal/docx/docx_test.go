@@ -445,6 +445,64 @@ func TestConvertClientVarsNumbersOrderedSiblings(t *testing.T) {
 	assertStringSlice(t, result.Warnings, nil)
 }
 
+func TestConvertClientVarsResetsOrderedNumbersAfterNonOrderedSibling(t *testing.T) {
+	clientVars := map[string]any{
+		"block_map": map[string]any{
+			"page_1":    blockData(map[string]any{"type": "page", "children": []any{"ordered_1", "ordered_2", "code_1", "ordered_3"}}),
+			"ordered_1": blockData(map[string]any{"type": "ordered", "parent_id": "page_1", "text": attributedText("First")}),
+			"ordered_2": blockData(map[string]any{"type": "ordered", "parent_id": "page_1", "text": attributedText("Second")}),
+			"code_1":    blockData(map[string]any{"type": "code", "parent_id": "page_1", "text": attributedText("interrupt")}),
+			"ordered_3": blockData(map[string]any{"type": "ordered", "parent_id": "page_1", "text": attributedText("Restart")}),
+		},
+	}
+	result := ConvertClientVars(clientVars, "page_1")
+	want := "1. First\n\n2. Second\n\n```\ninterrupt\n```\n\n1. Restart\n"
+	if result.Markdown != want {
+		t.Fatalf("markdown = %q, want %q", result.Markdown, want)
+	}
+}
+
+func TestConvertClientVarsRendersOrderedChildCodeAndImage(t *testing.T) {
+	clientVars := map[string]any{
+		"block_map": map[string]any{
+			"page_1": blockData(map[string]any{"type": "page", "children": []any{"ordered_1"}}),
+			"ordered_1": blockData(map[string]any{
+				"type":      "ordered",
+				"parent_id": "page_1",
+				"children":  []any{"code_1", "image_1"},
+				"text":      attributedText("Deploy"),
+			}),
+			"code_1": blockData(map[string]any{
+				"type":      "code",
+				"parent_id": "ordered_1",
+				"language":  "Plain Text",
+				"text":      attributedText("kubectl apply\n--record"),
+			}),
+			"image_1": blockData(map[string]any{
+				"type":      "image",
+				"parent_id": "ordered_1",
+				"image": map[string]any{
+					"token":    "image-token",
+					"name":     "diagram.svg",
+					"mimeType": "image/svg+xml",
+				},
+			}),
+		},
+	}
+	result := ConvertClientVarsWithOptions(clientVars, "page_1", Options{
+		ResolveImage: func(reference ImageReference) ImageResolution {
+			if reference.BlockID != "image_1" {
+				t.Fatalf("image reference = %#v", reference)
+			}
+			return ImageResolution{MarkdownPath: "assets/diagram.svg", AltText: "diagram"}
+		},
+	})
+	want := "1. Deploy\n\n  ```Plain\n  kubectl apply\n  --record\n  ```\n\n  ![diagram](assets/diagram.svg)\n"
+	if result.Markdown != want {
+		t.Fatalf("markdown = %q, want %q", result.Markdown, want)
+	}
+}
+
 func TestConvertClientVarsIndentsNestedBulletsAndCalloutBullets(t *testing.T) {
 	clientVars := map[string]any{
 		"block_map": map[string]any{

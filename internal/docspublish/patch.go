@@ -166,7 +166,7 @@ func PatchInsertMarkdown(config PatchInsertConfig) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	verify, err := session.verifyMarkdownOutput(target.Token, target.Referer, patchVerifyRequiredText(specs, config.RequiredText), specs)
+	verify, err := session.verifyMarkdownOutputWithRoots(target.Token, target.Referer, patchVerifyRequiredText(specs, config.RequiredText), specs, topIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +286,7 @@ func PatchSectionMarkdown(config PatchSectionConfig) (map[string]any, error) {
 		}
 	}
 	required := patchVerifyRequiredText(specs, config.RequiredText)
-	verify, err := loaded.session.verifyMarkdownOutput(loaded.target.Token, loaded.target.Referer, required, specs)
+	verify, err := loaded.session.verifyMarkdownOutputWithRoots(loaded.target.Token, loaded.target.Referer, required, specs, topIDs)
 	if err != nil {
 		return nil, err
 	}

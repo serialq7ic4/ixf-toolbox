@@ -192,7 +192,7 @@ func applyUpdateMarkdown(
 	if err != nil {
 		return nil, err
 	}
-	verify, err := session.verifyMarkdownOutput(target.Token, target.Referer, config.RequiredText, specs)
+	verify, err := session.verifyMarkdownOutputWithRoots(target.Token, target.Referer, config.RequiredText, specs, topIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +284,7 @@ func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, co
 	if err != nil {
 		return nil, err
 	}
-	verify, err := session.verifyMarkdownOutput(pageID, finalURL, config.RequiredText, specs)
+	verify, err := session.verifyMarkdownOutputWithRoots(pageID, finalURL, config.RequiredText, specs, topIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -749,9 +749,24 @@ func (session *publishSession) verify(pageID string, referer string, requiredTex
 }
 
 func (session *publishSession) verifyMarkdownOutput(pageID string, referer string, requiredText []string, specs []Spec) (map[string]any, error) {
+	return session.verifyMarkdownOutputWithRoots(pageID, referer, requiredText, specs, nil)
+}
+
+func (session *publishSession) verifyMarkdownOutputWithRoots(
+	pageID string,
+	referer string,
+	requiredText []string,
+	specs []Spec,
+	expectedRootIDs []string,
+) (map[string]any, error) {
 	expectedImageCount := countSpecsByKind(specs, "image")
 	expectedQuoteCount := countSpecsByKind(specs, "quote")
 	expectedBoldTextRunCount := countBoldTextRuns(specs)
+	expectedNestedBlockCount := countNestedSpecs(specs)
+	missingNestedBlockCount := 0
+	if len(expectedRootIDs) > 0 {
+		missingNestedBlockCount = expectedNestedBlockCount
+	}
 	last := map[string]any{
 		"ok":                         false,
 		"counts":                     map[string]int{},
@@ -765,6 +780,10 @@ func (session *publishSession) verifyMarkdownOutput(pageID string, referer strin
 		"expectedBoldTextRunCount":   expectedBoldTextRunCount,
 		"boldTextRunCount":           0,
 		"missingBoldTextRunCount":    expectedBoldTextRunCount,
+		"expectedNestedBlockCount":   expectedNestedBlockCount,
+		"nestedBlockCount":           0,
+		"missingNestedBlockCount":    missingNestedBlockCount,
+		"missingImageTokenCount":     0,
 	}
 	for attempt := 0; attempt < 8; attempt++ {
 		if attempt > 0 {
@@ -823,12 +842,27 @@ func (session *publishSession) verifyMarkdownOutput(pageID string, referer strin
 		quoteContainerCount := counts["quote_container"]
 		missingQuoteContainerCount := positiveDifference(expectedQuoteCount, quoteContainerCount)
 		missingBoldTextRunCount := positiveDifference(expectedBoldTextRunCount, boldTextRunCount)
+		nestedBlockCount := 0
+		missingNestedBlockCount := 0
+		missingImageTokenCount := 0
+		nestedTreeOK := true
+		if len(expectedRootIDs) > 0 {
+			nestedBlockCount, missingNestedBlockCount, missingImageTokenCount, nestedTreeOK = verifyExpectedRoots(
+				blockMap,
+				pageID,
+				specs,
+				expectedRootIDs,
+			)
+		}
 		ok := len(missingRequiredText) == 0 &&
 			emptyCalloutCount == 0 &&
 			codeTextOK &&
 			missingImageCount == 0 &&
 			missingQuoteContainerCount == 0 &&
-			missingBoldTextRunCount == 0
+			missingBoldTextRunCount == 0 &&
+			nestedTreeOK &&
+			missingNestedBlockCount == 0 &&
+			missingImageTokenCount == 0
 		last = map[string]any{
 			"ok":                         ok,
 			"counts":                     counts,
@@ -844,12 +878,116 @@ func (session *publishSession) verifyMarkdownOutput(pageID string, referer strin
 			"expectedBoldTextRunCount":   expectedBoldTextRunCount,
 			"boldTextRunCount":           boldTextRunCount,
 			"missingBoldTextRunCount":    missingBoldTextRunCount,
+			"expectedNestedBlockCount":   expectedNestedBlockCount,
+			"nestedBlockCount":           nestedBlockCount,
+			"missingNestedBlockCount":    missingNestedBlockCount,
+			"missingImageTokenCount":     missingImageTokenCount,
 		}
 		if ok {
 			return last, nil
 		}
 	}
 	return last, nil
+}
+
+func verifyExpectedRoots(
+	blockMap map[string]any,
+	pageID string,
+	specs []Spec,
+	expectedRootIDs []string,
+) (matchedNested int, missingNested int, missingImageTokens int, valid bool) {
+	valid = len(specs) == len(expectedRootIDs)
+	rootChildren := stringSet(asSlice(dataForBlock(blockMap[pageID])["children"]))
+	for index, spec := range specs {
+		if index >= len(expectedRootIDs) {
+			missingNested += countNestedSpecs([]Spec{spec})
+			valid = false
+			continue
+		}
+		rootID := expectedRootIDs[index]
+		rootData := dataForBlock(blockMap[rootID])
+		if !rootChildren[rootID] || len(rootData) == 0 || asString(rootData["parent_id"]) != pageID || asString(rootData["type"]) != specBlockType(spec.Kind) {
+			missingNested += countNestedSpecs([]Spec{spec})
+			valid = false
+			continue
+		}
+		matched, missing, missingTokens, treeValid := verifyExpectedSpecTree(blockMap, rootID, spec)
+		matchedNested += matched
+		missingNested += missing
+		missingImageTokens += missingTokens
+		valid = valid && treeValid
+	}
+	return matchedNested, missingNested, missingImageTokens, valid
+}
+
+func verifyExpectedSpecTree(
+	blockMap map[string]any,
+	blockID string,
+	spec Spec,
+) (matchedNested int, missingNested int, missingImageTokens int, valid bool) {
+	data := dataForBlock(blockMap[blockID])
+	if len(data) == 0 || asString(data["type"]) != specBlockType(spec.Kind) {
+		return 0, countNestedSpecs([]Spec{spec}), 0, false
+	}
+	valid = true
+	if spec.Kind == "image" && asString(asMap(data["image"])["token"]) == "" {
+		missingImageTokens++
+		valid = false
+	}
+	actualChildren := stringSlice(asSlice(data["children"]))
+	if spec.Kind == "ordered" && len(actualChildren) != len(spec.Children) {
+		valid = false
+	}
+	actualIndex := 0
+	for _, childSpec := range spec.Children {
+		matchIndex := findMatchingChild(blockMap, actualChildren, actualIndex, specBlockType(childSpec.Kind))
+		if matchIndex < 0 {
+			missingNested += 1 + countNestedSpecs([]Spec{childSpec})
+			valid = false
+			continue
+		}
+		childID := actualChildren[matchIndex]
+		childData := dataForBlock(blockMap[childID])
+		actualIndex = matchIndex + 1
+		if asString(childData["parent_id"]) != blockID {
+			missingNested += 1 + countNestedSpecs([]Spec{childSpec})
+			valid = false
+			continue
+		}
+		matchedNested++
+		matched, missing, missingTokens, childValid := verifyExpectedSpecTree(blockMap, childID, childSpec)
+		matchedNested += matched
+		missingNested += missing
+		missingImageTokens += missingTokens
+		valid = valid && childValid
+	}
+	return matchedNested, missingNested, missingImageTokens, valid
+}
+
+func findMatchingChild(blockMap map[string]any, childIDs []string, start int, blockType string) int {
+	for index := start; index < len(childIDs); index++ {
+		if asString(dataForBlock(blockMap[childIDs[index]])["type"]) == blockType {
+			return index
+		}
+	}
+	return -1
+}
+
+func specBlockType(kind string) string {
+	if kind == "quote" {
+		return "quote_container"
+	}
+	return kind
+}
+
+func stringSet(values []any) map[string]bool {
+	result := map[string]bool{}
+	for _, value := range values {
+		if text := asString(value); text != "" {
+			result[text] = true
+		}
+	}
+	return result
 }
 
 func positiveDifference(expected int, actual int) int {

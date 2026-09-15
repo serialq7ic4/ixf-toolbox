@@ -503,8 +503,9 @@ func TestPublishMarkdownApplyCreatesMermaidImageWithUploadedImageData(t *testing
 					textBlockID: map[string]any{
 						"version": 1,
 						"data": map[string]any{
-							"type": "text",
-							"text": attributedCLIText("Body with required text."),
+							"type":      "text",
+							"parent_id": "doxrzCreatedPage",
+							"text":      attributedCLIText("Body with required text."),
 						},
 					},
 					imageBlockID: map[string]any{

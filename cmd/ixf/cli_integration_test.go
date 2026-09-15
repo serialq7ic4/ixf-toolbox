@@ -60,6 +60,8 @@ func TestCLIDocsPublishDryRunAndApply(t *testing.T) {
 	writeCLICookieFixture(t, cookiesPath)
 	var events []string
 	wroteBlocks := false
+	writtenTopIDs := []string{}
+	writtenEntries := map[string]any{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/space/api/explorer/v2/create/object/":
@@ -99,30 +101,7 @@ func TestCLIDocsPublishDryRunAndApply(t *testing.T) {
 				},
 			}
 			if wroteBlocks {
-				blockMap = map[string]any{
-					"doxrzCreatedPage": map[string]any{
-						"version": 8,
-						"data": map[string]any{
-							"type":     "page",
-							"author":   "author_fixture",
-							"children": []any{"text_1", "code_1"},
-						},
-					},
-					"text_1": map[string]any{
-						"version": 1,
-						"data": map[string]any{
-							"type": "text",
-							"text": attributedCLIText("Body with required text."),
-						},
-					},
-					"code_1": map[string]any{
-						"version": 1,
-						"data": map[string]any{
-							"type": "code",
-							"text": attributedCLIText("echo one\necho two"),
-						},
-					},
-				}
+				blockMap = writtenDocxBlockMap("doxrzCreatedPage", 8, "author_fixture", writtenTopIDs, writtenEntries)
 			}
 			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"block_map": blockMap}})
 		case "/space/api/docx/blocks/user_change/":
@@ -146,6 +125,7 @@ func TestCLIDocsPublishDryRunAndApply(t *testing.T) {
 			if !strings.Contains(string(raw), "Body with required text.") || !strings.Contains(string(raw), "echo one\\necho two") {
 				t.Fatalf("change_map missing written content: %s", raw)
 			}
+			writtenTopIDs, writtenEntries = extractDocxChangeMap(t, "doxrzCreatedPage", payload["change_map"])
 			wroteBlocks = true
 			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{}})
 		default:
@@ -639,6 +619,8 @@ func TestCLIDocsUpdateApplyReplacesExistingBody(t *testing.T) {
 
 	var events []string
 	wroteBlocks := false
+	writtenTopIDs := []string{}
+	writtenEntries := map[string]any{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/space/api/docx/pages/client_vars":
@@ -678,30 +660,7 @@ func TestCLIDocsUpdateApplyReplacesExistingBody(t *testing.T) {
 				},
 			}
 			if wroteBlocks {
-				blockMap = map[string]any{
-					"doxrzExistingPage": map[string]any{
-						"version": 13,
-						"data": map[string]any{
-							"type":     "page",
-							"author":   "editor_fixture",
-							"children": []any{"text_1", "code_1"},
-						},
-					},
-					"text_1": map[string]any{
-						"version": 1,
-						"data": map[string]any{
-							"type": "text",
-							"text": attributedCLIText("Replacement body with required text."),
-						},
-					},
-					"code_1": map[string]any{
-						"version": 1,
-						"data": map[string]any{
-							"type": "code",
-							"text": attributedCLIText("echo new\necho next"),
-						},
-					},
-				}
+				blockMap = writtenDocxBlockMap("doxrzExistingPage", 13, "editor_fixture", writtenTopIDs, writtenEntries)
 			}
 			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{
 				"block_map": blockMap,
@@ -741,6 +700,7 @@ func TestCLIDocsUpdateApplyReplacesExistingBody(t *testing.T) {
 			if strings.Contains(text, `"od"`) {
 				t.Fatalf("change_map must not hard-delete old blocks: %s", text)
 			}
+			writtenTopIDs, writtenEntries = extractDocxChangeMap(t, "doxrzExistingPage", payload["change_map"])
 			wroteBlocks = true
 			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{}})
 		default:
@@ -856,6 +816,8 @@ func TestCLIDocsUpdateAllowComplexReplaceAppliesAfterExplicitOptIn(t *testing.T)
 
 	var events []string
 	wroteBlocks := false
+	writtenTopIDs := []string{}
+	writtenEntries := map[string]any{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/space/api/docx/pages/client_vars":
@@ -885,23 +847,7 @@ func TestCLIDocsUpdateAllowComplexReplaceAppliesAfterExplicitOptIn(t *testing.T)
 				},
 			}
 			if wroteBlocks {
-				blockMap = map[string]any{
-					"doxrzExistingPage": map[string]any{
-						"version": 13,
-						"data": map[string]any{
-							"type":     "page",
-							"author":   "author_fixture",
-							"children": []any{"text_1"},
-						},
-					},
-					"text_1": map[string]any{
-						"version": 1,
-						"data": map[string]any{
-							"type": "text",
-							"text": attributedCLIText("Body with required text."),
-						},
-					},
-				}
+				blockMap = writtenDocxBlockMap("doxrzExistingPage", 13, "author_fixture", writtenTopIDs, writtenEntries)
 			}
 			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{"block_map": blockMap}})
 		case "/space/api/docx/blocks/user_change/":
@@ -920,6 +866,7 @@ func TestCLIDocsUpdateAllowComplexReplaceAppliesAfterExplicitOptIn(t *testing.T)
 			if strings.Contains(text, `"od"`) {
 				t.Fatalf("complex opt-in change_map must not hard-delete old blocks: %s", text)
 			}
+			writtenTopIDs, writtenEntries = extractDocxChangeMap(t, "doxrzExistingPage", payload["change_map"])
 			wroteBlocks = true
 			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{}})
 		default:
@@ -2360,31 +2307,36 @@ func docsPatchBlockMap(duplicate bool, topIDs []string, entries map[string]any) 
 
 func extractPatchInsertChangeMap(t *testing.T, rawChangeMap any) ([]string, map[string]any) {
 	t.Helper()
+	return extractDocxChangeMap(t, "page_1", rawChangeMap)
+}
+
+func extractDocxChangeMap(t *testing.T, pageID string, rawChangeMap any) ([]string, map[string]any) {
+	t.Helper()
 	changeMap, ok := rawChangeMap.(map[string]any)
 	if !ok {
 		t.Fatalf("change_map = %#v, want map", rawChangeMap)
 	}
-	root, ok := changeMap["page_1"].(map[string]any)
+	root, ok := changeMap[pageID].(map[string]any)
 	if !ok {
-		t.Fatalf("change_map missing page_1 root: %#v", changeMap)
+		t.Fatalf("change_map missing %s root: %#v", pageID, changeMap)
 	}
-	payload, ok := root["payload"].(map[string]any)
+	rootPayload, ok := root["payload"].(map[string]any)
 	if !ok {
 		t.Fatalf("root payload = %#v, want map", root["payload"])
 	}
-	ops, ok := payload["ops"].([]any)
+	rootOps, ok := rootPayload["ops"].([]any)
 	if !ok {
-		t.Fatalf("root ops = %#v, want slice", payload["ops"])
+		t.Fatalf("root ops = %#v, want slice", rootPayload["ops"])
 	}
 	topIDs := []string{}
-	for _, rawOp := range ops {
+	for _, rawOp := range rootOps {
 		op, ok := rawOp.(map[string]any)
 		if !ok {
 			t.Fatalf("root op = %#v, want map", rawOp)
 		}
 		action, ok := op["action"].(map[string]any)
 		if !ok {
-			t.Fatalf("root op action = %#v, want map", op["action"])
+			t.Fatalf("root action = %#v, want map", op["action"])
 		}
 		if id, ok := action["li"].(string); ok {
 			topIDs = append(topIDs, id)
@@ -2392,36 +2344,62 @@ func extractPatchInsertChangeMap(t *testing.T, rawChangeMap any) ([]string, map[
 	}
 	entries := map[string]any{}
 	for id, rawEntry := range changeMap {
-		if id == "page_1" {
+		if id == pageID {
 			continue
 		}
 		entry, ok := rawEntry.(map[string]any)
 		if !ok {
 			t.Fatalf("entry %s = %#v, want map", id, rawEntry)
 		}
-		entryPayload, ok := entry["payload"].(map[string]any)
+		payload, ok := entry["payload"].(map[string]any)
 		if !ok {
 			t.Fatalf("entry %s payload = %#v, want map", id, entry["payload"])
 		}
-		entryOps, ok := entryPayload["ops"].([]any)
-		if !ok || len(entryOps) == 0 {
-			t.Fatalf("entry %s ops = %#v, want non-empty slice", id, entryPayload["ops"])
+		ops, ok := payload["ops"].([]any)
+		if !ok || len(ops) == 0 {
+			t.Fatalf("entry %s ops = %#v, want non-empty slice", id, payload["ops"])
 		}
-		op, ok := entryOps[0].(map[string]any)
-		if !ok {
-			t.Fatalf("entry %s op = %#v, want map", id, entryOps[0])
+		for _, rawOp := range ops {
+			op, ok := rawOp.(map[string]any)
+			if !ok {
+				t.Fatalf("entry %s op = %#v, want map", id, rawOp)
+			}
+			action, ok := op["action"].(map[string]any)
+			if !ok {
+				continue
+			}
+			data, ok := action["oi"].(map[string]any)
+			if ok {
+				entries[id] = data
+				break
+			}
 		}
-		action, ok := op["action"].(map[string]any)
-		if !ok {
-			t.Fatalf("entry %s action = %#v, want map", id, op["action"])
+		if _, ok := entries[id]; !ok {
+			t.Fatalf("entry %s has no inserted block data: %#v", id, entry)
 		}
-		data, ok := action["oi"].(map[string]any)
-		if !ok {
-			t.Fatalf("entry %s action missing oi: %#v", id, action)
-		}
-		entries[id] = data
 	}
 	return topIDs, entries
+}
+
+func writtenDocxBlockMap(pageID string, version int, author string, topIDs []string, entries map[string]any) map[string]any {
+	children := make([]any, 0, len(topIDs))
+	for _, id := range topIDs {
+		children = append(children, id)
+	}
+	blockMap := map[string]any{
+		pageID: map[string]any{
+			"version": version,
+			"data": map[string]any{
+				"type":     "page",
+				"author":   author,
+				"children": children,
+			},
+		},
+	}
+	for id, data := range entries {
+		blockMap[id] = map[string]any{"version": 1, "data": data}
+	}
+	return blockMap
 }
 
 func writeTestJSON(t *testing.T, w http.ResponseWriter, payload map[string]any) {

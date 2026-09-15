@@ -47,6 +47,7 @@ type Spec struct {
 	Rows       [][]string
 	Runs       []InlineRun
 	RowRuns    [][][]InlineRun
+	Children   []Spec
 }
 
 type InlineRun struct {

@@ -59,6 +59,18 @@ claude plugin marketplace add serialq7ic4/ixf-toolbox
 claude plugin install ixf-toolbox@ixf-toolbox --scope user --yes
 ```
 
+Claude Code 将 plugin 的安装状态和启用状态分开管理。安装后先确认列表中的
+`ixf-toolbox@ixf-toolbox` 有 `"enabled": true`；如果是 `false`，执行：
+
+```bash
+claude plugin enable ixf-toolbox@ixf-toolbox --scope user
+```
+
+然后启动新 session。旧 session 不会重新加载刚启用的 SessionStart 路由 hook。
+也可以运行 `ixf doctor --json`，检查
+`agentRouting.installation.nativePlugin.claudeCode.status`；`disabled` 表示
+plugin 已安装但未启用，doctor 只给出修复命令，不会替用户修改 plugin 状态。
+
 首次使用 i讯飞工作流时，plugin 会先查找 `PATH` 中的 `ixf`，再检查用户目录中的 runtime。缺失或版本过旧时，它只展示 bootstrap dry-run，包括版本、平台、GitHub Release 主机和目标路径；获得明确确认后才会校验 checksum 并安装到 `~/.local/share/ixf-toolbox/bin/ixf`，Windows 则安装到 `%LOCALAPPDATA%\ixf-toolbox\bin\ixf.exe`。bootstrap 不会修改 `PATH`，agent 会直接调用该安装路径并运行 `ixf doctor --json`。
 
 如果 bootstrap 失败，可从 GitHub Release 手动安装对应平台的 Go 二进制；这只是故障排查 fallback，不是 plugin 安装后的第二个必做步骤。

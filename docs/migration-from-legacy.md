@@ -22,10 +22,12 @@ does not modify `PATH`.
 ## Migration Procedure
 
 1. Install the native plugin for the active host.
-2. Start a new Codex or Claude session.
-3. Verify that a natural i讯飞 document or Messenger request discovers the plugin.
-4. Run `ixf doctor --json` and inspect native plugin state and legacy duplicate risk.
-5. After routing is verified, manually remove obsolete raw skill directories if desired.
+2. For Claude Code, run `claude plugin list --json`; if the ixf-toolbox entry has
+   `enabled:false`, run `claude plugin enable ixf-toolbox@ixf-toolbox --scope user`.
+3. Start a new Codex or Claude session.
+4. Verify that a natural i讯飞 document or Messenger request discovers the plugin.
+5. Run `ixf doctor --json` and inspect native plugin state and legacy duplicate risk.
+6. After routing is verified, manually remove obsolete raw skill directories if desired.
 
 Existing `~/.codex/skills/ixf-*`, `~/.claude/skills/ixf-*`, and
 `using-ixf-toolbox` directories are legacy installations. Native plugins do not

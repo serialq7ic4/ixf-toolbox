@@ -42,6 +42,13 @@ dry-run and require explicit user confirmation before `--apply`. Bootstrap verif
 the GitHub Release checksum, installs under the current user's directory, and does
 not modify `PATH`. Run `ixf doctor --json` after bootstrap succeeds.
 
+Claude Code reports installation and enablement separately. A plugin can appear in
+`claude plugin list --json` with `enabled:false`; in that state Claude does not load
+the plugin's routing hooks, so a user prompt will not discover `using-ixf-toolbox`.
+`ixf doctor --json` reports this as `status:"disabled"` and includes a
+`claude plugin enable ...` remediation. After enabling it, start a new session;
+doctor never enables or otherwise mutates a plugin.
+
 `ixf doctor --json` is read-only. Optional Mermaid dependency mutation is separate
 and requires confirmed `ixf deps install --apply`; never invoke it silently.
 Canonical skill sources live under `skills/*/SKILL.md`; generated host copies live

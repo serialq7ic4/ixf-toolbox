@@ -1008,6 +1008,45 @@ func TestCollectDiagnosticsReportsAgentInstallation(t *testing.T) {
 	}
 }
 
+func TestFormatDiagnosticsReportsDisabledClaudePlugin(t *testing.T) {
+	disabled := false
+	report := agentinstall.Report{
+		LegacyRawSkills: map[string]agentinstall.HostStatus{
+			"codex":      {Status: "not-installed"},
+			"claudeCode": {Status: "not-installed"},
+		},
+		NativePlugin: map[string]agentinstall.HostStatus{
+			"codex": {Status: "not-installed"},
+			"claudeCode": {
+				Status:  "disabled",
+				ID:      "ixf-toolbox@ixf-toolbox",
+				Version: "3.27.5",
+				Enabled: &disabled,
+				Scope:   "user",
+			},
+		},
+		Remediation: []string{
+			"Claude Code native ixf-toolbox plugin is disabled; run `claude plugin enable ixf-toolbox@ixf-toolbox --scope user`.",
+		},
+	}
+	var stdout bytes.Buffer
+	formatDiagnostics(&stdout, map[string]any{
+		"ok":           true,
+		"version":      version,
+		"capabilities": map[string]bool{},
+		"agentRouting": agentRoutingStatus(report),
+	})
+
+	for _, expected := range []string{
+		"agent_installation claudeCode native=disabled legacy=not-installed version=3.27.5 enabled=false",
+		"remediation Claude Code native ixf-toolbox plugin is disabled",
+	} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("doctor text missing %q:\n%s", expected, stdout.String())
+		}
+	}
+}
+
 func TestDoctorDoesNotInstallOrModifyAgentFiles(t *testing.T) {
 	home := t.TempDir()
 	emptyBin := filepath.Join(home, "empty-bin")

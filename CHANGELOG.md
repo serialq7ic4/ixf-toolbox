@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.27.5 - 2026-09-18
+
+- Fixed native plugin diagnostics so a Claude Code `ixf-toolbox` plugin with `enabled:false` is reported as disabled instead of installed.
+- Added the plugin scope, enablement state, and an explicit `claude plugin enable ...` remediation to `ixf doctor --json` and text output.
+- Documented that enabling the plugin requires a new Claude session for routing hooks to load.
+
 ## 3.27.4 - 2026-09-15
 
 - Fixed ordered Markdown list publishing so immediately following fenced code and Mermaid image blocks become children of their list item instead of interrupting Feishu ordered-list numbering.

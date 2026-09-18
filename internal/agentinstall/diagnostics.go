@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,6 +38,8 @@ type HostStatus struct {
 	Status         string   `json:"status"`
 	ID             string   `json:"id,omitempty"`
 	Version        string   `json:"version,omitempty"`
+	Enabled        *bool    `json:"enabled,omitempty"`
+	Scope          string   `json:"scope,omitempty"`
 	Reason         string   `json:"reason,omitempty"`
 	Dir            string   `json:"dir,omitempty"`
 	Paths          []string `json:"paths,omitempty"`
@@ -55,6 +58,8 @@ type pluginEntry struct {
 	PluginID string `json:"pluginId"`
 	ID       string `json:"id"`
 	Version  string `json:"version"`
+	Enabled  *bool  `json:"enabled"`
+	Scope    string `json:"scope"`
 }
 
 type hostSpec struct {
@@ -94,6 +99,9 @@ func Diagnose(ctx context.Context, options Options) Report {
 			report.DuplicateLoadRisk = true
 			report.Remediation = append(report.Remediation, remediationFor(host.Key))
 		}
+		if report.NativePlugin[host.Key].Status == "disabled" {
+			report.Remediation = append(report.Remediation, disabledRemediation(host.Key, report.NativePlugin[host.Key]))
+		}
 	}
 	return report
 }
@@ -119,10 +127,39 @@ func diagnoseNativePlugin(parent context.Context, timeout time.Duration, runner 
 			id = entry.ID
 		}
 		if pluginName(id) == "ixf-toolbox" {
-			return HostStatus{Status: "installed", ID: id, Version: entry.Version}
+			enabled := true
+			if entry.Enabled != nil {
+				enabled = *entry.Enabled
+			}
+			status := "installed"
+			if !enabled {
+				status = "disabled"
+			}
+			return HostStatus{
+				Status:  status,
+				ID:      id,
+				Version: entry.Version,
+				Enabled: boolPointer(enabled),
+				Scope:   entry.Scope,
+			}
 		}
 	}
 	return HostStatus{Status: "not-installed"}
+}
+
+func boolPointer(value bool) *bool {
+	return &value
+}
+
+func disabledRemediation(host string, status HostStatus) string {
+	if host != "claudeCode" {
+		return fmt.Sprintf("%s native ixf-toolbox plugin %q is installed but disabled; enable it with the host plugin manager before starting a new session.", host, status.ID)
+	}
+	command := fmt.Sprintf("claude plugin enable %s", status.ID)
+	if status.Scope != "" {
+		command += " --scope " + status.Scope
+	}
+	return fmt.Sprintf("Claude Code native ixf-toolbox plugin %q is installed but disabled; run `%s`, then start a new session so routing hooks load.", status.ID, command)
 }
 
 func classifyCommandError(ctx context.Context, err error) string {

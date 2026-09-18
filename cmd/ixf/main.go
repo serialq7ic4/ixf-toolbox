@@ -2590,6 +2590,9 @@ func formatDiagnostics(w io.Writer, payload map[string]any) {
 				if native.Version != "" {
 					fmt.Fprintf(w, " version=%s", native.Version)
 				}
+				if native.Enabled != nil {
+					fmt.Fprintf(w, " enabled=%t", *native.Enabled)
+				}
 				fmt.Fprintln(w)
 			}
 			fmt.Fprintf(w, "agent_installation duplicate_load_risk=%t\n", installation.DuplicateLoadRisk)

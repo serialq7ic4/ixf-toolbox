@@ -179,6 +179,7 @@ func TestDiagnoseNativePluginStates(t *testing.T) {
 		claudeWant string
 	}{
 		{"installed", `{"installed":[{"pluginId":"ixf-toolbox@ixf-toolbox","version":"3.27.0"}]}`, `[{"id":"ixf-toolbox@ixf-toolbox","version":"3.27.0","enabled":true}]`, "installed", "installed"},
+		{"claude-disabled", `{"installed":[]}`, `[{"id":"ixf-toolbox@ixf-toolbox","version":"3.27.0","enabled":false}]`, "not-installed", "disabled"},
 		{"absent", `{"installed":[]}`, `[]`, "not-installed", "not-installed"},
 		{"different-plugin", `{"installed":[{"id":"other@catalog","version":"9.0.0"}]}`, `[{"pluginId":"other@catalog","version":"9.0.0"}]`, "not-installed", "not-installed"},
 	}
@@ -189,6 +190,35 @@ func TestDiagnoseNativePluginStates(t *testing.T) {
 				t.Fatalf("report = %#v", report)
 			}
 		})
+	}
+}
+
+func TestDiagnoseDisabledClaudePluginIncludesEnableRemediation(t *testing.T) {
+	report := agentinstall.Diagnose(context.Background(), agentinstall.Options{
+		Home:    t.TempDir(),
+		Timeout: time.Second,
+		Run: func(_ context.Context, name string, _ ...string) ([]byte, error) {
+			if name == "codex" {
+				return []byte(`{"installed":[]}`), nil
+			}
+			return []byte(`[{"id":"ixf-toolbox@ixf-toolbox","version":"3.27.0","scope":"user","enabled":false}]`), nil
+		},
+	})
+
+	status := report.NativePlugin["claudeCode"]
+	if status.Status != "disabled" || status.Enabled == nil || *status.Enabled || status.Scope != "user" {
+		t.Fatalf("disabled Claude status = %#v", status)
+	}
+	if len(report.Remediation) != 1 || !strings.Contains(report.Remediation[0], "claude plugin enable ixf-toolbox@ixf-toolbox --scope user") || !strings.Contains(report.Remediation[0], "start a new session") {
+		t.Fatalf("disabled Claude remediation = %#v", report.Remediation)
+	}
+
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"status":"disabled"`) || !strings.Contains(string(encoded), `"enabled":false`) {
+		t.Fatalf("disabled Claude JSON = %s", encoded)
 	}
 }
 

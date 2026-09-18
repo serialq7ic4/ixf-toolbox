@@ -59,6 +59,20 @@ claude plugin marketplace add serialq7ic4/ixf-toolbox
 claude plugin install ixf-toolbox@ixf-toolbox --scope user --yes
 ```
 
+Claude Code keeps plugin installation and enablement as separate states. After
+installation, confirm that the `ixf-toolbox@ixf-toolbox` entry has
+`"enabled": true`. If it is `false`, run:
+
+```bash
+claude plugin enable ixf-toolbox@ixf-toolbox --scope user
+```
+
+Then start a new session. An existing session does not reload the SessionStart
+routing hook after the plugin is enabled. You can also run `ixf doctor --json`
+and inspect `agentRouting.installation.nativePlugin.claudeCode.status`:
+`disabled` means the plugin is installed but inactive. Doctor only reports the
+repair command; it never changes plugin state on the user's behalf.
+
 On first use of an i讯飞 workflow, the plugin checks `PATH` and then the user-local runtime. If `ixf` is missing or too old, it presents a bootstrap dry-run with the version, platform, GitHub Release host, and target path. Only after explicit confirmation does it verify the checksum and install to `~/.local/share/ixf-toolbox/bin/ixf`, or `%LOCALAPPDATA%\ixf-toolbox\bin\ixf.exe` on Windows. Bootstrap does not modify `PATH`; the agent invokes the installed path directly and runs `ixf doctor --json`.
 
 If bootstrap fails, manually install the matching Go binary from GitHub Releases. This is a troubleshooting fallback, not a second mandatory install phase after the plugin.

@@ -84,13 +84,14 @@ func PublishMarkdown(config Config) (map[string]any, error) {
 		}
 		return ApplyMarkdown(config, baseURL, title, specs, counts)
 	}
-	return withTableFallbackMetadata(map[string]any{
-		"ok":        true,
-		"dryRun":    true,
-		"operation": "create_docx",
-		"title":     title,
-		"counts":    counts,
-	}, specs), nil
+	return withTableFallbackMetadata(specSizeAdvisory(specs).applyTo(map[string]any{
+		"ok":                    true,
+		"dryRun":                true,
+		"operation":             "create_docx",
+		"title":                 title,
+		"counts":                counts,
+		"plannedTopLevelBlocks": len(specs),
+	}), specs), nil
 }
 
 func UpdateMarkdown(config UpdateConfig) (map[string]any, error) {
@@ -134,7 +135,7 @@ func UpdateMarkdown(config UpdateConfig) (map[string]any, error) {
 	if config.Apply {
 		return applyUpdateMarkdown(config, target, title, specs, state, summary, complexTypes, structure, session)
 	}
-	return withTableFallbackMetadata(map[string]any{
+	return withTableFallbackMetadata(specSizeAdvisory(specs).applyTo(map[string]any{
 		"ok":                       true,
 		"dryRun":                   true,
 		"operation":                "update_docx",
@@ -152,7 +153,7 @@ func UpdateMarkdown(config UpdateConfig) (map[string]any, error) {
 		"allowComplexReplace":      config.AllowComplex,
 		"requiredTextChecks":       len(config.RequiredText),
 		"structure":                structure,
-	}, specs), nil
+	}), specs), nil
 }
 
 func applyUpdateMarkdown(
@@ -254,41 +255,32 @@ func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, co
 	if _, err := prepareGeneratedImagePlaceholders(entries); err != nil {
 		return nil, err
 	}
-	changeMap := map[string]any{
-		pageID: map[string]any{
-			"id":      pageID,
-			"version": rootVersion,
-			"payload": map[string]any{
-				"ops": insertChildOps(rootChildren, topIDs),
-			},
-		},
+	groups, err := partitionWriteGroups(specs)
+	if err != nil {
+		return nil, newPartialPublishError(finalURL, 0, 0, err)
 	}
-	for _, entry := range entries {
-		changeMap[entry.ID] = map[string]any{
-			"id":      entry.ID,
-			"version": 0,
-			"payload": map[string]any{
-				"ops": []map[string]any{
-					{
-						"p":      []any{},
-						"action": map[string]any{"oi": entry.Data},
-					},
-				},
-			},
-		}
-	}
-	if err := session.writeBlocks(pageID, memberID, changeMap, finalURL); err != nil {
+	writeCount, err := session.writeBlockGroups(writeBlockGroupsConfig{
+		PageID:       pageID,
+		MemberID:     memberID,
+		FinalURL:     finalURL,
+		RootChildren: rootChildren,
+		RootVersion:  rootVersion,
+		TopIDs:       topIDs,
+		Entries:      entries,
+		Groups:       groups,
+	})
+	if err != nil {
 		return nil, err
 	}
 	attachedImageCount, err := session.attachGeneratedImages(pageID, memberID, finalURL, entries)
 	if err != nil {
-		return nil, err
+		return nil, newPartialPublishError(finalURL, writeCount, len(groups), err)
 	}
 	verify, err := session.verifyMarkdownOutputWithRoots(pageID, finalURL, config.RequiredText, specs, topIDs)
 	if err != nil {
-		return nil, err
+		return nil, newPartialPublishError(finalURL, writeCount, len(groups), err)
 	}
-	return withTableFallbackMetadata(map[string]any{
+	payload := map[string]any{
 		"ok":                 asBool(verify["ok"]),
 		"dryRun":             false,
 		"operation":          "create_docx",
@@ -297,7 +289,14 @@ func ApplyMarkdown(config Config, baseURL string, title string, specs []Spec, co
 		"attachedImageCount": attachedImageCount,
 		"verify":             verify,
 		"url":                finalURL,
-	}, specs), nil
+		"writeCount":         writeCount,
+	}
+	if writeCount > 1 {
+		payload["splitWrites"] = true
+		payload["plannedBlockEntries"] = len(entries)
+		payload["plannedChangeEntries"] = changeEntryCount(len(entries))
+	}
+	return withTableFallbackMetadata(payload, specs), nil
 }
 
 func ParseMarkdown(markdown string) (string, []Spec, error) {
@@ -670,10 +669,19 @@ func (session *publishSession) writeBlocks(pageID string, memberID string, chang
 		return err
 	}
 	if code := asInt(payload["code"]); code != 0 {
-		return fmt.Errorf("document content write failed: code=%d%s", code, serverMessageSuffix(payload))
+		hint := ""
+		if code == invalidParamCode {
+			hint = writeSizeHint(len(changeMap))
+		}
+		return fmt.Errorf("document content write failed: code=%d%s%s",
+			code, serverMessageSuffix(payload), hint)
 	}
 	return nil
 }
+
+// invalidParamCode is the server code returned for a rejected write, including an
+// oversized change_map.
+const invalidParamCode = 4000002
 
 func (session *publishSession) verify(pageID string, referer string, requiredText []string, expectedImageCount int) (map[string]any, error) {
 	last := map[string]any{"ok": false, "counts": map[string]int{}, "textChars": 0, "expectedImageCount": expectedImageCount, "imageCount": 0, "missingImageCount": expectedImageCount}

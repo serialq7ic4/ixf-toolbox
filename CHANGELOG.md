@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 3.27.6 - 2026-09-21
+
+- Fixed docs publish rejecting large documents with a bare `code=4000002 invalid param`: the write endpoint accepts at most 3500 `change_map` entries per request (a page root entry plus 3499 block entries), measured by bisection against a live tenant. Publish now splits an oversized document at top-level block boundaries and writes the parts in order, so a document of any block count publishes without a manual skeleton workflow.
+- Fixed publish discarding the created document's URL when a content write failed. The document is created before content is written and cannot be deleted by this tool, so a failed write now reports the document URL, how many writes completed, and that cleanup is manual.
+- Fixed the write-size failure message to name the measured limit and the write's actual entry count, and to state that the limit counts entries rather than bytes. Sizes within the limit no longer blame write size for an unrelated rejection.
+- Added `plannedChangeEntries` and `maxChangeEntriesPerWrite` to publish, update, and patch dry-runs. `plannedChangeEntries` is the quantity the server limits; `plannedBlockEntries` is one lower because it excludes the page root entry. Patch insert and patch replace-section also report `fitsInOneWrite`.
+- Added `plannedWriteCount`, `willSplitWrites`, and `splitReason` to publish dry-runs, and `writeCount` and `splitWrites` to publish results.
+- Removed the previous block-entry and payload-byte advisory thresholds, which measurement disproved: 2340 block entries and a 3.0 MB payload both publish successfully, while 3860 block entries fail. Payload bytes are still reported as diagnostics but no longer produce a warning.
+- Publish now refuses, before writing anything, a document containing a single block that cannot fit in one write, naming the block instead of attempting a write that cannot succeed.
+- `ixf docs update` remains a single write and is never split, because a partial whole-body replace would leave the document truncated.
+- Documented the measured per-write limit, automatic split publishing, partial-failure handling, and the character-versus-entry budget trap in `ixf docs outline`/`chunk` in the `ixf-docs-writer` skill.
+
 ## 3.27.5 - 2026-09-18
 
 - Fixed native plugin diagnostics so a Claude Code `ixf-toolbox` plugin with `enabled:false` is reported as disabled instead of installed.

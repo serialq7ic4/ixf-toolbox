@@ -47,6 +47,25 @@ Do not treat top-level `doctor.ok=false` alone as an authentication failure. Ins
 
 Markdown Mermaid blocks publish/update/patch as image blocks, not code blocks. This includes `` ```mermaid `` fenced code and exported `` ```Plain `` blocks whose first non-empty content line starts with Mermaid diagram keywords such as `flowchart`, `sequenceDiagram`, or `erDiagram`. Dry-runs expose `mermaidImageCount`, `plannedImageCount`, `mermaidRendererAvailable`, `mermaidRendererReady`, `mermaidRendererError`, `mermaidRendererRemediation`, `mermaidPreferredFormat`, and `mermaidFallbackFormat`. Apply requires external Mermaid CLI `mmdc` on `PATH` and a healthy render probe; SVG is preferred and PNG is the fallback. If `mermaidImageCount>0` and `mermaidRendererReady=false`, do not apply. Run `ixf deps install --dry-run --json`, show the plan, and use `ixf deps install --apply --json` only after explicit approval; alternatively set `PUPPETEER_EXECUTABLE_PATH` to an installed Chrome/Chromium binary.
 
+## Document Size
+
+One write is one request, and the endpoint accepts at most **3500 `change_map` entries** per write: one page root entry plus 3499 block entries. Over that the server returns `code=4000002 invalid param` and names no ceiling.
+
+The limit counts entries, not bytes or lines. 200 blocks carrying 3.0 MB published fine while 3860 blocks carrying 1.4 MB failed. Tables expand into row, cell, and text blocks, so a table-heavy 1322-line document reaches 4620 entries while a text-only 1642-line document sits near 820. Never estimate from line count, file size, or `plannedPayloadBytes`; the only predictor is `plannedChangeEntries` from a dry-run.
+
+Every write dry-run reports `plannedBlockEntries`, `plannedChangeEntries`, and `maxChangeEntriesPerWrite`. Compare `plannedChangeEntries` against the limit, not `plannedBlockEntries`, which is one lower because it excludes the page root entry.
+
+`ixf docs publish` handles oversized documents itself: when the content needs more than one write, it splits at top-level block boundaries and writes the parts in order. Dry-run reports `plannedWriteCount`, `willSplitWrites`, and `splitReason`; apply reports `writeCount` and `splitWrites`. No flag or manual skeleton is required. State the planned write count to the user before applying, because a split publish is several writes and can stop part-way.
+
+If a split publish fails mid-sequence the document exists and is incomplete. The error names its URL and how many writes completed. Do not re-run the same command, which creates a second document: report the URL and completed write count, then add the remaining sections with `ixf docs patch insert --under-heading` after approval. This tool cannot delete a document, so removing an unwanted partial document is manual in the web UI.
+
+Two cases publish cannot split:
+
+- A single block larger than one write, such as a table of several thousand rows. Publish fails before writing anything and names the block; shorten it.
+- `ixf docs update`, which replaces the whole body and is never split. A partial replace would leave the document truncated, so an oversized update fails loudly. Prefer keeping the document and adding material with `ixf docs patch insert`, one section per write.
+
+`ixf docs patch insert` and `patch replace-section` are subject to the same per-write limit and are not split automatically. Their dry-runs report `plannedChangeEntries` and `fitsInOneWrite`; when `fitsInOneWrite` is false, split the fragment into smaller ones. `ixf docs outline` and `ixf docs chunk` split by **character** budget, which does not bound entry count, so always check `plannedChangeEntries` on each fragment's dry-run before applying.
+
 ## Workflow
 
 1. For new docx publishing, confirm the Markdown file and destination URL, default publish base URL, or parent location.
@@ -54,7 +73,7 @@ Markdown Mermaid blocks publish/update/patch as image blocks, not code blocks. T
    `ixf docs publish <file.md> --base-url https://tenant.example.test --dry-run`
    or, when `.docs.defaultBaseURL.configured=true`:
    `ixf docs publish <file.md> --dry-run`
-3. Review the planned title, create-only target, Mermaid image metadata, and required text checks with the user.
+3. Review the planned title, create-only target, Mermaid image metadata, and required text checks with the user. When `willSplitWrites` is true, also state `plannedWriteCount` and that a split publish can stop part-way, per Document Size.
 4. Apply only after explicit approval:
    `ixf docs publish <file.md> --base-url https://tenant.example.test --apply`
 5. For localized insertion under a heading, create a fragment Markdown file and run patch dry-run first:

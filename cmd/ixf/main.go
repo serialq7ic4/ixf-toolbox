@@ -383,6 +383,30 @@ func runSheetsRead(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
+func printSheetsUpdateHelp(w io.Writer) {
+	printUsageHelp(w, "ixf sheets update --url URL --range CELL --input FILE.tsv [--dry-run|--apply]", [][2]string{
+		{"--url URL", "Direct sheets URL, including the sheet id query parameter."},
+		{"--range CELL", "A1-style start cell such as B2; the written span is taken from the input shape."},
+		{"--input FILE", "Tab-separated values file: one line per row, columns separated by a literal tab."},
+		{"--host-url URL", "Override the host document URL used to resolve the workbook."},
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+		{"--dry-run", "Report the planned row and column counts without writing."},
+		{"--apply", "Write the cells, then read them back to confirm the values landed."},
+	})
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "input format:")
+	fmt.Fprintln(w, "  Columns are separated by tabs, not commas, and not JSON. A file in another")
+	fmt.Fprintln(w, "  format is rejected before any write.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "    printf 'evidence text\\tassessment text\\n' > cells.tsv")
+	fmt.Fprintln(w, "    ixf sheets update --url <sheets-url> --range H3 --input cells.tsv --dry-run")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "  Check `cols` in the dry-run output against the number of columns you intend to")
+	fmt.Fprintln(w, "  write. `verify` after apply confirms the sent values were stored; it cannot")
+	fmt.Fprintln(w, "  confirm the layout was what you intended.")
+}
+
 func runSheetsUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("ixf sheets update", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -395,8 +419,7 @@ func runSheetsUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 	dryRun := flags.Bool("dry-run", false, "")
 	apply := flags.Bool("apply", false, "")
 	if hasHelpArg(args) {
-		flags.SetOutput(stdout)
-		flags.Usage()
+		printSheetsUpdateHelp(stdout)
 		return 0
 	}
 	if err := flags.Parse(args); err != nil {

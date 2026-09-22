@@ -137,8 +137,14 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 			expected: []string{"usage: ixf sheets read", "--cookies", "--space-api"},
 		},
 		{
-			args:     []string{"sheets", "update", "--help"},
-			expected: []string{"Usage of ixf sheets update", "-url", "-host-url", "-range", "-input", "-cookies", "-space-api", "-dry-run", "-apply"},
+			args: []string{"sheets", "update", "--help"},
+			// The input contract is the point of this help text: an undocumented
+			// --input silently accepted non-TSV files that wrote one wide cell.
+			expected: []string{
+				"usage: ixf sheets update", "--url", "--host-url", "--range", "--input",
+				"--cookies", "--space-api", "--dry-run", "--apply",
+				"Tab-separated values file", "one line per row", "input format:",
+			},
 		},
 		{
 			args:     []string{"bitable", "inspect", "--help"},

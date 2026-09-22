@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.27.9 - 2026-09-22
+
+- Fixed `ixf sheets update --help` printing no description for any of its flags. It emitted raw Go flag output instead of using the help formatting every other documented command uses, so the tab-separated `--input` contract was invisible at the one place a caller would look for it. The help now describes each flag and carries an input-format section with a runnable example.
+- Added an `ixf-sheets-writer` skill, so sheet writes have a dedicated skill carrying the input contract, the dry-run check on `rows` and `cols`, and the limits of `verify`. Sheets was previously the only write surface with no skill of its own, matching the reader and writer skills that docs, OKR, and Messenger each have.
+- Updated the routing guidance in `using-ixf-toolbox` and `ixf-docs-writer` to name the tab-separated input contract and to route sheet writes to `ixf-sheets-writer`.
+
 ## 3.27.8 - 2026-09-22
 
 - Fixed `ixf sheets update` silently accepting input it cannot map onto the target range. `--input` reads tab-separated values, so a file in any other format parsed without error into single-column rows and wrote its literal text into the first target column, leaving neighbouring columns untouched. A dry run reported the resulting `cols:1` without comment and the post-write check still passed, so the mistake was repeatable with no visible signal. Input that is clearly not tab-separated, such as JSON or consistently comma-delimited text, is now rejected before any write with a message naming the detected format and the expected one. A genuinely single-column file is still accepted.

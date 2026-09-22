@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 3.27.7 - 2026-09-22
+
 - Fixed `verify.ok` being false for a correctly published document whose fenced code blocks are all single-line. Verification required at least one code block in the document to contain a newline, which a document of single-line commands never satisfies, while a single multi-line block masked every other code block being lost. Code blocks are now verified by comparing each recovered body against its source text, which catches a flattened multi-line block and accepts legitimate single-line ones.
 - Added `codeTextOK` and `missingCodeBlockTexts` to publish, update, and patch verification output, so an aggregate `verify.ok:false` names the code blocks that failed instead of reporting no failing field at all.
 - Removed the code-text check from the table row append verifier, which has no source specs to compare against and so could only produce false failures from unrelated code blocks elsewhere in the document.

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed `verify.ok` being false for a correctly published document whose fenced code blocks are all single-line. Verification required at least one code block in the document to contain a newline, which a document of single-line commands never satisfies, while a single multi-line block masked every other code block being lost. Code blocks are now verified by comparing each recovered body against its source text, which catches a flattened multi-line block and accepts legitimate single-line ones.
+- Added `codeTextOK` and `missingCodeBlockTexts` to publish, update, and patch verification output, so an aggregate `verify.ok:false` names the code blocks that failed instead of reporting no failing field at all.
+- Removed the code-text check from the table row append verifier, which has no source specs to compare against and so could only produce false failures from unrelated code blocks elsewhere in the document.
+
 ## 3.27.6 - 2026-09-21
 
 - Fixed docs publish rejecting large documents with a bare `code=4000002 invalid param`: the write endpoint accepts at most 3500 `change_map` entries per request (a page root entry plus 3499 block entries), measured by bisection against a live tenant. Publish now splits an oversized document at top-level block boundaries and writes the parts in order, so a document of any block count publishes without a manual skeleton workflow.

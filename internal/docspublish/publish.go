@@ -723,22 +723,15 @@ func (session *publishSession) verify(pageID string, referer string, requiredTex
 				missingRequiredText = append(missingRequiredText, required)
 			}
 		}
-		codeTextOK := true
-		if len(codeTexts) > 0 {
-			codeTextOK = false
-			for _, code := range codeTexts {
-				if strings.Contains(code, "\n") {
-					codeTextOK = true
-					break
-				}
-			}
-		}
 		imageCount := counts["image"]
 		missingImageCount := 0
 		if imageCount < expectedImageCount {
 			missingImageCount = expectedImageCount - imageCount
 		}
-		ok := len(missingRequiredText) == 0 && emptyCalloutCount == 0 && codeTextOK && missingImageCount == 0
+		// This verifier has no source specs, so it cannot know what the code blocks
+		// were supposed to contain. Callers that need code text verified use
+		// verifyMarkdownOutputWithRoots, which compares against the specs.
+		ok := len(missingRequiredText) == 0 && emptyCalloutCount == 0 && missingImageCount == 0
 		last = map[string]any{
 			"ok":                  ok,
 			"counts":              counts,
@@ -835,16 +828,8 @@ func (session *publishSession) verifyMarkdownOutputWithRoots(
 				missingRequiredText = append(missingRequiredText, required)
 			}
 		}
-		codeTextOK := true
-		if len(codeTexts) > 0 {
-			codeTextOK = false
-			for _, code := range codeTexts {
-				if strings.Contains(code, "\n") {
-					codeTextOK = true
-					break
-				}
-			}
-		}
+		missingCodeTexts := missingCodeBlockTexts(specs, codeTexts)
+		codeTextOK := len(missingCodeTexts) == 0
 		imageCount := counts["image"]
 		missingImageCount := positiveDifference(expectedImageCount, imageCount)
 		quoteContainerCount := counts["quote_container"]
@@ -877,6 +862,8 @@ func (session *publishSession) verifyMarkdownOutputWithRoots(
 			"textChars":                  len(allText),
 			"missingRequiredText":        missingRequiredText,
 			"emptyCalloutCount":          emptyCalloutCount,
+			"codeTextOK":                 codeTextOK,
+			"missingCodeBlockTexts":      missingCodeTexts,
 			"expectedImageCount":         expectedImageCount,
 			"imageCount":                 imageCount,
 			"missingImageCount":          missingImageCount,

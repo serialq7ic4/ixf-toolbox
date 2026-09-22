@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.27.10 - 2026-09-22
+
+- Added `rangeWarning` to `ixf sheets update --apply` output when the start row begins below the last populated row and leaves untouched rows between the existing data and the write. An off-by-N start cell is indistinguishable at the API level from deliberately extending a sheet, so the field names the gap rather than refusing the write. Writing inside the data, or on the first row directly after it, produces no warning.
+- The last populated row is found by scanning for non-empty cells rather than taking the height of the read window, which is wider than the data and reports trailing empty rows.
+
 ## 3.27.9 - 2026-09-22
 
 - Fixed `ixf sheets update --help` printing no description for any of its flags. It emitted raw Go flag output instead of using the help formatting every other documented command uses, so the tab-separated `--input` contract was invisible at the one place a caller would look for it. The help now describes each flag and carries an input-format section with a runnable example.

@@ -101,6 +101,13 @@ func PlanUpdate(config UpdateConfig) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	parsed, err := readTSV(config.InputPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateTSVInput(config.InputPath, parsed); err != nil {
+		return nil, err
+	}
 	rows, cols, err := TSVShape(config.InputPath)
 	if err != nil {
 		return nil, err
@@ -116,6 +123,7 @@ func PlanUpdate(config UpdateConfig) (map[string]any, error) {
 		"rows":        rows,
 		"cols":        cols,
 		"input":       config.InputPath,
+		"inputFormat": "tsv",
 	}, nil
 }
 
@@ -148,6 +156,9 @@ func applyUpdate(config UpdateConfig) (map[string]any, error) {
 	}
 	values, err := readTSV(config.InputPath)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateTSVInput(config.InputPath, values); err != nil {
 		return nil, err
 	}
 	session, err := newSheetSession(config, target.BaseURL)
@@ -201,9 +212,15 @@ func applyUpdate(config UpdateConfig) (map[string]any, error) {
 		"rows":        rows,
 		"cols":        cols,
 		"input":       config.InputPath,
+		"inputFormat": "tsv",
 		"verify": map[string]any{
 			"ok":      true,
 			"checked": rows * cols,
+			// This check reads the cells back and compares them against the values
+			// that were sent. It confirms the write landed; it cannot confirm the
+			// input was shaped as intended, because a wrongly shaped input verifies
+			// exactly as faithfully as a correct one.
+			"scope": "round-trip: stored cells match the values sent, not the intended layout",
 		},
 	}, nil
 }

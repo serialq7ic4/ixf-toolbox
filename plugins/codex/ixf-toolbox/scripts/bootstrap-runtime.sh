@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-release_version="3.27.7"
+release_version="3.27.8"
 repository="serialq7ic4/ixf-toolbox"
 apply=false
 dry_run=true

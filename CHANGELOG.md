@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.27.8 - 2026-09-22
+
+- Fixed `ixf sheets update` silently accepting input it cannot map onto the target range. `--input` reads tab-separated values, so a file in any other format parsed without error into single-column rows and wrote its literal text into the first target column, leaving neighbouring columns untouched. A dry run reported the resulting `cols:1` without comment and the post-write check still passed, so the mistake was repeatable with no visible signal. Input that is clearly not tab-separated, such as JSON or consistently comma-delimited text, is now rejected before any write with a message naming the detected format and the expected one. A genuinely single-column file is still accepted.
+- Added `inputFormat` to `ixf sheets update` dry-run and apply output.
+- Added `verify.scope` to `ixf sheets update` apply output, stating that the check compares stored cells against the values sent rather than against the intended layout. A wrongly shaped input verifies exactly as faithfully as a correct one, which previously read as task-level confirmation.
+
 ## 3.27.7 - 2026-09-22
 
 - Fixed `verify.ok` being false for a correctly published document whose fenced code blocks are all single-line. Verification required at least one code block in the document to contain a newline, which a document of single-line commands never satisfies, while a single multi-line block masked every other code block being lost. Code blocks are now verified by comparing each recovered body against its source text, which catches a flattened multi-line block and accepts legitimate single-line ones.

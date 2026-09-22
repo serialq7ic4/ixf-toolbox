@@ -56,7 +56,9 @@ Use `ixf deps install`, not bootstrap, for Mermaid dependencies. Never invoke de
 
 `verify` compares stored cells against the values that were sent. It cannot detect that the input was shaped wrongly, that the start cell was off by rows, or that a neighbouring column was left empty. Treat it as proof the write landed, not as proof the task was done.
 
-A start cell beyond the populated range is accepted without complaint, and writing empty strings past the data does not create visible rows. If the start row may be past the end of the data, confirm it against a read first.
+Apply output carries `rangeWarning` when the start row begins below the last populated row and leaves untouched rows between them. That is legitimate when extending a sheet deliberately and a mistake when the start cell is off by rows, and the two are indistinguishable at the API level, so the field names the gap rather than blocking the write. Writing empty strings past the data does not create visible rows.
+
+The dry run cannot produce that warning, because it does not read the sheet; it is local and reports only the shape of the input. So a start cell that may sit past the end of the data must be checked against `ixf sheets read` before applying, per step 2.
 
 ## Safety
 

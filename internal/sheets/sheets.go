@@ -187,6 +187,7 @@ func applyUpdate(config UpdateConfig) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	rangeWarning := rangeGapWarning(state.Values, startRow, len(values))
 	if err := session.postUserChanges(target, hostToken, referer, state.MemberID, state.Revision, content); err != nil {
 		return nil, err
 	}
@@ -200,7 +201,7 @@ func applyUpdate(config UpdateConfig) (map[string]any, error) {
 			cols = len(row)
 		}
 	}
-	return map[string]any{
+	payload := map[string]any{
 		"ok":          true,
 		"dryRun":      false,
 		"operation":   "update_sheet",
@@ -222,7 +223,11 @@ func applyUpdate(config UpdateConfig) (map[string]any, error) {
 			// exactly as faithfully as a correct one.
 			"scope": "round-trip: stored cells match the values sent, not the intended layout",
 		},
-	}, nil
+	}
+	if rangeWarning != "" {
+		payload["rangeWarning"] = rangeWarning
+	}
+	return payload, nil
 }
 
 func ParseTarget(rawURL string) (Target, error) {

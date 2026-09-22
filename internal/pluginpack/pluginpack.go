@@ -26,6 +26,7 @@ var canonicalSkillNames = []string{
 	"ixf-okr-writer",
 	"ixf-messenger-reader",
 	"ixf-messenger-writer",
+	"ixf-sheets-writer",
 }
 
 var versionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)

@@ -644,6 +644,7 @@ var canonicalSkillNames = []string{
 	"ixf-okr-writer",
 	"ixf-messenger-reader",
 	"ixf-messenger-writer",
+	"ixf-sheets-writer",
 }
 
 func TestCanonicalSkillsHaveGeneratedHostCopies(t *testing.T) {

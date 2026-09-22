@@ -96,7 +96,7 @@ Two cases publish cannot split:
    `ixf docs update <file.md> --url https://tenant.example.test/docx/example --allow-complex-replace --apply`
 16. Markdown tables are expected to publish or patch as native docx table blocks; if `tableFallbackCount>0`, stop and investigate before applying.
 17. After update apply, inspect `verify.ok`, `verify.missingRequiredText`, and `verify.emptyCalloutCount`; do not claim success if required text is missing or empty callouts are reported.
-18. For sheets update requests, do not use `ixf docs update`; route to `ixf sheets update --dry-run`, then apply only after explicit approval.
+18. For sheets update requests, do not use `ixf docs update`; route to `ixf-sheets-writer` and run `ixf sheets update --dry-run`, whose `--input` is tab-separated values rather than JSON, then apply only after explicit approval.
 19. Re-read or inspect the result when a verification URL is available.
 
 ## Safety

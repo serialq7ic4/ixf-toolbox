@@ -16,6 +16,10 @@ import (
 
 const DefaultCSRFURL = "https://www.xfchat.iflytek.com/lgw/csrf_token"
 
+// maxKRsPerObjective is a scope guardrail rather than a server limit: more than
+// this many key results per objective is treated as a planning mistake.
+const maxKRsPerObjective = 4
+
 var errStaleDraftVersion = errors.New("stale OKR draft version")
 
 type ReadConfig struct {
@@ -503,8 +507,9 @@ func ParseSpecs(path string) ([]ObjectiveSpec, error) {
 		if objective == "" {
 			return nil, fmt.Errorf("objective %d is empty", index+1)
 		}
-		if len(item.KRs) > 4 {
-			return nil, fmt.Errorf("objective %d has %d KRs; keep OKR scope realistic", index+1, len(item.KRs))
+		if len(item.KRs) > maxKRsPerObjective {
+			return nil, fmt.Errorf("objective %d has %d KRs; keep OKR scope realistic (at most %d)",
+				index+1, len(item.KRs), maxKRsPerObjective)
 		}
 		// An empty KR list is refused rather than written. A write replaces an
 		// objective's KRs by deleting the existing ones, so accepting an empty list

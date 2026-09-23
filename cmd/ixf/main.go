@@ -1268,6 +1268,7 @@ func printDocsPatchDeleteSectionHelp(w io.Writer) {
 func runOKR(args []string, stdout io.Writer, stderr io.Writer) int {
 	rows := [][2]string{
 		{"read", "Read an authorized OKR page as Markdown."},
+		{"inspect", "Print objective indexes, identifiers, titles, and KR counts as JSON."},
 		{"write", "Validate and plan confirmed Objective / KR content."},
 	}
 	if len(args) == 0 {
@@ -1282,6 +1283,8 @@ func runOKR(args []string, stdout io.Writer, stderr io.Writer) int {
 	switch args[0] {
 	case "read":
 		return runOKRRead(args[1:], stdout, stderr)
+	case "inspect":
+		return runOKRInspect(args[1:], stdout, stderr)
 	case "write":
 		return runOKRWrite(args[1:], stdout, stderr)
 	default:
@@ -1350,6 +1353,72 @@ func printOKRReadHelp(w io.Writer) {
 		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
 		{"--csrf-url URL", "Override the URL used to establish CSRF/session readiness."},
 	})
+}
+
+func printOKRInspectHelp(w io.Writer) {
+	printUsageHelp(w, "ixf okr inspect <okr-url> [--cookies PATH] [--csrf-url URL]", [][2]string{
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--csrf-url URL", "Override the LGW CSRF token endpoint."},
+	})
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Prints current objectives as JSON: 1-based index, identifier, title, KR count,")
+	fmt.Fprintln(w, "and each KR. Read this before any write that targets an objective by index,")
+	fmt.Fprintln(w, "because indexes shift as objectives are added and `okr read` emits Markdown")
+	fmt.Fprintln(w, "rather than values a caller can compare against.")
+}
+
+func runOKRInspect(args []string, stdout io.Writer, stderr io.Writer) int {
+	if hasHelpArg(args) {
+		printOKRInspectHelp(stdout)
+		return 0
+	}
+	source := ""
+	cookiesPath := defaultCookies
+	csrfURL := ixfokr.DefaultCSRFURL
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--cookies":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stderr, "ERROR --cookies requires a value")
+				return 2
+			}
+			cookiesPath = args[i]
+		case "--csrf-url":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stderr, "ERROR --csrf-url requires a value")
+				return 2
+			}
+			csrfURL = args[i]
+		default:
+			if strings.HasPrefix(arg, "-") {
+				fmt.Fprintf(stderr, "ERROR unsupported okr inspect flag: %s\n", arg)
+				return 2
+			}
+			if source != "" {
+				fmt.Fprintln(stderr, "ERROR okr inspect requires exactly one OKR URL")
+				return 2
+			}
+			source = arg
+		}
+	}
+	if source == "" {
+		fmt.Fprintln(stderr, "ERROR okr inspect requires one OKR URL")
+		return 2
+	}
+	payload, err := ixfokr.Inspect(ixfokr.ReadConfig{
+		Source:      source,
+		CookiesPath: cookiesPath,
+		CSRFURL:     csrfURL,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	writeJSON(stdout, payload)
+	return 0
 }
 
 func runOKRWrite(args []string, stdout io.Writer, stderr io.Writer) int {

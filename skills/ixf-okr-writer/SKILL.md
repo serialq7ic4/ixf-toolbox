@@ -29,15 +29,16 @@ Use `ixf deps install`, not bootstrap, for Mermaid dependencies. Never invoke de
 
 ## Workflow
 
-1. Read the page first with `ixf okr read "<okr-url>"` and show the user the current objectives and their KRs. `--objective-index` is positional, so never target an index without seeing what is there.
+1. Inspect the page first with `ixf okr inspect "<okr-url>"` and show the user the current objectives, their indexes, and their KR counts. `--objective-index` is positional, so never target an index without seeing what is there. Use `inspect` rather than `read` for this: it reports indexes, identifiers, and counts as JSON, while `read` renders Markdown intended for a human.
+   `nextObjectiveIndex` in that output is the index that would create a new objective; any index below it replaces an existing objective's KRs.
 2. Confirm the OKR URL, objective index, and exact Objective/KR content.
 3. Prepare JSON input locally with only the approved content.
    Shape: `{"objectives":[{"objective":"...","krs":["KR1","KR2","KR3"]}]}`
    The top level is an object with an `objectives` key, not an array. The key is `krs`; any other spelling is rejected. `krs` may not be empty.
 4. Run dry run first:
    `ixf okr write --url "<okr-url>" --input okr.json --objective-index 3 --dry-run`
-5. Check `krCount` in the dry-run output against the number of KRs intended, and state it to the user. `krCount` reports the input file, not the target, so the dry run cannot show how many existing KRs would be replaced — that is why step 1 reads the page.
-6. State plainly to the user that writing an existing objective replaces its whole KR set, and name how many KRs the target currently has, from step 1. Get approval for that replacement specifically, not merely for the new content.
+5. Check `krCount` in the dry-run output against the number of KRs intended, and state it to the user. `krCount` reports the input file, not the target, so the dry run cannot show how many existing KRs would be replaced — that is why step 1 inspects the page.
+6. State plainly to the user that writing an existing objective replaces its whole KR set, and name how many KRs the target currently has, taken from the `krCount` of that objective in step 1. Get approval for that replacement specifically, not merely for the new content.
 7. Apply only after explicit approval:
    `ixf okr write --url "<okr-url>" --input okr.json --objective-index 3 --apply`
 8. Inspect `verify.ok` and `verify.comparedAgainst:"spec"`, and read `verify.scope`. The check confirms the stored KRs match what was sent, in order; it does not confirm other objectives were untouched.

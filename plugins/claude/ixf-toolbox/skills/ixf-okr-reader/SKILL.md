@@ -7,6 +7,8 @@ description: Use when reading authorized i讯飞 OKR pages to summarize objectiv
 
 Use `ixf okr read` through the local Toolbox CLI. This skill is read-only.
 
+`ixf okr read` renders the page as Markdown, which suits summary and analysis. `ixf okr inspect "<okr-url>"` reports the same page as JSON with each objective's 1-based index, identifier, title, KR count, and KRs, plus `nextObjectiveIndex`. Prefer `inspect` when the answer depends on positions or counts, and whenever the result will be used to choose a write target, since objective indexes shift as objectives are added.
+
 ## Runtime Boundary
 
 Go `ixf` only. Do not call `ixfdoc` or `ixfwrite`. Do not use Python fallback, Python-compatible readers, or Python-compatible writers.

@@ -170,3 +170,27 @@ func (session *okrSession) publish(objectiveID string, deletedKRIDs []string) er
 		session.lgwToken, session.cookies, session.cache, session.connID, objectiveID, deletedKRIDs)
 	return err
 }
+
+// setObjectiveTitle rewrites one objective's title within an open draft.
+func (session *okrSession) setObjectiveTitle(objectiveID string, title string) error {
+	_, err := okrAPIWithVersion(
+		session.client, "PUT", session.origin, session.url, session.okrID,
+		"/okrx/api/draft_v2/objective/"+objectiveID+"/",
+		session.lgwToken, session.cookies, session.cache, session.connID,
+		func(version string, conn string) map[string]any {
+			return map[string]any{
+				"draft_version": version,
+				"conn_uuid":     conn,
+				"name":          deltaDocJSON(title),
+				"changesets":    "[]",
+			}
+		})
+	return err
+}
+
+// createObjectiveWithTitle appends a new objective and returns its identifier.
+func (session *okrSession) createObjectiveWithTitle(title string) (string, error) {
+	return createObjective(
+		session.client, session.origin, session.url, session.okrID,
+		session.lgwToken, session.cookies, session.cache, session.connID, title)
+}

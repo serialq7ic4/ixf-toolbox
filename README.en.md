@@ -187,6 +187,16 @@ ixf deps install --apply --json
 
 `ixf deps install --apply` is the only optional dependency mutation path. It does not silently install Chrome, change LarkShell login state, configure a proxy, or modify the Messenger desktop environment.
 
+`doctor`'s top-level `ok` covers only the base runtime; whether the full feature set has its dependencies is reported by `dependencies.ok`. Gate on `dependencies.ok` for Mermaid or Messenger work, and on the top-level `ok` for base docs/OKR/sheets work — otherwise a machine without a Mermaid or Messenger environment reads as unusable when the base capabilities are fine.
+
+| Dependency | Needed for | Checked at |
+|---|---|---|
+| Mermaid CLI `mmdc` | Publishing Mermaid diagrams as docx image blocks | `PATH` |
+| Puppeteer `chrome-headless-shell` | The Mermaid render probe | Puppeteer cache |
+| Chrome or Chromium | Messenger automation | `IXF_MESSENGER_BROWSER_PATH`, `--browser-path`, or the platform default location |
+
+`PUPPETEER_EXECUTABLE_PATH` can point at an installed Chrome/Chromium instead of installing the Puppeteer browser.
+
 ## Manual Read Flow
 
 ```bash
@@ -246,9 +256,18 @@ first non-empty content line starts with Mermaid diagram keywords such as
 `flowchart`, `sequenceDiagram`, or `erDiagram`, are written as docx image blocks
 for `publish`, `update`, and `patch` instead of code blocks. Dry-runs report
 `mermaidImageCount`, `plannedImageCount`, `mermaidRendererAvailable`,
+`mermaidRendererReady`, `mermaidRendererError`, `mermaidRendererRemediation`,
 `mermaidPreferredFormat`, and `mermaidFallbackFormat`. Real `--apply` requires
-Mermaid CLI `mmdc` on `PATH`; the writer renders/uploads SVG first and falls
-back to PNG if SVG rendering or upload fails. Missing `mmdc` fails clearly
+Mermaid CLI `mmdc` on `PATH` **and a successful render probe** — presence on
+`PATH` alone is not sufficient, because a missing Puppeteer
+`chrome-headless-shell` leaves `mmdc` installed but unable to render. When
+`mermaidImageCount` is greater than zero the dry-run also reports
+`mermaidRendererReady`; gate on that rather than on `mermaidRendererAvailable`,
+which only reflects `PATH` presence. The three `mermaidRenderer*` readiness
+fields are omitted when the document contains no Mermaid diagrams, since no
+render is needed. The
+writer renders/uploads SVG first and falls back to PNG if SVG rendering or
+upload fails. Missing `mmdc` or an unusable browser dependency fails clearly
 before remote writes start.
 
 ```bash
@@ -384,6 +403,8 @@ Native tables inside docx documents are docs blocks, not bitable data. Use `ixf 
 
 The input JSON maps fields to the first-row table headers. Text fields become text blocks; image fields use local file paths and currently support PNG, JPEG, and SVG. If the document has exactly one native table, `--table-index` can be omitted; documents with multiple tables require an explicit 1-based table index. Dry-run first, then use `--apply` to create the row, upload images to `docx_image`, bind image block tokens, and verify readback.
 
+The `fields` wrapper is **required** here, unlike `ixf bitable record create`, which allows it to be omitted. Carrying the bitable form over is rejected (`ERROR input requires non-empty fields`). Field names must match the headers exactly; a mismatch is a hard error rather than a silent skip.
+
 ```json
 {
   "fields": {
@@ -487,7 +508,20 @@ The input file shape:
 }
 ```
 
-The top level must be an object with an `objectives` key, not an array. The key must be `krs`; other spellings such as `key_results` are rejected. `krs` may not be empty: a write replaces an Objective's KR set, so an empty list would delete the existing KRs and add nothing.
+The top level must be an object with an `objectives` key, not an array. The key must be `krs`; other spellings such as `key_results` are rejected. Each Objective accepts at most 4 KRs.
+
+`krs` may not be empty, because an empty list cannot express a valid intent on any path — it would only delete or preserve without adding anything.
+
+The three write paths treat existing KRs differently, and choosing the wrong one gives the opposite of what you expect:
+
+| Invocation | Existing KRs |
+|---|---|
+| `--objective-index N` (N ≤ current count) | **Replaces the whole KR set**; every existing KR is deleted |
+| `--objective-index N` (N = current count + 1) | Creates a new Objective; existing KRs untouched |
+| No `--objective-index` | **Merges**: existing KRs are matched by text and reused, and any not named in the input are kept |
+| `--prune` | Replaces, and deletes Objectives absent from the input |
+
+So without `--objective-index`, old KRs do not disappear. To make KRs disappear, target the Objective with `--objective-index` and supply the complete intended set.
 
 Add `--apply` after reviewing the planned changes. `--objective-index` updates only the selected Objective; when the target index is exactly one past the current Objective count, it creates that next Objective. Without `--objective-index`, the Go runtime matches Objectives by text and can write multiple Objectives. `--prune` is destructive and should only be used when removal is explicitly intended.
 

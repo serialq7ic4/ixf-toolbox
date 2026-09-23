@@ -6,6 +6,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/serialq7ic4/ixf-toolbox/internal/docxgraph"
 )
 
 type TableAppendRowConfig struct {
@@ -41,9 +43,13 @@ type nativeTableInfo struct {
 }
 
 type tableAppendBuild struct {
-	RowID         string
-	CellIDs       []string
-	Entries       []blockEntry
+	RowID   string
+	CellIDs []string
+	Entries []blockEntry
+	// CellTexts is aligned with CellIDs by column, with an empty entry for an
+	// image or blank cell. RequiredTexts drops empties and so cannot be used to
+	// tell which column a value belongs to.
+	CellTexts     []string
 	TextCount     int
 	ImageCount    int
 	RequiredTexts []string
@@ -90,14 +96,31 @@ func AppendTableRow(config TableAppendRowConfig) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	requiredText := config.RequiredText
-	if len(requiredText) == 0 {
-		requiredText = build.RequiredTexts
-	}
-	verify, err := loaded.session.verify(loaded.target.Token, loaded.target.Referer, requiredText, beforeImageCount+build.ImageCount)
+	// Only caller-supplied required text is passed to the document-wide check.
+	// Defaulting it to the values just sent made the check tautological: those
+	// strings were guaranteed present if the write landed anywhere, and usually
+	// present already even if it did not.
+	verify, err := loaded.session.verify(loaded.target.Token, loaded.target.Referer, config.RequiredText, beforeImageCount+build.ImageCount)
 	if err != nil {
 		return nil, err
 	}
+	// Structural check: re-read the document and confirm the row is actually in the
+	// table. This is the part that proves the append happened, rather than proving
+	// its text exists somewhere.
+	afterState, err := loaded.session.clientVars(loaded.target.Token, loaded.target.Referer)
+	if err != nil {
+		return nil, err
+	}
+	afterGraph, err := docxgraph.Build(afterState, loaded.target.Token)
+	if err != nil {
+		return nil, err
+	}
+	rowVerify := verifyAppendedRow(afterGraph, table.ID, len(table.RowIDs), build.RowID, build.CellIDs, build.CellTexts)
+	verify["appendedRow"] = rowVerify
+	if !asBool(rowVerify["ok"]) {
+		verify["ok"] = false
+	}
+
 	payload["ok"] = asBool(verify["ok"])
 	payload["dryRun"] = false
 	payload["willWrite"] = true
@@ -268,9 +291,10 @@ func parseTableAppendCellValue(value any) (tableAppendCellValue, error) {
 func buildTableAppendRow(table nativeTableInfo, values []tableAppendCellValue, factory *blockFactory) tableAppendBuild {
 	rowID := "row" + randomUUID()
 	build := tableAppendBuild{
-		RowID:   rowID,
-		CellIDs: make([]string, 0, len(table.ColumnIDs)),
-		Entries: []blockEntry{},
+		RowID:     rowID,
+		CellIDs:   make([]string, 0, len(table.ColumnIDs)),
+		CellTexts: make([]string, 0, len(table.ColumnIDs)),
+		Entries:   []blockEntry{},
 	}
 	imageOrdinal := 0
 	for columnIndex := range table.ColumnIDs {
@@ -296,12 +320,14 @@ func buildTableAppendRow(table nativeTableInfo, values []tableAppendCellValue, f
 				},
 			)
 			build.ImageCount++
+			build.CellTexts = append(build.CellTexts, "")
 			continue
 		}
 		build.Entries = append(build.Entries,
 			blockEntry{ID: cellID, Data: factory.tableCellBlock(table.ID, childID)},
 			blockEntry{ID: childID, Data: factory.baseBlock("text", cellID, value.Text)},
 		)
+		build.CellTexts = append(build.CellTexts, value.Text)
 		if strings.TrimSpace(value.Text) != "" {
 			build.TextCount++
 			build.RequiredTexts = append(build.RequiredTexts, value.Text)

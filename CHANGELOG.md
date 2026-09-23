@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 3.27.12 - 2026-09-23
+
+- Fixed `ixf docs table append-row` reporting `verify.ok:true` when the row had not been added. Verification checked whether each cell's text appeared anywhere in the document, using the values just sent as the expectation, so a write that was rejected, landed in a different table, or collapsed its cells verified as faithfully as a correct one. Low-cardinality columns such as a status or an owner made this likely rather than theoretical, because those values usually already exist in the table. Nothing checked that the table had grown: the reported row count was captured before the write and never re-read.
+- Added `verify.appendedRow`, which re-reads the document and confirms the new row is present as the table's last row, that the row count grew by exactly one, and that each cell is registered for its intended column with the text that was written. Failures report `error` and the affected `missingCells` columns. Cells are matched through the table's `cell_set` rather than block parentage, because a cell's parent is the table itself and so cannot identify its row.
+- Documented the corrected gate in the routing skill, along with the `fields` wrapper being required for `docs table append-row` while optional for `bitable record create`.
+- Corrected the README drift found by auditing both files against the 3.27.11 binary: the OKR note added in 3.27.11 described a write as replacing an objective's KR set, which is true for `--objective-index` and `--prune` but not for the default path, which merges; the four-KR ceiling, the `--out-dir` requirement for `--print-manifest` and `--cleanup`, and the `fields` wrapper asymmetry were undocumented; every output field added between 3.27.6 and 3.27.11 was absent from both READMEs; and `README.en.md` understated the Mermaid apply requirement as PATH presence when a successful render probe is needed.
+
 ## 3.27.11 - 2026-09-22
 
 - Fixed `ixf okr write` deleting every KR of the target objective and creating no replacement when the input used a wrong key name. `--input` was decoded with `json.Unmarshal`, which ignores unknown fields, so `key_results` instead of `krs` yielded zero KRs with no error; the write then deleted the existing KRs unconditionally and the create loop iterated an empty list. Input is now decoded strictly, so an unrecognised key is rejected by name, and an absent, empty, or all-blank `krs` list is refused rather than written.

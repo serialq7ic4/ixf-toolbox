@@ -29,7 +29,7 @@ func TestAppendTableRowDryRunPlansNativeTableRowWithImage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/space/api/docx/pages/client_vars":
-			writeTestJSON(t, w, map[string]any{"code": 0, "data": nativeTableClientVars("", "", false)})
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": nativeTableClientVars("", "", false, nil)})
 		default:
 			if r.Method == http.MethodPost || strings.Contains(r.URL.Path, "upload") {
 				sawMutation = true
@@ -93,6 +93,7 @@ func TestAppendTableRowApplyAddsCellsUploadsImageAndVerifies(t *testing.T) {
 	newTextBlockID := ""
 	newImageBlockID := ""
 	newCellIDs := map[string]bool{}
+	newCellSet := map[string]string{}
 	uploadedName := ""
 	uploadedMountPoint := ""
 	uploadedMountNodeToken := ""
@@ -101,7 +102,7 @@ func TestAppendTableRowApplyAddsCellsUploadsImageAndVerifies(t *testing.T) {
 		case "/space/api/docx/pages/client_vars":
 			writeTestJSON(t, w, map[string]any{
 				"code": 0,
-				"data": nativeTableClientVars(newTextBlockID, newImageBlockID, boundImage),
+				"data": nativeTableClientVars(newTextBlockID, newImageBlockID, boundImage, newCellSet),
 			})
 		case "/space/api/docx/blocks/user_change/":
 			payload := decodeDocspublishJSONRequest(t, r)
@@ -145,6 +146,11 @@ func TestAppendTableRowApplyAddsCellsUploadsImageAndVerifies(t *testing.T) {
 					cellSetAdds++
 					cell := asMap(action["oi"])
 					newCellIDs[asString(cell["block_id"])] = true
+					// Record the cell_set key as sent, so the fake can echo back the
+					// same row and cell identifiers a real server would. Structural
+					// verification compares these, so hardcoded fixture ids would
+					// make it fail against a correct write.
+					newCellSet[asString(path[1])] = asString(cell["block_id"])
 				}
 			}
 			if newRowID == "" || cellSetAdds != 2 || len(newCellIDs) != 2 {
@@ -258,7 +264,7 @@ func TestLocalRenderedImageSupportsPNGJPEGAndSVG(t *testing.T) {
 	}
 }
 
-func nativeTableClientVars(textBlockID string, imageBlockID string, imageBound bool) map[string]any {
+func nativeTableClientVars(textBlockID string, imageBlockID string, imageBound bool, appendedCellSet map[string]string) map[string]any {
 	rows := []any{"row_header"}
 	cellSet := map[string]any{
 		"row_headercol_title": map[string]any{"block_id": "cell_header_title", "merge_info": map[string]any{"row_span": 1, "col_span": 1}},
@@ -304,17 +310,34 @@ func nativeTableClientVars(textBlockID string, imageBlockID string, imageBound b
 		}},
 	}
 	if textBlockID != "" || imageBlockID != "" {
-		rows = append(rows, "row_appended")
-		cellSet["row_appendedcol_title"] = map[string]any{"block_id": "cell_appended_title", "merge_info": map[string]any{"row_span": 1, "col_span": 1}}
-		cellSet["row_appendedcol_logo"] = map[string]any{"block_id": "cell_appended_logo", "merge_info": map[string]any{"row_span": 1, "col_span": 1}}
-		blockMap["cell_appended_title"] = map[string]any{"version": 1, "data": map[string]any{
+		// Echo back the row and cell identifiers the client actually sent, the way a
+		// real server would. appendedRow verification compares them, so fixed ids
+		// here would report a correct write as failed.
+		appendedRowID := "row_appended"
+		titleCellID := "cell_appended_title"
+		logoCellID := "cell_appended_logo"
+		if len(appendedCellSet) > 0 {
+			for key, cellID := range appendedCellSet {
+				switch {
+				case strings.HasSuffix(key, "col_title"):
+					titleCellID = cellID
+					appendedRowID = strings.TrimSuffix(key, "col_title")
+				case strings.HasSuffix(key, "col_logo"):
+					logoCellID = cellID
+				}
+			}
+		}
+		rows = append(rows, appendedRowID)
+		cellSet[appendedRowID+"col_title"] = map[string]any{"block_id": titleCellID, "merge_info": map[string]any{"row_span": 1, "col_span": 1}}
+		cellSet[appendedRowID+"col_logo"] = map[string]any{"block_id": logoCellID, "merge_info": map[string]any{"row_span": 1, "col_span": 1}}
+		blockMap[titleCellID] = map[string]any{"version": 1, "data": map[string]any{
 			"type":      "table_cell",
 			"parent_id": "table_1",
 			"children":  []any{textBlockID},
 		}}
 		blockMap[textBlockID] = map[string]any{"version": 1, "data": map[string]any{
 			"type":      "text",
-			"parent_id": "cell_appended_title",
+			"parent_id": titleCellID,
 			"text":      attributedCLIText("Applied table row"),
 		}}
 		imageData := map[string]any{
@@ -330,17 +353,21 @@ func nativeTableClientVars(textBlockID string, imageBlockID string, imageBound b
 		if imageBound {
 			imageData["token"] = "boxr-png-token"
 		}
-		blockMap["cell_appended_logo"] = map[string]any{"version": 1, "data": map[string]any{
+		blockMap[logoCellID] = map[string]any{"version": 1, "data": map[string]any{
 			"type":      "table_cell",
 			"parent_id": "table_1",
 			"children":  []any{imageBlockID},
 		}}
 		blockMap[imageBlockID] = map[string]any{"version": 1, "data": map[string]any{
 			"type":      "image",
-			"parent_id": "cell_appended_logo",
+			"parent_id": logoCellID,
 			"image":     imageData,
 		}}
 	}
+	// Assign rows_id after any append: the map literal above captured the slice
+	// header when rows still held only the header row, so appending rebinds the
+	// local variable without updating the map.
+	asMap(asMap(blockMap["table_1"])["data"])["rows_id"] = rows
 	return map[string]any{
 		"meta_map":  map[string]any{"page_1": map[string]any{"editor_id": "member_fixture"}},
 		"block_map": blockMap,

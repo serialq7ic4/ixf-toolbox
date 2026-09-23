@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 3.28.0 - 2026-09-23
+
+Breaking: `ixf okr write` is removed. Use `ixf okr objective create|retitle|delete` and `ixf okr kr add|replace|delete`, with `ixf okr inspect` to find the index and title a write should target. Running the old command prints the verb replacing each of its flag combinations and exits non-zero.
+
+- Replaced `ixf okr write` with six intent-named verbs, so a command's blast radius is in its name rather than emerging from a flag combination plus the contents of an input file. The old command decided between creating, editing, and destroying partly from a remote objective count the caller could not observe, which meant approving the command line meant approving an unknown.
+- Added `--expect-title`, required by every verb targeting an existing objective. Indexes shift as objectives are added, so a positional target alone can name a different objective than the caller inspected; the title is compared before anything is written and a mismatch refuses.
+- Added `--confirm-kr-deletes N` to the destructive verbs, which must equal the number of KRs the write will remove. `--apply` is a constant that can be passed habitually, while the count exists only in the target's current state, so supplying it is evidence the diff was read. Dry-runs report `apply.blocked` and `apply.requiredFlags`.
+- `ixf okr kr replace` performs replacement in a single write, creating the new KRs before removing the old ones. Splitting replacement into a delete and an add would make an objective with no KRs a state reachable between two commands, which is what made the earlier defect destroy data rather than merely write the wrong content.
+- `ixf okr kr delete` is the only path to an objective with no KRs and accepts no input file. A `--kr` matching nothing aborts the command rather than deleting the ones that did match, since a mismatch means the page changed since it was inspected.
+- `ixf okr objective delete` replaces `--prune`, whose extent was decided by which objectives an input file happened to omit. One named objective per invocation.
+- `ixf okr kr add` keeps existing KRs and their order, reports a KR already present in `diff.alreadyPresent` rather than duplicating it, and checks the four-KR ceiling against the live count instead of the input alone.
+- `ixf okr objective create` refuses any `--objective` that is not the append position, removing the case where one index meant create or replace depending on how many objectives existed.
+- Verification for every verb compares against the intended values rather than against values read back out of the state being checked, and reports `verify.comparedAgainst` and `verify.scope`.
+- Removed the JSON `--input` surface for OKR writes along with the old write path. The strict decoding and empty-`krs` refusal added in 3.27.11 are removed with it: they existed because a misspelled JSON key could silently delete every KR, and with content passed as `--kr` flags there is no key to misspell. The defect class is structurally absent rather than guarded against.
+
 ## 3.27.14 - 2026-09-23
 
 - Added `ixf okr inspect`, which reports an OKR page as JSON with each objective's 1-based index, identifier, title, KR count, and KRs with their own identifiers. `ixf okr read` renders Markdown for a human to check, which leaves a caller choosing a write target by guessing at positions; `--objective-index` is positional, so a write needs the indexes and counts as values it can compare against.

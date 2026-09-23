@@ -23,7 +23,9 @@ Go binary that executes all business workflows. Canonical skill sources live at
 | `bitable record create` | Owned | `ixf bitable record create --dry-run` plans new records appended to the current view by default, including local file paths for attachment fields and planned view index; `ixf bitable record create --apply` creates confirmed records through API-only RCE writes, uploads attachment files, and verifies by clientvars readback. |
 | `bitable attach` | Owned | `ixf bitable attach --dry-run` plans attachment uploads into existing bitable attachment fields; `ixf bitable attach --apply` uploads local files, appends them to the matched existing attachment field through API-only RCE writes, and verifies by clientvars readback. |
 | `okr read` | Owned | Reads authorized OKR pages through the OKR detail APIs. |
-| `okr write` | Owned | Writes confirmed Objective / KR JSON, including index-targeted, full-spec, and explicit prune flows. |
+| `okr inspect` | Owned | Reports objective indexes, identifiers, titles, and KR counts as JSON. |
+| `okr objective create\|retitle\|delete` | Owned | Appends, retitles, or deletes a whole Objective. Delete is destructive and confirmation-gated. |
+| `okr kr add\|replace\|delete` | Owned | Appends, replaces, or removes Key Results on one Objective. Replace and delete are destructive and confirmation-gated. |
 | `cookies export` | Owned | Exports local desktop-session cookies on macOS and CI-covered Windows providers. |
 | `doctor` | Owned | Read-only report of runtime, native plugin, legacy skill, cookie, and dependency metadata without printing cookie values. |
 | `deps install` | Owned | Dry-runs or, with explicit `--apply`, installs optional Mermaid rendering dependencies; desktop/browser login dependencies remain diagnostic-only. |

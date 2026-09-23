@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 3.27.11 - 2026-09-22
+
+- Fixed `ixf okr write` deleting every KR of the target objective and creating no replacement when the input used a wrong key name. `--input` was decoded with `json.Unmarshal`, which ignores unknown fields, so `key_results` instead of `krs` yielded zero KRs with no error; the write then deleted the existing KRs unconditionally and the create loop iterated an empty list. Input is now decoded strictly, so an unrecognised key is rejected by name, and an absent, empty, or all-blank `krs` list is refused rather than written.
+- Fixed the write order so replacement KRs are created before the existing ones are deleted. A failure between the two steps previously left the objective with no KRs at all; it now leaves the original KRs in place alongside orphaned drafts, which is visible and recoverable. A guard before the delete refuses to remove existing KRs when no replacement was created.
+- Fixed post-write verification comparing the stored KRs against values collected from the stored state itself, which made the comparison tautological and reported success for an objective whose KRs had all been deleted. It now compares against the written spec, checks the count, and reports `verify.comparedAgainst` and `verify.scope`.
+- Fixed the OKR input example in `README.md`, which showed a top-level JSON array that cannot parse, and added the input shape to `README.en.md`, which had none. Following the documented shape produced a parse error and invited guessing at the key name, which is how the data loss was reachable.
+- Documented the replacement semantics in the `ixf-okr-writer` skill: writing an existing objective replaces its whole KR set rather than appending, the same `--objective-index` value creates instead of replaces when it is one past the current count, and the dry-run `krCount` describes the input file rather than the target.
+
 ## 3.27.10 - 2026-09-22
 
 - Added `rangeWarning` to `ixf sheets update --apply` output when the start row begins below the last populated row and leaves untouched rows between the existing data and the write. An off-by-N start cell is indistinguishable at the API level from deliberately extending a sheet, so the field names the gap rather than refusing the write. Writing inside the data, or on the first row directly after it, produces no warning.

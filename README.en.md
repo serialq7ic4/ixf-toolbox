@@ -477,6 +477,18 @@ ixf okr write \
   --objective-index 3
 ```
 
+The input file shape:
+
+```json
+{
+  "objectives": [
+    { "objective": "Improve delivery reliability", "krs": ["KR1", "KR2"] }
+  ]
+}
+```
+
+The top level must be an object with an `objectives` key, not an array. The key must be `krs`; other spellings such as `key_results` are rejected. `krs` may not be empty: a write replaces an Objective's KR set, so an empty list would delete the existing KRs and add nothing.
+
 Add `--apply` after reviewing the planned changes. `--objective-index` updates only the selected Objective; when the target index is exactly one past the current Objective count, it creates that next Objective. Without `--objective-index`, the Go runtime matches Objectives by text and can write multiple Objectives. `--prune` is destructive and should only be used when removal is explicitly intended.
 
 ## Supported Scope

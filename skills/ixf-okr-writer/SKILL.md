@@ -5,7 +5,22 @@ description: Use when writing approved Objective and Key Result content into an 
 
 # ixf OKR Writer
 
-Use `ixf okr write` through the local Toolbox CLI. The command is an API-only native writer. This skill can modify published OKR content, so use dry-run-first operation and apply only after explicit approval.
+Use the `ixf okr` write verbs through the local Toolbox CLI. They are API-only native writers. This skill can modify published OKR content, so use dry-run-first operation and apply only after explicit approval.
+
+`ixf okr write` no longer exists. Each verb below states its own blast radius rather than having it depend on flags and input contents.
+
+| Verb | Does | Destructive |
+|---|---|---|
+| `ixf okr objective create` | Appends a new Objective with its KRs | No |
+| `ixf okr objective retitle` | Rewrites one Objective's title, leaving KRs alone | No |
+| `ixf okr kr add` | Appends KRs, keeping the existing ones | No |
+| `ixf okr kr replace` | Replaces an Objective's entire KR set | **Yes** |
+| `ixf okr kr delete` | Removes named KRs; the only path to zero KRs | **Yes** |
+| `ixf okr objective delete` | Deletes one whole Objective and its KRs | **Yes** |
+
+**Never use a destructive verb to accomplish a non-destructive goal.** Adding a KR is `kr add`, not `kr replace` with the existing KRs re-listed. Changing a title is `objective retitle`, not a replace that happens to carry the same KRs.
+
+KR content is passed as repeated `--kr` flags. There is no JSON `--input` file for these verbs.
 
 ## Runtime Boundary
 
@@ -29,31 +44,40 @@ Use `ixf deps install`, not bootstrap, for Mermaid dependencies. Never invoke de
 
 ## Workflow
 
-1. Inspect the page first with `ixf okr inspect "<okr-url>"` and show the user the current objectives, their indexes, and their KR counts. `--objective-index` is positional, so never target an index without seeing what is there. Use `inspect` rather than `read` for this: it reports indexes, identifiers, and counts as JSON, while `read` renders Markdown intended for a human.
-   `nextObjectiveIndex` in that output is the index that would create a new objective; any index below it replaces an existing objective's KRs.
-2. Confirm the OKR URL, objective index, and exact Objective/KR content.
-3. Prepare JSON input locally with only the approved content.
-   Shape: `{"objectives":[{"objective":"...","krs":["KR1","KR2","KR3"]}]}`
-   The top level is an object with an `objectives` key, not an array. The key is `krs`; any other spelling is rejected. `krs` may not be empty.
-4. Run dry run first:
-   `ixf okr write --url "<okr-url>" --input okr.json --objective-index 3 --dry-run`
-5. Check `krCount` in the dry-run output against the number of KRs intended, and state it to the user. `krCount` reports the input file, not the target, so the dry run cannot show how many existing KRs would be replaced — that is why step 1 inspects the page.
-6. State plainly to the user that writing an existing objective replaces its whole KR set, and name how many KRs the target currently has, taken from the `krCount` of that objective in step 1. Get approval for that replacement specifically, not merely for the new content.
-7. Apply only after explicit approval:
-   `ixf okr write --url "<okr-url>" --input okr.json --objective-index 3 --apply`
-8. Inspect `verify.ok` and `verify.comparedAgainst:"spec"`, and read `verify.scope`. The check confirms the stored KRs match what was sent, in order; it does not confirm other objectives were untouched.
-9. Re-read the OKR page after writing and verify only the intended objective changed.
+1. Run `ixf okr inspect "<okr-url>"` and show the user the current objectives with their indexes and KR counts. Every write targets an objective by 1-based index, and indexes shift as objectives are added, so never choose one without seeing what is there. Use `inspect` rather than `read`: it reports indexes, identifiers, and counts as JSON, while `read` renders Markdown for a human.
+2. Confirm with the user **which verb** matches the intent, using the table above. If the instruction does not clearly select one verb, ask; do not pick the broader one. "Update O3" is ambiguous between `retitle`, `kr add`, and `kr replace`.
+3. Run the chosen verb with `--dry-run`, passing `--objective N` and `--expect-title` copied verbatim from step 1. `--expect-title` is required for every verb that targets an existing objective: it is compared before anything is written, so a shifted index refuses instead of writing to the wrong objective.
+4. Gate on the payload before proposing apply:
+   - `target.titleMatchesExpectation` must be true. If the command refused on a title mismatch, **stop** — the index does not point where you think.
+   - `destructive` tells you which class of operation this is. State it to the user in those terms.
+   - For destructive verbs, read `diff.krsToDelete` and `diff.krsToDeleteTexts`, and show the user the full list of KR texts that will be destroyed.
+   - `diff.resultingKrCount` is what the objective will hold afterwards. **If it is 0 and `diff.krsToDelete` is greater than 0, stop** unless the user explicitly asked to empty the objective.
+   - `apply.blocked` states whether apply would be refused and `apply.requiredFlags` names what would satisfy it. Do not attempt apply while it is true.
+5. For a destructive verb, get approval for the **number of KRs being destroyed**, not merely for the new content. Name the count and the texts.
+6. Apply only after that approval, adding `--apply` and, for destructive verbs, `--confirm-kr-deletes N` with N copied from `diff.krsToDelete`. Never guess N: if it does not match the live count the command refuses, which is the point — a mismatch means the page changed since step 1, so re-run the dry run.
+7. Inspect `verify.ok` and read `verify.scope`. The check compares the stored state against what was intended, and `verify.comparedAgainst` names that. It does not confirm other objectives were untouched.
+8. Re-read the page with `ixf okr read` or `ixf okr inspect` and confirm only the intended objective changed.
 
-## Replacement Semantics
+## Why the verbs are separate
 
-Writing an existing objective with `--objective-index N` **replaces its entire KR set**: the KRs in the input become the objective's KRs and the previous ones are removed. It is not an append. To add a KR while keeping the existing ones, include the existing KR texts in the input alongside the new one.
+The previous single `write` command decided what it did from a flag value and the contents of an input file, and one of those decisions depended on a remote objective count the caller could not see: the same `--objective-index N` replaced an objective's KRs or created a new objective depending on how many already existed. A reviewer reading the command line could not tell whether it would create, edit, or destroy, so approving the command meant approving an unknown.
 
-`--objective-index N` where N is exactly one past the current objective count creates a new objective instead of replacing one, so the same flag means different things depending on how many objectives exist. Confirm the current count from step 1 before choosing N.
+Each verb now carries one blast radius in its name. `create` refuses any index that is not the append position, so it cannot silently become a replacement. `retitle` never touches KRs and its verification asserts the count did not change. `add` keeps the existing KRs and reports any KR already present in `diff.alreadyPresent` rather than duplicating it.
 
-Without `--objective-index`, objectives are matched by text and existing KRs are preserved; that path only removes KRs when `--prune` is passed.
+`kr replace` is one write, not a delete followed by an add. Splitting it would make "objective with no KRs" a state reachable between two commands, which is what made the original defect destroy data rather than merely write the wrong thing. Replacement KRs are created before the old ones are removed, so a failure leaves the originals in place.
 
-An empty or absent `krs` is rejected, because it would delete the existing KRs and add nothing. There is no flag that means "clear this objective"; removing KRs without replacing them is not supported through this command.
+`kr delete` is the only way to leave an objective with no KRs, and it takes no input file: destructive intent belongs in the verb and its confirmation, never in data whose shape could be a mistake. A `--kr` that matches nothing aborts the whole command instead of deleting the ones that did match, because a mismatch means the page changed since it was inspected.
+
+`objective delete` replaces the old `--prune`, which removed every objective absent from an input file — a deletion whose extent came from what the data happened to omit. One named objective per invocation makes the extent something the caller states.
+
+## Confirming a destructive write
+
+Destructive verbs require `--confirm-kr-deletes N` matching the number of KRs the write will actually remove. `--apply` alone is not enough, because it is a constant: it can be passed habitually without reading anything. The count cannot, since its correct value exists only in the target's current state, so supplying it is evidence the diff was read.
+
+Take N from `diff.krsToDelete` in the dry run. If it does not match at apply time the command refuses and says the page may have changed — treat that as a signal to re-inspect, not as an obstacle to work around by trying another number.
 
 ## Safety
 
-Do not modify O/KR content from vague instructions. Do not delete or prune unless explicitly requested. Do not commit OKR JSON files, cookies, CSRF tokens, private URLs, person IDs, OKR IDs, or private API payloads.
+Do not modify O/KR content from vague instructions. Do not use a destructive verb unless removal was explicitly requested. Never pass `--confirm-kr-deletes` with a value you did not read from a dry-run payload in this session; a value carried over from earlier, or copied from an example, can name a count that no longer matches the page.
+
+Do not commit cookies, CSRF tokens, private URLs, person IDs, OKR IDs, or private API payloads.

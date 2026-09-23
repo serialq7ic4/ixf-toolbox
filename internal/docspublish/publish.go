@@ -704,7 +704,7 @@ func (session *publishSession) verify(pageID string, referer string, requiredTex
 			if blockType != "" {
 				counts[blockType]++
 			}
-			if blockType == "callout" && strings.TrimSpace(blockSubtreeText(blockMap, blockID, map[string]bool{})) == "" {
+			if blockType == "callout" && calloutIsEmpty(blockMap, blockID) {
 				emptyCalloutCount++
 			}
 			text := textFromBlockData(data)
@@ -806,7 +806,7 @@ func (session *publishSession) verifyMarkdownOutputWithRoots(
 			if blockType != "" {
 				counts[blockType]++
 			}
-			if blockType == "callout" && strings.TrimSpace(blockSubtreeText(blockMap, blockID, map[string]bool{})) == "" {
+			if blockType == "callout" && calloutIsEmpty(blockMap, blockID) {
 				emptyCalloutCount++
 			}
 			if textObject := asMap(data["text"]); len(textObject) > 0 {
@@ -831,6 +831,12 @@ func (session *publishSession) verifyMarkdownOutputWithRoots(
 		missingCodeTexts := missingCodeBlockTexts(specs, codeTexts)
 		codeTextOK := len(missingCodeTexts) == 0
 		imageCount := counts["image"]
+		// These three are lower bounds, not equalities, and have to be: the expected
+		// counts are scoped to the specs being written while the measured counts come
+		// from the whole document. A patch inserting two images into a document that
+		// already holds ten would fail an equality check. The consequence is that a
+		// duplicated or double-committed write cannot be detected here, which
+		// countsScope in the payload states rather than leaving implied.
 		missingImageCount := positiveDifference(expectedImageCount, imageCount)
 		quoteContainerCount := counts["quote_container"]
 		missingQuoteContainerCount := positiveDifference(expectedQuoteCount, quoteContainerCount)
@@ -864,6 +870,12 @@ func (session *publishSession) verifyMarkdownOutputWithRoots(
 			"emptyCalloutCount":          emptyCalloutCount,
 			"codeTextOK":                 codeTextOK,
 			"missingCodeBlockTexts":      missingCodeTexts,
+			// Exposed because it feeds ok. A dropped childless block invalidates the
+			// tree while adding nothing to missingNestedBlockCount, which counts
+			// children only, so without this field ok:false names no failing check.
+			"nestedTreeOK": nestedTreeOK,
+			"countsScope": "image, quote and bold counts are lower bounds: expectations are scoped to the written content while measurements are document-wide, " +
+				"so a missing block is detected but a duplicated one is not",
 			"expectedImageCount":         expectedImageCount,
 			"imageCount":                 imageCount,
 			"missingImageCount":          missingImageCount,
@@ -891,7 +903,13 @@ func verifyExpectedRoots(
 	specs []Spec,
 	expectedRootIDs []string,
 ) (matchedNested int, missingNested int, missingImageTokens int, valid bool) {
-	valid = len(specs) == len(expectedRootIDs)
+	// len(specs) == len(expectedRootIDs) held here previously, which buildBlocks
+	// guarantees by construction (one top-level id per spec), so it could never be
+	// false and proved nothing about the document. The property worth checking is
+	// that the written blocks appear among the page's children in the order they
+	// were written, which catches ordering corruption that set membership cannot.
+	rootChildOrder := stringSlice(asSlice(dataForBlock(blockMap[pageID])["children"]))
+	valid = expectedRootsInOrder(rootChildOrder, expectedRootIDs)
 	rootChildren := stringSet(asSlice(dataForBlock(blockMap[pageID])["children"]))
 	for index, spec := range specs {
 		if index >= len(expectedRootIDs) {
@@ -1902,4 +1920,62 @@ func expandUser(path string) string {
 		}
 	}
 	return path
+}
+
+// expectedRootsInOrder reports whether the expected top-level block ids appear
+// among the page's children in the same relative order they were written.
+//
+// It checks relative order rather than exact equality because the caller may have
+// written only part of the document: a patch insert passes just the inserted ids,
+// so requiring them to be the complete child list would reject every patch. Order
+// is the property that set membership misses -- blocks could all be present while
+// a chunked or reordered write left them scrambled.
+func expectedRootsInOrder(rootChildren []string, expectedRootIDs []string) bool {
+	if len(expectedRootIDs) == 0 {
+		return true
+	}
+	next := 0
+	for _, childID := range rootChildren {
+		if childID == expectedRootIDs[next] {
+			next++
+			if next == len(expectedRootIDs) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// calloutIsEmpty reports whether a callout carries no content at all.
+//
+// A callout holding only an image has no text in its subtree, so a text-only
+// emptiness test counted it as empty and failed the write. Since this check runs
+// over every callout in the document, not only the written ones, that meant a
+// patch or append into a document containing an image-only callout reported
+// ok:false for a condition it had not created.
+func calloutIsEmpty(blockMap map[string]any, calloutID string) bool {
+	if strings.TrimSpace(blockSubtreeText(blockMap, calloutID, map[string]bool{})) != "" {
+		return false
+	}
+	return !calloutSubtreeHasNonTextContent(blockMap, calloutID, map[string]bool{}, 0)
+}
+
+// calloutSubtreeHasNonTextContent reports whether any descendant carries content
+// that is not text, such as an image, table, or code block.
+func calloutSubtreeHasNonTextContent(blockMap map[string]any, blockID string, seen map[string]bool, depth int) bool {
+	if blockID == "" || seen[blockID] || depth > 8 {
+		return false
+	}
+	seen[blockID] = true
+	data := dataForBlock(blockMap[blockID])
+	switch asString(data["type"]) {
+	case "image", "table", "code", "file", "sheet", "bitable":
+		return true
+	}
+	for _, childID := range stringSlice(asSlice(data["children"])) {
+		if calloutSubtreeHasNonTextContent(blockMap, childID, seen, depth+1) {
+			return true
+		}
+	}
+	return false
 }

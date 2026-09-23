@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 3.27.14 - 2026-09-23
+
+- Added `ixf okr inspect`, which reports an OKR page as JSON with each objective's 1-based index, identifier, title, KR count, and KRs with their own identifiers. `ixf okr read` renders Markdown for a human to check, which leaves a caller choosing a write target by guessing at positions; `--objective-index` is positional, so a write needs the indexes and counts as values it can compare against.
+- The inspect payload reports `nextObjectiveIndex`, the index that would create a new objective rather than replace one. The same `--objective-index N` means replace or create depending on the current objective count, which the caller cannot otherwise observe.
+- The inspect payload reports `krCapacity` and `krRemaining` per objective, and the four-KR ceiling is now named in the error raised when an input exceeds it instead of only being described as unrealistic scope.
+- Documented `inspect` in the OKR reader and writer skills and in the routing skill, including that it is what to read before an index-targeted write.
+
 ## 3.27.13 - 2026-09-23
 
 - Fixed `verify.ok` being false for a correct write with no field naming the failure. `nestedTreeOK` fed the aggregate but was absent from the payload, and a dropped childless top-level block invalidates the tree while adding nothing to `missingNestedBlockCount`, which counts children only. Publish and update were exposed whenever no `--require` text was supplied. `nestedTreeOK` is now reported.

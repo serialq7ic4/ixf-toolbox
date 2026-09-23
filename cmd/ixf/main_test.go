@@ -75,7 +75,7 @@ func TestDocsAndOKRHelpListSupportedSubcommands(t *testing.T) {
 		{args: []string{"docs", "--help"}, expected: []string{"usage: ixf docs", "read", "publish", "update", "patch", "structure", "inspect"}},
 		{args: []string{"sheets", "--help"}, expected: []string{"usage: ixf sheets", "read", "update"}},
 		{args: []string{"bitable", "--help"}, expected: []string{"usage: ixf bitable", "inspect", "read", "attach", "apply"}},
-		{args: []string{"okr", "--help"}, expected: []string{"usage: ixf okr", "read", "write"}},
+		{args: []string{"okr", "--help"}, expected: []string{"usage: ixf okr", "read", "inspect", "objective", "kr"}},
 		{args: []string{"messenger", "--help"}, expected: []string{"usage: ixf messenger", "doctor", "open", "read", "send"}},
 	}
 	for _, test := range tests {
@@ -336,21 +336,18 @@ func TestBitableRecordCreateDryRunJSONRoutesFlags(t *testing.T) {
 	}
 }
 
-func TestOKRWriteRejectsDryRunAndApplyTogether(t *testing.T) {
-	input := filepath.Join(t.TempDir(), "okr.json")
-	if err := os.WriteFile(input, []byte(`[{"objective":"O1","krs":["KR1"]}]`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
+func TestOKRVerbsRejectDryRunAndApplyTogether(t *testing.T) {
 	stdout, stderr, code := runCLITest(t,
-		"okr", "write",
+		"okr", "kr", "add",
 		"--url", "https://tenant.example/okr/user/example/?okrId=okr_fixture",
-		"--input", input,
+		"--objective", "1",
+		"--expect-title", "O1",
+		"--kr", "KR1",
 		"--dry-run",
 		"--apply",
 	)
 	if code == 0 {
-		t.Fatalf("okr write accepted mutually exclusive dry-run/apply; stdout=%q stderr=%q", stdout, stderr)
+		t.Fatalf("okr kr add accepted mutually exclusive dry-run/apply; stdout=%q stderr=%q", stdout, stderr)
 	}
 	if !strings.Contains(stderr, "--dry-run and --apply are mutually exclusive") {
 		t.Fatalf("stderr = %q, want mutually exclusive error", stderr)

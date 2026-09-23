@@ -194,3 +194,16 @@ func (session *okrSession) createObjectiveWithTitle(title string) (string, error
 		session.client, session.origin, session.url, session.okrID,
 		session.lgwToken, session.cookies, session.cache, session.connID, title)
 }
+
+// deleteObjective removes a whole objective, cascading its KRs.
+//
+// Unlike the KR operations this takes effect without a following publish, which is
+// how the existing prune path works. The asymmetry is the server's, not a mistake
+// here: an objective delete is committed by the delete call itself.
+func (session *okrSession) deleteObjective(objectiveID string) error {
+	_, err := okrAPIWithVersionParams(
+		session.client, "DELETE", session.origin, session.url, session.okrID,
+		"/okrx/api/draft_v2/objective/"+objectiveID+"/",
+		session.lgwToken, session.cookies, session.cache, session.connID, deleteParams)
+	return err
+}

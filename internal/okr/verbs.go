@@ -343,3 +343,336 @@ func CreateObjective(config VerbConfig) (map[string]any, error) {
 	payload["ok"] = asBoolValue(verify["ok"])
 	return payload, nil
 }
+
+// confirmDeletes checks the caller's restatement of the blast radius.
+//
+// --apply alone has been shown insufficient, because it is a constant an agent can
+// learn to always pass. A count cannot be cargo-culted: the correct value exists
+// only in this target's current state, so supplying it means the caller read the
+// diff.
+func confirmDeletes(given int, actual int, flag string) error {
+	if given == actual {
+		return nil
+	}
+	if given == 0 {
+		return fmt.Errorf(
+			"this will delete %d KR(s); pass %s %d to confirm that number. "+
+				"Run the same command with --dry-run first and read diff.krsToDelete",
+			actual, flag, actual)
+	}
+	return fmt.Errorf(
+		"%s %d does not match the %d KR(s) this would delete; "+
+			"the page may have changed since it was inspected, so re-run --dry-run before applying",
+		flag, given, actual)
+}
+
+// ReplaceKRs replaces an objective's entire KR set in a single publish.
+//
+// Replacement inherently deletes, so this is a destructive verb and says so. It is
+// deliberately not expressible as kr delete followed by kr add: decomposing it
+// would make "objective with no KRs" a reachable documented state between two
+// commands, which is the very outcome that made the original defect destructive.
+// The editor commits deletions with the publish via need_delete_kr_ids, so one
+// request covers both halves.
+func ReplaceKRs(config VerbConfig) (map[string]any, error) {
+	if len(config.Texts) == 0 {
+		return nil, fmt.Errorf(
+			"kr replace requires at least one KR; to remove KRs without replacing them use `ixf okr kr delete`")
+	}
+	if len(config.Texts) > maxKRsPerObjective {
+		return nil, fmt.Errorf("kr replace was given %d KRs; the limit is %d", len(config.Texts), maxKRsPerObjective)
+	}
+	session, err := openSession(config.URL, config.CookiesPath, config.CSRFURL)
+	if err != nil {
+		return nil, err
+	}
+	target, err := session.resolveObjective(config.Objective, config.ExpectTitle)
+	if err != nil {
+		return nil, err
+	}
+
+	existingTexts := krTexts(target.KRs)
+	payload := map[string]any{
+		"ok":          true,
+		"operation":   "okr_kr_replace",
+		"mode":        "kr_replace",
+		"destructive": true,
+		"okrId":       session.okrID,
+		"target": map[string]any{
+			"objectiveIndex":          config.Objective,
+			"objectiveId":             target.ID,
+			"resolvedTitle":           target.Objective,
+			"expectedTitle":           config.ExpectTitle,
+			"titleMatchesExpectation": true,
+		},
+		"current": map[string]any{"krCount": len(target.KRs), "krs": existingTexts},
+		"planned": map[string]any{"krCount": len(config.Texts), "krs": config.Texts},
+		"diff": map[string]any{
+			"krsToDelete":      len(target.KRs),
+			"krsToCreate":      len(config.Texts),
+			"resultingKrCount": len(config.Texts),
+			"krsToDeleteTexts": existingTexts,
+			"netKrChange":      len(config.Texts) - len(target.KRs),
+		},
+	}
+	if !config.Apply {
+		payload["dryRun"] = true
+		payload["willWrite"] = false
+		payload["apply"] = applyGate(config.ConfirmKRDeletes, len(target.KRs), "--confirm-kr-deletes")
+		return payload, nil
+	}
+	if err := confirmDeletes(config.ConfirmKRDeletes, len(target.KRs), "--confirm-kr-deletes"); err != nil {
+		return nil, err
+	}
+
+	if err := session.enableDraft(target.ID); err != nil {
+		return nil, err
+	}
+	// Create before deleting, so a failure between the two leaves the original KRs
+	// in place alongside orphaned drafts rather than an objective with none.
+	created, err := session.createKRs(target.ID, config.Texts)
+	if err != nil {
+		return nil, err
+	}
+	if len(created) == 0 {
+		return nil, fmt.Errorf("refusing to delete %d existing KRs with no replacement created", len(target.KRs))
+	}
+	if err := session.order(target.ID, created); err != nil {
+		return nil, err
+	}
+	if err := session.publish(target.ID, krIDs(target.KRs)); err != nil {
+		return nil, err
+	}
+
+	payload["dryRun"] = false
+	payload["willWrite"] = true
+	verify, err := session.verifyObjectiveKRs(config.Objective, config.Texts)
+	if err != nil {
+		return nil, err
+	}
+	payload["verify"] = verify
+	payload["ok"] = asBoolValue(verify["ok"])
+	return payload, nil
+}
+
+// applyGate states, in the dry run, whether apply would be refused and what would
+// satisfy it. The decision lives in the tool rather than being left for the caller
+// to infer from a diff.
+func applyGate(given int, actual int, flag string) map[string]any {
+	if err := confirmDeletes(given, actual, flag); err != nil {
+		return map[string]any{
+			"blocked":       true,
+			"reasons":       []string{err.Error()},
+			"requiredFlags": []string{fmt.Sprintf("%s %d", flag, actual)},
+		}
+	}
+	return map[string]any{"blocked": false, "reasons": []string{}}
+}
+
+// DeleteKRs removes named KRs from an objective. This is the only path to an
+// objective with no KRs, and it takes no --input: destructive intent belongs in the
+// verb and its confirmation, never in a data file whose shape could be a mistake.
+func DeleteKRs(config VerbConfig) (map[string]any, error) {
+	if len(config.Texts) == 0 {
+		return nil, fmt.Errorf("kr delete requires at least one --kr naming a KR to remove")
+	}
+	session, err := openSession(config.URL, config.CookiesPath, config.CSRFURL)
+	if err != nil {
+		return nil, err
+	}
+	target, err := session.resolveObjective(config.Objective, config.ExpectTitle)
+	if err != nil {
+		return nil, err
+	}
+
+	existingTexts := krTexts(target.KRs)
+	matched := []krState{}
+	unmatched := []string{}
+	for _, text := range config.Texts {
+		found := false
+		for _, kr := range target.KRs {
+			if kr.Text == text && !containsKR(matched, kr.ID) {
+				matched = append(matched, kr)
+				found = true
+				break
+			}
+		}
+		if !found {
+			unmatched = append(unmatched, text)
+		}
+	}
+	// A KR named but not present means the caller is working from stale state, so
+	// the safe response is to refuse rather than delete the subset that did match.
+	if len(unmatched) > 0 {
+		return nil, fmt.Errorf(
+			"%d of %d KRs named for deletion are not on objective %d; "+
+				"re-run `ixf okr inspect` and copy the KR texts exactly. Nothing was deleted",
+			len(unmatched), len(config.Texts), config.Objective)
+	}
+
+	remaining := []string{}
+	for _, kr := range target.KRs {
+		if !containsKR(matched, kr.ID) {
+			remaining = append(remaining, kr.Text)
+		}
+	}
+	payload := map[string]any{
+		"ok":          true,
+		"operation":   "okr_kr_delete",
+		"mode":        "kr_delete",
+		"destructive": true,
+		"okrId":       session.okrID,
+		"target": map[string]any{
+			"objectiveIndex":          config.Objective,
+			"objectiveId":             target.ID,
+			"resolvedTitle":           target.Objective,
+			"expectedTitle":           config.ExpectTitle,
+			"titleMatchesExpectation": true,
+		},
+		"current": map[string]any{"krCount": len(target.KRs), "krs": existingTexts},
+		"diff": map[string]any{
+			"krsToDelete":      len(matched),
+			"krsToCreate":      0,
+			"resultingKrCount": len(remaining),
+			"krsToDeleteTexts": krTexts(matched),
+			"remainingKrs":     remaining,
+			"emptiesObjective": len(remaining) == 0,
+		},
+	}
+	if !config.Apply {
+		payload["dryRun"] = true
+		payload["willWrite"] = false
+		payload["apply"] = applyGate(config.ConfirmKRDeletes, len(matched), "--confirm-kr-deletes")
+		return payload, nil
+	}
+	if err := confirmDeletes(config.ConfirmKRDeletes, len(matched), "--confirm-kr-deletes"); err != nil {
+		return nil, err
+	}
+
+	if err := session.enableDraft(target.ID); err != nil {
+		return nil, err
+	}
+	if err := session.order(target.ID, krIDsExcluding(target.KRs, matched)); err != nil {
+		return nil, err
+	}
+	if err := session.publish(target.ID, krIDs(matched)); err != nil {
+		return nil, err
+	}
+
+	payload["dryRun"] = false
+	payload["willWrite"] = true
+	verify, err := session.verifyObjectiveKRs(config.Objective, remaining)
+	if err != nil {
+		return nil, err
+	}
+	payload["verify"] = verify
+	payload["ok"] = asBoolValue(verify["ok"])
+	return payload, nil
+}
+
+func containsKR(krs []krState, id string) bool {
+	for _, kr := range krs {
+		if kr.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func krIDsExcluding(krs []krState, excluded []krState) []string {
+	ids := []string{}
+	for _, kr := range krs {
+		if !containsKR(excluded, kr.ID) {
+			ids = append(ids, kr.ID)
+		}
+	}
+	return ids
+}
+
+// DeleteObjective removes one whole objective and the KRs under it.
+//
+// It replaces the --prune flag, which removed every objective absent from an input
+// file: a deletion whose extent was decided by what the input happened to omit. One
+// objective per invocation, named and confirmed, makes the extent something the
+// caller states rather than something the data implies.
+func DeleteObjective(config VerbConfig) (map[string]any, error) {
+	session, err := openSession(config.URL, config.CookiesPath, config.CSRFURL)
+	if err != nil {
+		return nil, err
+	}
+	target, err := session.resolveObjective(config.Objective, config.ExpectTitle)
+	if err != nil {
+		return nil, err
+	}
+	before := len(session.objectives())
+	payload := map[string]any{
+		"ok":          true,
+		"operation":   "okr_objective_delete",
+		"mode":        "objective_delete",
+		"destructive": true,
+		"okrId":       session.okrID,
+		"target": map[string]any{
+			"objectiveIndex":          config.Objective,
+			"objectiveId":             target.ID,
+			"resolvedTitle":           target.Objective,
+			"expectedTitle":           config.ExpectTitle,
+			"titleMatchesExpectation": true,
+		},
+		"diff": map[string]any{
+			"objectivesToDelete":        1,
+			"krsToDelete":               len(target.KRs),
+			"krsToDeleteTexts":          krTexts(target.KRs),
+			"resultingObjectiveCount":   before - 1,
+			"remainingIndexesWillShift": config.Objective < before,
+		},
+	}
+	if !config.Apply {
+		payload["dryRun"] = true
+		payload["willWrite"] = false
+		payload["apply"] = applyGate(config.ConfirmKRDeletes, len(target.KRs), "--confirm-kr-deletes")
+		return payload, nil
+	}
+	if err := confirmDeletes(config.ConfirmKRDeletes, len(target.KRs), "--confirm-kr-deletes"); err != nil {
+		return nil, err
+	}
+
+	if err := session.enableDraft(target.ID); err != nil {
+		return nil, err
+	}
+	if err := session.deleteObjective(target.ID); err != nil {
+		return nil, err
+	}
+	if err := session.reload(); err != nil {
+		return nil, err
+	}
+	after := session.objectives()
+	verify := map[string]any{
+		"comparedAgainst":  "intended objective removal",
+		"objectivesStored": len(after),
+		"scope":            "post-delete read-back: the objective is gone and the remaining count matches; it does not confirm the content of other objectives",
+	}
+	switch {
+	case len(after) != before-1:
+		verify["ok"] = false
+		verify["error"] = fmt.Sprintf("objective count went from %d to %d; expected %d", before, len(after), before-1)
+	case objectiveIDPresent(after, target.ID):
+		verify["ok"] = false
+		verify["error"] = "the objective is still present after deleting it"
+	default:
+		verify["ok"] = true
+	}
+	payload["dryRun"] = false
+	payload["willWrite"] = true
+	payload["verify"] = verify
+	payload["ok"] = asBoolValue(verify["ok"])
+	return payload, nil
+}
+
+func objectiveIDPresent(items []objectiveState, id string) bool {
+	for _, item := range items {
+		if item.ID == id {
+			return true
+		}
+	}
+	return false
+}

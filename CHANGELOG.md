@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 3.27.13 - 2026-09-23
+
+- Fixed `verify.ok` being false for a correct write with no field naming the failure. `nestedTreeOK` fed the aggregate but was absent from the payload, and a dropped childless top-level block invalidates the tree while adding nothing to `missingNestedBlockCount`, which counts children only. Publish and update were exposed whenever no `--require` text was supplied. `nestedTreeOK` is now reported.
+- Fixed the top-level block check, which compared the spec count against the written id count. `buildBlocks` produces exactly one id per spec, so the two were always equal and the check could never fail; it also never read the document. It now verifies that the written blocks appear among the page's children in the order they were written, which catches reordering that set membership cannot. Relative order rather than exact equality, because a patch insert supplies only the inserted ids.
+- Fixed a callout holding only an image, table, or code block being counted as empty, which reported `ok:false` for writes that had not touched it. Emptiness previously tested the text subtree alone, and the check runs over every callout in the document rather than only the written ones.
+- Added `verify.countsScope`, stating that the image, quote, and bold counts are lower bounds. They cannot be equalities because the expectations are scoped to the written content while the measurements are document-wide, so a missing block is detected and a duplicated one is not.
+
 ## 3.27.12 - 2026-09-23
 
 - Fixed `ixf docs table append-row` reporting `verify.ok:true` when the row had not been added. Verification checked whether each cell's text appeared anywhere in the document, using the values just sent as the expectation, so a write that was rejected, landed in a different table, or collapsed its cells verified as faithfully as a correct one. Low-cardinality columns such as a status or an owner made this likely rather than theoretical, because those values usually already exist in the table. Nothing checked that the table had grown: the reported row count was captured before the write and never re-read.

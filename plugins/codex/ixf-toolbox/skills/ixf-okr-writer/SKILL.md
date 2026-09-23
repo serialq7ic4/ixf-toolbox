@@ -29,15 +29,29 @@ Use `ixf deps install`, not bootstrap, for Mermaid dependencies. Never invoke de
 
 ## Workflow
 
-1. Confirm the OKR URL, objective index, and exact Objective/KR content.
-2. Prepare JSON input locally with only the approved content.
+1. Read the page first with `ixf okr read "<okr-url>"` and show the user the current objectives and their KRs. `--objective-index` is positional, so never target an index without seeing what is there.
+2. Confirm the OKR URL, objective index, and exact Objective/KR content.
+3. Prepare JSON input locally with only the approved content.
    Shape: `{"objectives":[{"objective":"...","krs":["KR1","KR2","KR3"]}]}`
-3. Run dry run first:
+   The top level is an object with an `objectives` key, not an array. The key is `krs`; any other spelling is rejected. `krs` may not be empty.
+4. Run dry run first:
    `ixf okr write --url "<okr-url>" --input okr.json --objective-index 3 --dry-run`
-4. Review the planned Objective/KR changes with the user.
-5. Apply only after explicit approval:
+5. Check `krCount` in the dry-run output against the number of KRs intended, and state it to the user. `krCount` reports the input file, not the target, so the dry run cannot show how many existing KRs would be replaced — that is why step 1 reads the page.
+6. State plainly to the user that writing an existing objective replaces its whole KR set, and name how many KRs the target currently has, from step 1. Get approval for that replacement specifically, not merely for the new content.
+7. Apply only after explicit approval:
    `ixf okr write --url "<okr-url>" --input okr.json --objective-index 3 --apply`
-6. Re-read the OKR page after writing and verify only the intended objective changed.
+8. Inspect `verify.ok` and `verify.comparedAgainst:"spec"`, and read `verify.scope`. The check confirms the stored KRs match what was sent, in order; it does not confirm other objectives were untouched.
+9. Re-read the OKR page after writing and verify only the intended objective changed.
+
+## Replacement Semantics
+
+Writing an existing objective with `--objective-index N` **replaces its entire KR set**: the KRs in the input become the objective's KRs and the previous ones are removed. It is not an append. To add a KR while keeping the existing ones, include the existing KR texts in the input alongside the new one.
+
+`--objective-index N` where N is exactly one past the current objective count creates a new objective instead of replacing one, so the same flag means different things depending on how many objectives exist. Confirm the current count from step 1 before choosing N.
+
+Without `--objective-index`, objectives are matched by text and existing KRs are preserved; that path only removes KRs when `--prune` is passed.
+
+An empty or absent `krs` is rejected, because it would delete the existing KRs and add nothing. There is no flag that means "clear this objective"; removing KRs without replacing them is not supported through this command.
 
 ## Safety
 

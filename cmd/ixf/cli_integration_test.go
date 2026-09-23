@@ -1663,9 +1663,13 @@ func TestCLIOKRWriteDryRunAndApplyObjectiveIndex(t *testing.T) {
 	if target["objective"] != "New O3" {
 		t.Fatalf("target payload = %+v", target)
 	}
+	// Replacement KRs are created before the old ones are deleted, and this order is
+	// the point of the sequence assertion rather than an incidental detail. Deleting
+	// first means a failure in between leaves the objective with no KRs at all;
+	// creating first leaves the originals plus orphaned drafts, which is recoverable.
 	assertEventSequence(t, events, []string{
-		"csrf", "detail", "version", "enable", "objective", "delete_kr",
-		"create_kr", "kr_text", "create_kr", "kr_text", "publish", "detail",
+		"csrf", "detail", "version", "enable", "objective",
+		"create_kr", "kr_text", "create_kr", "kr_text", "delete_kr", "publish", "detail",
 	})
 	if stderr != "" {
 		t.Fatalf("OKR apply stderr = %q, want empty", stderr)

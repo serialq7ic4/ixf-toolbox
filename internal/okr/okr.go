@@ -211,11 +211,11 @@ func WriteObjectiveIndex(config WriteConfig, okrID string, specs []ObjectiveSpec
 	}); err != nil {
 		return nil, err
 	}
-	for _, krID := range oldKRIDs {
-		if _, err := okrAPI(client, "DELETE", origin, config.URL, "/okrx/api/draft_v2/kr/"+krID+"/", lgwToken, cookies, nil); err != nil {
-			return nil, err
-		}
-	}
+	// The replacement KRs are created before the old ones are deleted. The reverse
+	// order fails toward annihilation: a failure between the two loops leaves the
+	// objective with no KRs at all. This order fails toward surplus, leaving the
+	// original KRs plus some orphaned drafts, which is visible and recoverable.
+	createdKRIDs := []string{}
 	for _, text := range spec.KRs {
 		createPayload, err := okrAPIWithVersion(client, "POST", origin, config.URL, okrID, "/okrx/api/draft_v2/kr/", lgwToken, cookies, versionCache, connID, func(version string, conn string) map[string]any {
 			return map[string]any{
@@ -243,6 +243,18 @@ func WriteObjectiveIndex(config WriteConfig, okrID string, specs []ObjectiveSpec
 		}); err != nil {
 			return nil, err
 		}
+		createdKRIDs = append(createdKRIDs, krID)
+	}
+	// Last line of defence before anything is destroyed. ParseSpecs already refuses
+	// an empty KR list, but this holds even if a future caller reaches here another
+	// way: never delete the existing KRs unless replacements actually exist.
+	if len(oldKRIDs) > 0 && len(createdKRIDs) == 0 {
+		return nil, fmt.Errorf("refusing to delete %d existing KRs with no replacement created", len(oldKRIDs))
+	}
+	for _, krID := range oldKRIDs {
+		if _, err := okrAPI(client, "DELETE", origin, config.URL, "/okrx/api/draft_v2/kr/"+krID+"/", lgwToken, cookies, nil); err != nil {
+			return nil, err
+		}
 	}
 	if _, err := okrAPIWithVersion(client, "POST", origin, config.URL, okrID, "/okrx/api/draft_v2/publish/"+objectiveID+"/", lgwToken, cookies, versionCache, connID, func(version string, conn string) map[string]any {
 		return map[string]any{
@@ -268,12 +280,23 @@ func WriteObjectiveIndex(config WriteConfig, okrID string, specs []ObjectiveSpec
 	for _, rawKR := range asSlice(firstValue(finalTarget, "kr_list", "krList")) {
 		actualKRs = append(actualKRs, map[string]string{"text": itemText(asMap(rawKR))})
 	}
-	expectedKRs := make([]string, 0, len(spec.KRs))
+	// Compare the stored KRs against the spec. This previously collected its
+	// "expected" values from actualKRs, the very state it was checking, so the
+	// comparison was between a value and itself and passed for any outcome --
+	// including an objective whose KRs had all been deleted.
+	storedKRs := make([]string, 0, len(actualKRs))
 	for _, item := range actualKRs {
-		expectedKRs = append(expectedKRs, item["text"])
+		storedKRs = append(storedKRs, item["text"])
 	}
-	if actualObjective != spec.Objective || strings.Join(expectedKRs, "\n") != strings.Join(spec.KRs, "\n") {
-		return nil, fmt.Errorf("O%d content did not match after writing", config.ObjectiveIndex)
+	if actualObjective != spec.Objective {
+		return nil, fmt.Errorf("O%d title did not match after writing", config.ObjectiveIndex)
+	}
+	if len(storedKRs) != len(spec.KRs) {
+		return nil, fmt.Errorf("O%d has %d KRs after writing but %d were written",
+			config.ObjectiveIndex, len(storedKRs), len(spec.KRs))
+	}
+	if strings.Join(storedKRs, "\n") != strings.Join(spec.KRs, "\n") {
+		return nil, fmt.Errorf("O%d KR content did not match after writing", config.ObjectiveIndex)
 	}
 	return map[string]any{
 		"ok":     true,
@@ -281,6 +304,14 @@ func WriteObjectiveIndex(config WriteConfig, okrID string, specs []ObjectiveSpec
 		"target": map[string]any{
 			"objective": actualObjective,
 			"krs":       actualKRs,
+		},
+		"verify": map[string]any{
+			"ok":              true,
+			"comparedAgainst": "spec",
+			"krsWritten":      len(spec.KRs),
+			"krsStored":       len(storedKRs),
+			"krsDeleted":      len(oldKRIDs),
+			"scope":           "post-publish read-back: stored KR texts match the spec in order; it does not confirm other objectives were untouched",
 		},
 	}, nil
 }
@@ -453,8 +484,15 @@ func ParseSpecs(path string) ([]ObjectiveSpec, error) {
 			KRs       []string `json:"krs"`
 		} `json:"objectives"`
 	}{}
-	if err := json.Unmarshal(content, &raw); err != nil {
-		return nil, fmt.Errorf("OKR input must be valid JSON")
+	// Strict decoding, because this is the only layer where the cause of a
+	// misspelled key is still visible. json.Unmarshal ignores unknown fields, so
+	// `key_results` instead of `krs` would decode cleanly into zero KRs and become
+	// indistinguishable from a deliberately empty list one line later.
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&raw); err != nil {
+		return nil, fmt.Errorf("OKR input must be valid JSON of the form "+
+			`{"objectives":[{"objective":"...","krs":["KR1","KR2"]}]}: %s`, decodeHint(err))
 	}
 	if len(raw.Objectives) == 0 {
 		return nil, fmt.Errorf("OKR input contains no objectives")
@@ -468,6 +506,16 @@ func ParseSpecs(path string) ([]ObjectiveSpec, error) {
 		if len(item.KRs) > 4 {
 			return nil, fmt.Errorf("objective %d has %d KRs; keep OKR scope realistic", index+1, len(item.KRs))
 		}
+		// An empty KR list is refused rather than written. A write replaces an
+		// objective's KRs by deleting the existing ones, so accepting an empty list
+		// would delete every KR and create nothing, which no input can currently
+		// express as an intent. There is no flag meaning "clear this objective", so
+		// this fails closed until one exists.
+		if len(item.KRs) == 0 {
+			return nil, fmt.Errorf("objective %d has no krs; a write replaces an objective's KRs, "+
+				"so an empty list would delete the existing ones and add nothing. "+
+				`Provide at least one KR under the "krs" key`, index+1)
+		}
 		krs := []string{}
 		for _, kr := range item.KRs {
 			trimmed := strings.TrimSpace(kr)
@@ -475,9 +523,25 @@ func ParseSpecs(path string) ([]ObjectiveSpec, error) {
 				krs = append(krs, trimmed)
 			}
 		}
+		if len(krs) == 0 {
+			return nil, fmt.Errorf("objective %d has %d krs but all of them are blank after trimming; "+
+				"an empty result would delete the existing KRs and add nothing", index+1, len(item.KRs))
+		}
 		specs = append(specs, ObjectiveSpec{Objective: objective, KRs: krs})
 	}
 	return specs, nil
+}
+
+// decodeHint turns a JSON decode failure into something readable. The stdlib type
+// error prints the whole anonymous struct definition, which is the error a caller
+// hits when following a wrong top-level shape and is unreadable at exactly that
+// moment.
+func decodeHint(err error) string {
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		return fmt.Sprintf("found a JSON %s at the top level where an object was expected", typeErr.Value)
+	}
+	return err.Error()
 }
 
 func getDetail(client *http.Client, origin string, source string, okrID string, lgwToken string, cookies []http.Cookie) (map[string]any, error) {

@@ -141,7 +141,13 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf docs update <file.md> --url <docx-url> --dry-run` | 规划替换已有 docx 正文，不执行写入 |
 | `ixf docs update <file.md> --url <docx-url> --apply` | 替换已有 docx 正文，默认拒绝复杂块；确认后可加 `--allow-complex-replace` |
 | `ixf okr read <url>` | 读取授权 OKR 页面并输出 Markdown |
-| `ixf okr write --url <url> --input <file.json>` | 创建或修改确认后的 Objective / KR |
+| `ixf okr inspect <url>` | 输出 Objective 序号、标识、标题和 KR 计数（JSON），写入前先看这个 |
+| `ixf okr objective create --url <url> --title <t> --kr <kr>` | 追加一个新 Objective |
+| `ixf okr objective retitle --url <url> --objective N --expect-title <old> --title <new>` | 只改标题，不动 KR |
+| `ixf okr kr add --url <url> --objective N --expect-title <t> --kr <kr>` | 追加 KR，保留既有的 |
+| `ixf okr kr replace --url <url> --objective N --expect-title <t> --kr <kr> --confirm-kr-deletes K` | 替换整个 KR 集合，**破坏性** |
+| `ixf okr kr delete --url <url> --objective N --expect-title <t> --kr <kr> --confirm-kr-deletes K` | 删除指定 KR，**破坏性** |
+| `ixf okr objective delete --url <url> --objective N --expect-title <t> --confirm-kr-deletes K` | 删除整个 Objective，**破坏性** |
 | `ixf messenger doctor --json` | 检查 Messenger 自动化所需的桌面端 profile、浏览器和 cookie 元数据 |
 | `ixf messenger open --to <target> --mode person\|conversation --dry-run --json` | 规划打开联系人或会话，不发送消息 |
 | `ixf messenger open --to <target> --mode person\|conversation --apply --json` | 启动克隆 profile 的浏览器并验证目标会话，不发送消息 |
@@ -552,64 +558,59 @@ ixf bitable attach \
 
 ### 写入 OKR
 
-输入文件示例：
+写入按意图分成六个动词，破坏性写在动词名里，不再由 flag 组合和输入文件内容决定：
 
-```json
-{
-  "objectives": [
-    {
-      "objective": "提升核心服务稳定性与交付效率",
-      "krs": [
-        "完成关键链路风险治理并形成复盘机制",
-        "降低高频故障的恢复时间",
-        "完善容量与变更检查流程"
-      ]
-    }
-  ]
-}
-```
+| 动词 | 作用 | 破坏性 |
+|---|---|---|
+| `okr objective create` | 追加一个新 Objective 及其 KR | 否 |
+| `okr objective retitle` | 只改标题，不动 KR | 否 |
+| `okr kr add` | 追加 KR，保留既有的 | 否 |
+| `okr kr replace` | 替换整个 KR 集合 | **是** |
+| `okr kr delete` | 删除指定 KR；唯一能让 KR 归零的路径 | **是** |
+| `okr objective delete` | 删除整个 Objective 及其 KR | **是** |
 
-顶层必须是带 `objectives` 键的对象，不能是数组。键名必须是 `krs`；写成 `key_results` 等其他名称会被拒绝。每个 Objective 最多 4 个 KR。
+KR 内容用重复的 `--kr` 传入，没有 JSON `--input` 文件。每个 Objective 最多 4 个 KR。
 
-`krs` 不可为空，因为空列表在任何路径下都无法表达一个有效意图，只会删除或保留原状而不补充内容。
-
-三条写入路径对既有 KR 的处理并不相同，选错会得到与预期相反的结果：
-
-| 调用方式 | 对既有 KR 的处理 |
-|---|---|
-| `--objective-index N`（N ≤ 现有数量） | **替换整个 KR 集合**，原有 KR 全部删除 |
-| `--objective-index N`（N = 现有数量+1） | 新建 Objective，不涉及既有 KR |
-| 不带 `--objective-index` | **合并**：按文本匹配复用既有 KR，未在输入中出现的既有 KR 保留 |
-| `--prune` | 替换，并删除输入中未出现的 Objective |
-
-也就是说，不带 `--objective-index` 时旧 KR 不会消失。若目的是让某些 KR 消失，必须用 `--objective-index` 指向该 Objective 并在输入中给出完整的目标集合。
-
-只修改 O3，默认 dry-run：
+写入前先看当前状态：
 
 ```bash
-ixf okr write \
-  --url "https://tenant.example.test/okr/user/example/?okrId=example" \
-  --input okr.json \
-  --cookies /tmp/ixf_cookies.json \
-  --objective-index 3
+ixf okr inspect "https://tenant.example.test/okr/user/example/?okrId=example"
 ```
 
-确认计划后实际写入：
+输出里 `nextObjectiveIndex` 是「新建」会落在的位置，小于它的索引都指向已存在的 Objective。
+
+所有针对已存在 Objective 的动词都要求 `--objective N` 和 `--expect-title`。索引会随 Objective 增加而移动，所以标题会在写入前比对，不一致直接拒绝 —— 这是位置索引唯一安全的用法。两个值都从 `inspect` 输出里照抄。
+
+给 O3 追加一个 KR（非破坏性，默认 dry-run）：
 
 ```bash
-ixf okr write \
+ixf okr kr add \
   --url "https://tenant.example.test/okr/user/example/?okrId=example" \
-  --input okr.json \
-  --cookies /tmp/ixf_cookies.json \
-  --objective-index 3 \
+  --objective 3 \
+  --expect-title "提升核心服务稳定性与交付效率" \
+  --kr "完善容量与变更检查流程" \
+  --cookies /tmp/ixf_cookies.json
+```
+
+确认后加 `--apply`。
+
+替换 O3 的整个 KR 集合是**破坏性**的，需要 `--confirm-kr-deletes` 且数值必须等于实际会删除的 KR 数：
+
+```bash
+ixf okr kr replace \
+  --url "https://tenant.example.test/okr/user/example/?okrId=example" \
+  --objective 3 \
+  --expect-title "提升核心服务稳定性与交付效率" \
+  --kr "新 KR 1" --kr "新 KR 2" \
+  --confirm-kr-deletes 3 \
   --apply
 ```
 
-`--objective-index` 用于只修改指定 Objective；当目标序号等于当前 Objective 数量 + 1 时会创建新的 Objective，并验证其他 Objective 未被改变。不传 `--objective-index` 时，Go 运行时会按 Objective 文本匹配并写入多个 Objective。`--prune` 会删除输入中没有保留的内容，仅在明确需要时使用。
+这个数字从 dry-run 输出的 `diff.krsToDelete` 抄。`--apply` 本身不足以作为确认 —— 它是个常量，可以被习惯性地传上；而计数只存在于目标当前状态里，传对了才说明读过 diff。数值不匹配时命令会拒绝并提示页面可能已变化，此时应重新 `inspect`，而不是换个数字再试。
 
-同一个 `--objective-index N` 的语义取决于当前 Objective 数量（N ≤ 数量是替换，N = 数量+1 是新建），而这个数量调用方看不到。所以指定 index 前先用 `ixf okr read` 确认当前有几个 Objective。
+dry-run 的 `apply.blocked` 直接说明 apply 是否会被拒绝，`apply.requiredFlags` 给出需要补的 flag。
 
-apply 输出的 `verify` 包含 `comparedAgainst` 和 `scope`。`comparedAgainst:"spec"` 表示回读结果是与写入的 spec 比对的；`scope` 说明它只覆盖目标 Objective 的 KR 文本和顺序，**不保证其他 Objective 未被改动**。dry-run 的 `krCount` 描述的是输入文件，不是目标现状 —— 它不能告诉你会替换掉几个既有 KR。
+`ixf okr write` 已在 3.28.0 移除，因为它在一个非破坏性的名字下执行删除。运行它会打印每种旧用法对应的新动词。
 
 ## 支持的能力
 

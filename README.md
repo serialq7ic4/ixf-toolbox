@@ -270,8 +270,10 @@ ixf docs read \
 | `--cookies <file>` | `ixf cookies export` 导出的 cookie JSON 文件 |
 | `--expand-sheets` | 将支持的 docx 嵌入 sheet 展开为 TSV；直接 sheets 链接会默认读取为 TSV |
 | `--download-images` | 下载可认证访问的 docx 图片块到本地 assets 目录 |
-| `--print-manifest` | 输出 JSON manifest，包含产物路径和元数据 |
-| `--cleanup` | 命令退出前删除本次命令生成的文件 |
+| `--print-manifest` | 输出 JSON manifest，包含产物路径和元数据；**需要 `--out-dir`** |
+| `--cleanup` | 命令退出前删除本次命令生成的文件；**需要 `--out-dir`** |
+
+`--print-manifest` 和 `--cleanup` 都只在有产物目录时才有意义，单独使用会被拒绝（`ERROR --print-manifest requires --out-dir`）。
 
 `--cleanup` 只会删除本次命令生成的文件，不会递归删除输出目录里的其他内容。
 
@@ -295,7 +297,34 @@ export IXF_DOCS_DEFAULT_BASE_URL=https://tenant.example.test
 
 `ixf doctor --json` 会通过 `docs.defaultBaseURL.configured/source/host` 暴露当前默认发布地址状态，不打印 cookie 或 token。
 
-Markdown 中的 `` ```mermaid `` fenced code，以及 `` ```Plain `` 但首个非空内容行以 `flowchart`、`sequenceDiagram`、`erDiagram` 等 Mermaid 图类型开头的块，会在 `publish`、`update` 和 `patch` 写入时生成 docx 图片块，不再发布为代码块。dry-run 会输出 `mermaidImageCount`、`plannedImageCount`、`mermaidRendererAvailable`、`mermaidRendererReady`、`mermaidRendererError`、`mermaidRendererRemediation`、`mermaidPreferredFormat` 和 `mermaidFallbackFormat`；实际 `--apply` 需要本机 `PATH` 中存在 Mermaid CLI `mmdc` 且能实际渲染，默认先渲染/上传 SVG，SVG 渲染或上传失败时回退 PNG。缺少 `mmdc` 或 Puppeteer 缺少 `chrome-headless-shell` 等浏览器依赖会在远端写入前明确报错。
+#### 写入体积与自动分块
+
+编辑器端点对单次写入有硬上限：**change_map 最多 3500 条**（1 条页面根 + 3499 条块）。超出返回 `code=4000002 invalid param`，且不提示上限。
+
+这是**数量**限制，不是体积限制：200 块 / 3.0MB 可以写入，3860 块 / 1.4MB 会失败。行数同样不可用于估算 —— 表格密集的 1322 行文档会展开成 4620 条，而纯文本的 1642 行只有 820 条，因为表格会拆成 row / cell / text 块。
+
+dry-run 输出以下字段：
+
+| 字段 | 含义 |
+|---|---|
+| `plannedBlockEntries` | 块条目数 |
+| `plannedChangeEntries` | **服务端实际限制的量** = 块条目数 + 1（页面根） |
+| `maxChangeEntriesPerWrite` | 实测上限，3500 |
+| `plannedWriteCount` | 会拆成几次写入 |
+| `willSplitWrites` | 是否会拆分 |
+| `splitReason` | 拆分原因说明 |
+
+拿 `plannedChangeEntries` 与上限比较，不要用 `plannedBlockEntries` —— 后者小 1，恰好在边界处判断错误。
+
+`ixf docs publish` 超限时会**自动**在顶层块边界拆分并顺序写入，无需额外参数；apply 输出 `writeCount` 和 `splitWrites`。单块本身超限（例如几千行的表格）会在写入前直接拒绝并指明该块。
+
+`ixf docs update` **不拆分**（整体替换正文，中途失败会留下被截断的文档），`ixf docs patch` 也不拆分，只在 dry-run 报告 `fitsInOneWrite`；为 false 时需自行把片段拆小。注意 `ixf docs outline` / `chunk` 按**字符**预算切分，不保证每块都在条目上限内。
+
+写入校验输出 `codeTextOK` 和 `missingCodeBlockTexts`：代码块内容按源文本逐块比对，缺失的会被列出。
+
+Markdown 中的 `` ```mermaid `` fenced code，以及 `` ```Plain `` 但首个非空内容行以 `flowchart`、`sequenceDiagram`、`erDiagram` 等 Mermaid 图类型开头的块，会在 `publish`、`update` 和 `patch` 写入时生成 docx 图片块，不再发布为代码块。dry-run 会输出 `mermaidImageCount`、`plannedImageCount`、`mermaidRendererAvailable`、`mermaidRendererReady`、`mermaidRendererError`、`mermaidRendererRemediation`、`mermaidPreferredFormat` 和 `mermaidFallbackFormat`。其中 `mermaidRendererAvailable` 只反映 `PATH` 是否找到 `mmdc`，`mermaidRendererReady` 才代表渲染探测成功 —— apply 前应看后者。`mermaidRendererReady` / `Error` / `Remediation` 这三个字段只在 `mermaidImageCount > 0` 时输出，文档中没有 Mermaid 图时不会出现。
+
+实际 `--apply` 需要本机 `PATH` 中存在 Mermaid CLI `mmdc` **且能实际渲染**，默认先渲染/上传 SVG，SVG 渲染或上传失败时回退 PNG。缺少 `mmdc` 或 Puppeteer 缺少 `chrome-headless-shell` 等浏览器依赖会在远端写入前明确报错。
 
 ```bash
 ixf docs publish notes/review.md \
@@ -400,6 +429,8 @@ ixf sheets update \
   --dry-run
 ```
 
+dry-run 输出 `rows`、`cols` 和 `inputFormat`。**务必核对 `cols`**：打算写两列却得到 `cols:1`，说明输入不是制表符分隔，此时应修文件而不是继续 apply。
+
 确认计划后实际写入：
 
 ```bash
@@ -410,6 +441,11 @@ ixf sheets update \
   --cookies /tmp/ixf_cookies.json \
   --apply
 ```
+
+apply 输出的 `verify` 有两个字段需要理解：
+
+- `verify.scope` 说明这次校验证明了什么 —— 它回读单元格并与**发送的值**比对，能确认写入落地，**不能**确认输入形状符合意图。形状写错的输入和正确的输入一样能通过校验。
+- `rangeWarning` 在起始行低于最后一个有内容的行、且中间留有未触及行时出现，指明间隔行数。这在有意向下扩展表格时是正常的，在起始格填错时是错误的，两者在接口层无法区分，所以只告警不拒绝。dry-run 不读取表格，因此没有这个字段 —— 起始格是否越界需要先用 `ixf sheets read` 确认。
 
 如果目标是 docx 内嵌 sheet，`--url` 仍填写直接 sheets 链接，另加 `--host-url` 指向父 docx/wiki 链接，用于携带服务端要求的宿主 token：
 
@@ -428,6 +464,8 @@ ixf sheets update \
 docx 文档里的原生表格属于 docs block 层，不是 bitable 数据层。向这种表格追加一行时使用 `ixf docs table append-row`；只有真正的 `/base/...` 多维表格或可解析到 base token 的内嵌 bitable 才使用 `ixf bitable`。
 
 输入 JSON 通过首行表头匹配列名；文本字段写入 text block，图片字段使用本地文件路径，当前支持 PNG、JPEG 和 SVG。若文档只有一个原生表格，可省略 `--table-index`；多个表格时必须显式指定 1-based 表格序号。先 dry-run，确认后再 `--apply`，写入后会上传图片到 `docx_image` 并绑定 image block token。
+
+这里的 `fields` 外层包装是**必需**的，与 `ixf bitable record create` 不同 —— 后者允许省略。把 bitable 的写法照搬过来会被拒绝（`ERROR input requires non-empty fields`）。字段名必须与表头完全匹配，不匹配会直接报错而不是静默跳过。
 
 ```json
 {
@@ -531,7 +569,20 @@ ixf bitable attach \
 }
 ```
 
-顶层必须是带 `objectives` 键的对象，不能是数组。键名必须是 `krs`；写成 `key_results` 等其他名称会被拒绝。`krs` 不可为空：写入会先替换某个 Objective 的 KR 集合，空列表意味着删除现有 KR 且不补充任何内容，因此被拒绝。
+顶层必须是带 `objectives` 键的对象，不能是数组。键名必须是 `krs`；写成 `key_results` 等其他名称会被拒绝。每个 Objective 最多 4 个 KR。
+
+`krs` 不可为空，因为空列表在任何路径下都无法表达一个有效意图，只会删除或保留原状而不补充内容。
+
+三条写入路径对既有 KR 的处理并不相同，选错会得到与预期相反的结果：
+
+| 调用方式 | 对既有 KR 的处理 |
+|---|---|
+| `--objective-index N`（N ≤ 现有数量） | **替换整个 KR 集合**，原有 KR 全部删除 |
+| `--objective-index N`（N = 现有数量+1） | 新建 Objective，不涉及既有 KR |
+| 不带 `--objective-index` | **合并**：按文本匹配复用既有 KR，未在输入中出现的既有 KR 保留 |
+| `--prune` | 替换，并删除输入中未出现的 Objective |
+
+也就是说，不带 `--objective-index` 时旧 KR 不会消失。若目的是让某些 KR 消失，必须用 `--objective-index` 指向该 Objective 并在输入中给出完整的目标集合。
 
 只修改 O3，默认 dry-run：
 
@@ -555,6 +606,10 @@ ixf okr write \
 ```
 
 `--objective-index` 用于只修改指定 Objective；当目标序号等于当前 Objective 数量 + 1 时会创建新的 Objective，并验证其他 Objective 未被改变。不传 `--objective-index` 时，Go 运行时会按 Objective 文本匹配并写入多个 Objective。`--prune` 会删除输入中没有保留的内容，仅在明确需要时使用。
+
+同一个 `--objective-index N` 的语义取决于当前 Objective 数量（N ≤ 数量是替换，N = 数量+1 是新建），而这个数量调用方看不到。所以指定 index 前先用 `ixf okr read` 确认当前有几个 Objective。
+
+apply 输出的 `verify` 包含 `comparedAgainst` 和 `scope`。`comparedAgainst:"spec"` 表示回读结果是与写入的 spec 比对的；`scope` 说明它只覆盖目标 Objective 的 KR 文本和顺序，**不保证其他 Objective 未被改动**。dry-run 的 `krCount` 描述的是输入文件，不是目标现状 —— 它不能告诉你会替换掉几个既有 KR。
 
 ## 支持的能力
 

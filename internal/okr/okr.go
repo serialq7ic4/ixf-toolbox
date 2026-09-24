@@ -619,11 +619,15 @@ func (cache *draftVersionCache) clear() {
 }
 
 func draftVersionFromPayload(payload map[string]any) string {
-	data := asMap(payload["data"])
-	if version := firstString(data, "draft_version", "draftVersion", "okr_draft_version", "okrDraftVersion", "version"); version != "" {
+	// Same numeric-or-string problem as currentDraftVersion. A write response
+	// carries the advanced draft version, and reading it with a string-only
+	// accessor dropped it silently: the cache then kept the pre-write value and
+	// the next call in the sequence failed as stale.
+	keys := []string{"draft_version", "draftVersion", "okr_draft_version", "okrDraftVersion", "version"}
+	if version := versionValue(asMap(payload["data"]), keys...); version != "" {
 		return version
 	}
-	return firstString(payload, "draft_version", "draftVersion", "okr_draft_version", "okrDraftVersion", "version")
+	return versionValue(payload, keys...)
 }
 
 func okrAPIWithVersion(

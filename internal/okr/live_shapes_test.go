@@ -90,3 +90,35 @@ func TestVersionValueSkipsEmptyAndMissingKeys(t *testing.T) {
 		t.Fatalf("versionValue = %q, want empty for a missing key", got)
 	}
 }
+
+// draftVersionFromPayload had the same string-only defect as currentDraftVersion.
+// A write response carries the advanced draft version; dropping it left the cache
+// holding the pre-write value, so the next call in a multi-step write failed as
+// stale. Found only after fixing its sibling, because until then no write got far
+// enough to reach a second call.
+func TestDraftVersionFromPayloadReadsANumericVersion(t *testing.T) {
+	payload := map[string]any{"data": map[string]any{"draft_version": float64(1790218046054)}}
+	if got := draftVersionFromPayload(payload); got != "1790218046054" {
+		t.Fatalf("draftVersionFromPayload = %q, want the integer rendering", got)
+	}
+}
+
+func TestDraftVersionFromPayloadReadsATopLevelNumericVersion(t *testing.T) {
+	payload := map[string]any{"okr_draft_version": float64(42)}
+	if got := draftVersionFromPayload(payload); got != "42" {
+		t.Fatalf("draftVersionFromPayload = %q, want 42", got)
+	}
+}
+
+func TestDraftVersionFromPayloadStillReadsAString(t *testing.T) {
+	payload := map[string]any{"data": map[string]any{"draft_version": "7"}}
+	if got := draftVersionFromPayload(payload); got != "7" {
+		t.Fatalf("draftVersionFromPayload = %q, want 7", got)
+	}
+}
+
+func TestDraftVersionFromPayloadIsEmptyWhenAbsent(t *testing.T) {
+	if got := draftVersionFromPayload(map[string]any{"data": map[string]any{}}); got != "" {
+		t.Fatalf("draftVersionFromPayload = %q, want empty", got)
+	}
+}

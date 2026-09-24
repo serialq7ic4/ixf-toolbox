@@ -581,10 +581,10 @@ func currentDraftVersion(client *http.Client, origin string, source string, okrI
 	if err != nil {
 		return "", err
 	}
-	data := asMap(payload["data"])
-	version := firstString(data, "okr_draft_version", "okrDraftVersion", "draft_version", "draftVersion", "version")
+	keys := []string{"okr_draft_version", "okrDraftVersion", "draft_version", "draftVersion", "version"}
+	version := versionValue(asMap(payload["data"]), keys...)
 	if version == "" {
-		version = firstString(payload, "okr_draft_version", "okrDraftVersion", "draft_version", "draftVersion", "version")
+		version = versionValue(payload, keys...)
 	}
 	if version == "" {
 		return "", fmt.Errorf("unable to determine the OKR draft version")
@@ -619,11 +619,15 @@ func (cache *draftVersionCache) clear() {
 }
 
 func draftVersionFromPayload(payload map[string]any) string {
-	data := asMap(payload["data"])
-	if version := firstString(data, "draft_version", "draftVersion", "okr_draft_version", "okrDraftVersion", "version"); version != "" {
+	// Same numeric-or-string problem as currentDraftVersion. A write response
+	// carries the advanced draft version, and reading it with a string-only
+	// accessor dropped it silently: the cache then kept the pre-write value and
+	// the next call in the sequence failed as stale.
+	keys := []string{"draft_version", "draftVersion", "okr_draft_version", "okrDraftVersion", "version"}
+	if version := versionValue(asMap(payload["data"]), keys...); version != "" {
 		return version
 	}
-	return firstString(payload, "draft_version", "draftVersion", "okr_draft_version", "okrDraftVersion", "version")
+	return versionValue(payload, keys...)
 }
 
 func okrAPIWithVersion(
@@ -850,8 +854,8 @@ func orderKRs(client *http.Client, origin string, source string, okrID string, l
 			"draft_version": version,
 			"conn_uuid":     conn,
 			"token":         conn,
-			"objectiveId":   objectiveID,
-			"krIds":         krIDs,
+			"objective_id":  objectiveID,
+			"kr_ids":        krIDs,
 		}
 	})
 }
@@ -1099,6 +1103,12 @@ func textFromRichValue(value any) string {
 	case nil:
 		return ""
 	case string:
+		// The server sends rich text either as a structure or as a string holding
+		// that same structure serialized. Returning the string verbatim surfaced raw
+		// delta-doc JSON as an objective title and as KR text.
+		if nested := textFromSerializedRichValue(typed); nested != "" {
+			return nested
+		}
 		return strings.TrimSpace(strings.ReplaceAll(typed, "\u200b", ""))
 	case map[string]any:
 		if blocks := asSlice(typed["blocks"]); len(blocks) > 0 {
@@ -1261,4 +1271,62 @@ func expandUser(path string) string {
 		}
 	}
 	return path
+}
+
+// textFromSerializedRichValue extracts text from a rich-text structure that arrived
+// as a JSON string rather than as a decoded map.
+//
+// It returns "" for anything that is not such a structure, so ordinary text passes
+// through untouched: only a value that parses as a JSON object or array is retried
+// as rich text, and a plain sentence parses as neither.
+func textFromSerializedRichValue(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
+		return ""
+	}
+	var parsed any
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+		return ""
+	}
+	switch typed := parsed.(type) {
+	case map[string]any:
+		return textFromRichValue(typed)
+	case []any:
+		parts := []string{}
+		for _, item := range typed {
+			if text := textFromRichValue(item); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.TrimSpace(strings.Join(parts, "\n"))
+	}
+	return ""
+}
+
+// versionValue reads a draft version that the server may send as either a string or
+// a number.
+//
+// The live endpoint returns okr_draft_version as a JSON number, and reading it with
+// a string-only accessor yielded "", so every write failed with "unable to determine
+// the OKR draft version" while the endpoint was answering correctly. A float64 is
+// formatted as an integer, because these are millisecond timestamps and the default
+// rendering would produce 1.783602170161e+12.
+func versionValue(source map[string]any, keys ...string) string {
+	for _, key := range keys {
+		switch typed := source[key].(type) {
+		case string:
+			if strings.TrimSpace(typed) != "" {
+				return strings.TrimSpace(typed)
+			}
+		case float64:
+			return strconv.FormatInt(int64(typed), 10)
+		case int:
+			return strconv.Itoa(typed)
+		case int64:
+			return strconv.FormatInt(typed, 10)
+		case json.Number:
+			return typed.String()
+		}
+	}
+	return ""
 }

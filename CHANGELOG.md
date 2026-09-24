@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 3.27.15 - 2026-09-23
+
+Three defects found by running the OKR commands against a live page. The test fixtures used shapes the server does not actually send, so none of them was reachable from the suite.
+
+- Fixed every OKR write failing with `unable to determine the OKR draft version` while the version endpoint was answering correctly. It returns `okr_draft_version` as a JSON number, and the value was read with a string-only accessor that yields `""` for any non-string. Since every write obtains a draft version first, no OKR write could succeed on a tenant that sends the numeric form. Numeric versions are now read and rendered as plain integers rather than in exponent notation, which the default float formatting would produce for a millisecond timestamp.
+- Fixed objective titles and KR text being reported as raw delta-doc JSON, such as `{"0":{"ops":[{"insert":"..."}]}}`. The server sends rich text either as a structure or as a string holding that same structure serialized, and the string form was returned verbatim. This affected `ixf okr read` and `ixf okr inspect`, so the page was unreadable wherever a title was long enough to matter. Ordinary text is unchanged: only a value that parses as a JSON object or array is retried as rich text.
+- Fixed the same string-only version read in `draftVersionFromPayload`, which caches the advanced draft version returned by each write. Dropping a numeric value there left the cache holding the pre-write version, so the second call in any multi-step write failed with `stale OKR draft version` after exhausting its retries. This was only reachable once the first version fix landed, because until then no write reached a second call.
+- Fixed the KR ordering request sending `objectiveId` and `krIds` where the endpoint expects `objective_id` and `kr_ids`, which failed with code 1003. The call sits on the merge path reached only when `--objective-index` is absent, while the documented workflow passed that flag, so the request had very likely never succeeded.
+
 ## 3.27.14 - 2026-09-23
 
 - Added `ixf okr inspect`, which reports an OKR page as JSON with each objective's 1-based index, identifier, title, KR count, and KRs with their own identifiers. `ixf okr read` renders Markdown for a human to check, which leaves a caller choosing a write target by guessing at positions; `--objective-index` is positional, so a write needs the indexes and counts as values it can compare against.

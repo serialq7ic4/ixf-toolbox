@@ -76,6 +76,14 @@ Destructive verbs require `--confirm-kr-deletes N` matching the number of KRs th
 
 Take N from `diff.krsToDelete` in the dry run. If it does not match at apply time the command refuses and says the page may have changed — treat that as a signal to re-inspect, not as an obstacle to work around by trying another number.
 
+## Why verify.ok matters here specifically
+
+The editor API has a failure mode where a write reports success without fully applying: deleting several KRs could remove only one and return success on every call. The verbs no longer take that path, but the lesson generalises — a `code 0` response from this API is not proof that the intended change landed.
+
+`verify` is what closes that gap. It re-reads the page and compares the stored KRs against what the verb intended, which is why `verify.comparedAgainst` says `intended KR set` rather than naming what was sent. Report `verify.ok:false` to the user as a failed write even when the command exited zero, and read `verify.error`: a mismatch between `krsStored` and `krsExpected` means part of the change did not apply.
+
+Do not treat an absent `verify` block as success. Every apply path produces one.
+
 ## Safety
 
 Do not modify O/KR content from vague instructions. Do not use a destructive verb unless removal was explicitly requested. Never pass `--confirm-kr-deletes` with a value you did not read from a dry-run payload in this session; a value carried over from earlier, or copied from an example, can name a count that no longer matches the page.

@@ -1269,7 +1269,8 @@ func runOKR(args []string, stdout io.Writer, stderr io.Writer) int {
 	rows := [][2]string{
 		{"read", "Read an authorized OKR page as Markdown."},
 		{"inspect", "Print objective indexes, identifiers, titles, and KR counts as JSON."},
-		{"write", "Validate and plan confirmed Objective / KR content."},
+		{"objective", "Create, retitle, or delete a whole Objective."},
+		{"kr", "Add, replace, or delete Key Results on one Objective."},
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "ERROR okr requires a subcommand.")
@@ -1285,13 +1286,46 @@ func runOKR(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runOKRRead(args[1:], stdout, stderr)
 	case "inspect":
 		return runOKRInspect(args[1:], stdout, stderr)
+	case "objective":
+		return runOKRObjective(args[1:], stdout, stderr)
+	case "kr":
+		return runOKRKR(args[1:], stdout, stderr)
 	case "write":
-		return runOKRWrite(args[1:], stdout, stderr)
+		printOKRWriteRemoved(stderr)
+		return 2
 	default:
 		fmt.Fprintf(stderr, "ERROR unsupported okr subcommand: %s\n", args[0])
 		printCommandHelp(stderr, "ixf okr", rows)
 		return 2
 	}
+}
+
+// printOKRWriteRemoved maps the removed command's flag combinations onto the verbs
+// that replaced it.
+//
+// A forwarding shim was considered and rejected: the callers most likely to reach
+// this are agents running a cached older skill file, and that skill recommended
+// verbatim the invocation that deleted data. A shim faithful enough to be
+// compatible would have to reproduce that path, so the only safe shim refuses --
+// which makes it an error message, and it may as well be a useful one.
+func printOKRWriteRemoved(w io.Writer) {
+	fmt.Fprintln(w, "ERROR `ixf okr write` was removed in 3.28.0 because it performed deletes under a")
+	fmt.Fprintln(w, "non-destructive name. Choose the verb matching your intent:")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "  was: --objective-index N, N <= objective count")
+	fmt.Fprintln(w, "  now: ixf okr kr replace --objective N --expect-title <title> --kr ...   (destructive)")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "  was: --objective-index N, N == count + 1")
+	fmt.Fprintln(w, "  now: ixf okr objective create --title <title> --kr ...")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "  was: no --objective-index")
+	fmt.Fprintln(w, "  now: ixf okr kr add --objective N --expect-title <title> --kr ...")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "  was: --prune")
+	fmt.Fprintln(w, "  now: ixf okr objective delete --objective N --expect-title <title>   (destructive)")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Run `ixf okr inspect <okr-url>` first to see current indexes and titles.")
+	fmt.Fprintln(w, "KR content is passed with repeated --kr flags rather than a JSON --input file.")
 }
 
 func runOKRRead(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -1412,54 +1446,6 @@ func runOKRInspect(args []string, stdout io.Writer, stderr io.Writer) int {
 		Source:      source,
 		CookiesPath: cookiesPath,
 		CSRFURL:     csrfURL,
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "ERROR %s\n", err)
-		return 2
-	}
-	writeJSON(stdout, payload)
-	return 0
-}
-
-func runOKRWrite(args []string, stdout io.Writer, stderr io.Writer) int {
-	flags := flag.NewFlagSet("ixf okr write", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	targetURL := flags.String("url", "", "")
-	inputPath := flags.String("input", "", "")
-	cookiesPath := flags.String("cookies", defaultCookies, "")
-	csrfURL := flags.String("csrf-url", ixfokr.DefaultCSRFURL, "")
-	objectiveIndex := flags.Int("objective-index", 0, "")
-	prune := flags.Bool("prune", false, "")
-	apply := flags.Bool("apply", false, "")
-	dryRun := flags.Bool("dry-run", false, "")
-	if hasHelpArg(args) {
-		flags.SetOutput(stdout)
-		flags.Usage()
-		return 0
-	}
-	if err := flags.Parse(args); err != nil {
-		return 2
-	}
-	if *dryRun && *apply {
-		fmt.Fprintln(stderr, "ERROR --dry-run and --apply are mutually exclusive")
-		return 2
-	}
-	if *targetURL == "" {
-		fmt.Fprintln(stderr, "ERROR --url is required")
-		return 2
-	}
-	if *inputPath == "" {
-		fmt.Fprintln(stderr, "ERROR --input is required")
-		return 2
-	}
-	payload, err := ixfokr.WriteDryRun(ixfokr.WriteConfig{
-		URL:            *targetURL,
-		InputPath:      *inputPath,
-		CookiesPath:    *cookiesPath,
-		CSRFURL:        *csrfURL,
-		ObjectiveIndex: *objectiveIndex,
-		Prune:          *prune,
-		Apply:          *apply,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)

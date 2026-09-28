@@ -143,7 +143,9 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf docs update <file.md> --url <docx-url> --dry-run` | Plan replacing an existing docx body without writing |
 | `ixf docs update <file.md> --url <docx-url> --apply` | Replace an existing docx body, rejecting complex blocks by default; use `--allow-complex-replace` after confirmation |
 | `ixf okr read <url>` | Read an authorized OKR page as Markdown |
-| `ixf okr write --url <url> --input <file.json>` | Create or update confirmed Objective / KR content |
+| `ixf okr inspect <url>` | Print objective indexes, identifiers, titles, and KR counts as JSON |
+| `ixf okr objective create|retitle|delete` | Append, retitle, or delete a whole Objective |
+| `ixf okr kr add|replace|delete` | Append, replace, or remove Key Results on one Objective |
 | `ixf messenger doctor --json` | Inspect Messenger desktop profile, browser, and cookie readiness |
 | `ixf messenger open --to <target> --mode person\|conversation --dry-run --json` | Plan opening a person or conversation without sending |
 | `ixf messenger open --to <target> --mode person\|conversation --apply --json` | Launch a cloned-profile browser and verify the target chat without sending |
@@ -488,43 +490,59 @@ ixf bitable attach \
   --json
 ```
 
-Write one OKR Objective by index:
+Writing is split into six intent-named verbs, so the blast radius is in the verb name rather than emerging from a flag combination plus the contents of an input file:
+
+| Verb | Does | Destructive |
+|---|---|---|
+| `okr objective create` | Appends a new Objective with its KRs | No |
+| `okr objective retitle` | Rewrites one title, leaving KRs alone | No |
+| `okr kr add` | Appends KRs, keeping the existing ones | No |
+| `okr kr replace` | Replaces an Objective's entire KR set | **Yes** |
+| `okr kr delete` | Removes named KRs; the only path to zero KRs | **Yes** |
+| `okr objective delete` | Deletes a whole Objective and its KRs | **Yes** |
+
+KR content is passed as repeated `--kr` flags; there is no JSON `--input` file. Each Objective accepts at most 4 KRs.
+
+Inspect the current state first:
 
 ```bash
-ixf okr write \
+ixf okr inspect "https://tenant.example.test/okr/user/example/?okrId=example"
+```
+
+`nextObjectiveIndex` in that output is where a create would land; any index below it refers to an existing Objective.
+
+Every verb targeting an existing Objective requires `--objective N` and `--expect-title`. Indexes shift as Objectives are added, so the title is compared before anything is written and the command refuses on a mismatch. Copy both values from the inspect output.
+
+Append a KR, which is non-destructive and dry-run by default:
+
+```bash
+ixf okr kr add \
   --url "https://tenant.example.test/okr/user/example/?okrId=example" \
-  --input okr.json \
-  --cookies /tmp/ixf_cookies.json \
-  --objective-index 3
+  --objective 3 \
+  --expect-title "Improve delivery reliability" \
+  --kr "Tighten the change review gate" \
+  --cookies /tmp/ixf_cookies.json
 ```
 
-The input file shape:
+Add `--apply` once reviewed.
 
-```json
-{
-  "objectives": [
-    { "objective": "Improve delivery reliability", "krs": ["KR1", "KR2"] }
-  ]
-}
+Replacing an Objective's whole KR set is destructive and requires `--confirm-kr-deletes` to equal the number of KRs that will actually be removed:
+
+```bash
+ixf okr kr replace \
+  --url "https://tenant.example.test/okr/user/example/?okrId=example" \
+  --objective 3 \
+  --expect-title "Improve delivery reliability" \
+  --kr "New KR 1" --kr "New KR 2" \
+  --confirm-kr-deletes 3 \
+  --apply
 ```
 
-The top level must be an object with an `objectives` key, not an array. The key must be `krs`; other spellings such as `key_results` are rejected. Each Objective accepts at most 4 KRs.
+Take that number from `diff.krsToDelete` in the dry run. `--apply` alone is not treated as confirmation, because it is a constant that can be passed habitually; the count exists only in the target's current state, so supplying it correctly is evidence the diff was read. A mismatch is refused with a note that the page may have changed — re-inspect rather than trying another number.
 
-`krs` may not be empty, because an empty list cannot express a valid intent on any path — it would only delete or preserve without adding anything.
+The dry run states `apply.blocked` and, when blocked, `apply.requiredFlags` naming what would satisfy it.
 
-The three write paths treat existing KRs differently, and choosing the wrong one gives the opposite of what you expect:
-
-| Invocation | Existing KRs |
-|---|---|
-| `--objective-index N` (N ≤ current count) | **Replaces the whole KR set**; every existing KR is deleted |
-| `--objective-index N` (N = current count + 1) | Creates a new Objective; existing KRs untouched |
-| No `--objective-index` | **Merges**: existing KRs are matched by text and reused, and any not named in the input are kept |
-| `--prune` | Replaces, and deletes Objectives absent from the input |
-
-So without `--objective-index`, old KRs do not disappear. To make KRs disappear, target the Objective with `--objective-index` and supply the complete intended set.
-
-Add `--apply` after reviewing the planned changes. `--objective-index` updates only the selected Objective; when the target index is exactly one past the current Objective count, it creates that next Objective. Without `--objective-index`, the Go runtime matches Objectives by text and can write multiple Objectives. `--prune` is destructive and should only be used when removal is explicitly intended.
-
+`ixf okr write` was removed in 3.28.0 because it performed deletes under a non-destructive name. Running it prints the verb that replaces each old usage.
 ## Supported Scope
 
 Toolbox currently supports:

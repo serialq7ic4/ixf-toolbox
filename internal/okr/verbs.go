@@ -322,11 +322,11 @@ func CreateObjective(config VerbConfig) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	created, err := session.createKRs(objectiveID, config.Texts)
-	if err != nil {
-		return nil, err
-	}
-	if err := session.order(objectiveID, created); err != nil {
+	// No ordering call here. KRs on a new objective are already in creation order,
+	// and the server rejects ordering one that has not been published yet with code
+	// 1003. The previously working create path did not order either; this was an
+	// addition of mine that live testing rejected.
+	if _, err := session.createKRs(objectiveID, config.Texts); err != nil {
 		return nil, err
 	}
 	if err := session.publish(objectiveID, nil); err != nil {
@@ -437,9 +437,13 @@ func ReplaceKRs(config VerbConfig) (map[string]any, error) {
 	if len(created) == 0 {
 		return nil, fmt.Errorf("refusing to delete %d existing KRs with no replacement created", len(target.KRs))
 	}
-	if err := session.order(target.ID, created); err != nil {
-		return nil, err
-	}
+	// Deletion is committed by the publish through need_delete_kr_ids, not by
+	// separate DELETE calls. Two constraints established by probing the live API
+	// make this the only sequence that works: kr/pos/ rejects an ordering that omits
+	// KRs which still exist (code 1006), and within one draft only the first
+	// explicit DELETE applies while later ones report success and are ignored. Naming
+	// the ids on publish removes all of them in a single request, which also keeps
+	// replacement atomic.
 	if err := session.publish(target.ID, krIDs(target.KRs)); err != nil {
 		return nil, err
 	}
@@ -552,9 +556,11 @@ func DeleteKRs(config VerbConfig) (map[string]any, error) {
 	if err := session.enableDraft(target.ID); err != nil {
 		return nil, err
 	}
-	if err := session.order(target.ID, krIDsExcluding(target.KRs, matched)); err != nil {
-		return nil, err
-	}
+	// Deletion is committed by the publish through need_delete_kr_ids. Separate
+	// DELETE calls are not used: within one draft only the first applies, while the
+	// rest report success and are silently ignored, which would under-delete while
+	// looking like it worked. Reordering around the removed KRs is not an option
+	// either, since kr/pos/ rejects a list omitting KRs that still exist.
 	if err := session.publish(target.ID, krIDs(matched)); err != nil {
 		return nil, err
 	}

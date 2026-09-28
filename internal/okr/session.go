@@ -1,6 +1,7 @@
 package okr
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -115,6 +116,20 @@ func (session *okrSession) resolveObjective(index int, expectTitle string) (obje
 // enableDraft opens the collaborative draft for one objective. Every write to an
 // objective goes through a draft and then a publish.
 func (session *okrSession) enableDraft(objectiveID string) error {
+	err := session.enableDraftOnce(objectiveID)
+	// The editor exposes edit and publish as mutually exclusive states, and enabling
+	// a draft is the edit action. When the objective is already in edit state the
+	// server answers 100001 "need to refresh", which is not a failure here: the
+	// draft we were asking for is already open, and writes proceed against it. A
+	// previous attempt that stopped mid-sequence leaves exactly this state.
+	if errors.Is(err, errStaleDraftVersion) {
+		session.cache.clear()
+		return nil
+	}
+	return err
+}
+
+func (session *okrSession) enableDraftOnce(objectiveID string) error {
 	_, err := okrAPIWithVersion(
 		session.client, "POST", session.origin, session.url, session.okrID,
 		"/okrx/api/draft_v2/enable/"+objectiveID+"/",
@@ -141,19 +156,11 @@ func (session *okrSession) createKRs(objectiveID string, texts []string) ([]stri
 	return created, nil
 }
 
-// deleteKRs removes the given KRs from the draft. The publish that follows commits
-// the removal.
-func (session *okrSession) deleteKRs(krIDs []string) error {
-	for _, krID := range krIDs {
-		if _, err := okrAPIWithVersionParams(
-			session.client, "DELETE", session.origin, session.url, session.okrID,
-			"/okrx/api/draft_v2/kr/"+krID+"/",
-			session.lgwToken, session.cookies, session.cache, session.connID, deleteParams); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+// Deleting KRs is deliberately not a session method. The explicit DELETE endpoint
+// applies only the first call within a draft and silently ignores the rest, so a
+// loop over it under-deletes while reporting success. Deletion is committed by
+// publish through need_delete_kr_ids, which removes any number of KRs in one
+// request.
 
 // order sets the KR order for an objective.
 func (session *okrSession) order(objectiveID string, krIDs []string) error {

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.28.1 - 2026-09-29
+
+- Fixed `--help` printing no description for any flag across eleven commands: `deps install`, `cookies export`, `bitable inspect`, `bitable attach`, `bitable record create`, `docs table append-row`, `messenger doctor`, `messenger open`, `messenger read`, `messenger send`, and `update check`. They emitted raw Go flag output rather than the formatting the documented commands use, so the place a caller looks before running a command said nothing about what its flags do. This is the defect that hid the tab-separated `--input` contract behind issue #8.
+- Fixed `ixf cookies --help` exiting 2 with an error instead of listing its subcommand, and `ixf update check --help` exiting 2 because its argument parser had no help handling while its sibling `update self` did.
+- Help text now carries the details that were only discoverable by reading code or failing: that `docs table append-row` requires the `fields` wrapper while `bitable record create` does not, that `verify.appendedRow.ok` rather than `verify.ok` is what confirms a row landed, that `messenger read --apply` means "actually read" rather than "write", and that exported cookie files hold live session data.
+
 ## 3.28.0 - 2026-09-23
 
 Breaking: `ixf okr write` is removed. Use `ixf okr objective create|retitle|delete` and `ixf okr kr add|replace|delete`, with `ixf okr inspect` to find the index and title a write should target. Running the old command prints the verb replacing each of its flag combinations and exits non-zero.

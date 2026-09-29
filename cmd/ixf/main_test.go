@@ -129,8 +129,16 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 			expected: []string{"usage: ixf docs patch delete-section", "--url", "--under-heading", "--allow-complex-section-replace", "--dry-run", "--apply"},
 		},
 		{
-			args:     []string{"docs", "table", "append-row", "--help"},
-			expected: []string{"Usage of ixf docs table append-row", "-url", "-input", "-table-index", "-dry-run", "-apply", "-json"},
+			args: []string{"docs", "table", "append-row", "--help"},
+			// Assert the input contract, not the banner: the fields wrapper being
+			// required here while optional for bitable is the detail a caller gets
+			// wrong, and verify.appendedRow is the gate that actually proves the row
+			// landed.
+			expected: []string{
+				"usage: ixf docs table append-row", "--url", "--input", "--table-index",
+				"--dry-run", "--apply", "--json",
+				"wrapper is required here", "verify.appendedRow.ok",
+			},
 		},
 		{
 			args:     []string{"sheets", "read", "--help"},
@@ -148,15 +156,15 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 		},
 		{
 			args:     []string{"bitable", "inspect", "--help"},
-			expected: []string{"Usage of ixf bitable inspect", "-url", "-cookies", "-space-api", "-json"},
+			expected: []string{"usage: ixf bitable inspect", "--url", "--cookies", "--space-api", "--json", "Read-only"},
 		},
 		{
 			args:     []string{"bitable", "attach", "--help"},
-			expected: []string{"Usage of ixf bitable attach", "-url", "-field", "-record-match", "-file", "-dry-run", "-apply", "Upload and bind the attachment", "-json"},
+			expected: []string{"usage: ixf bitable attach", "--url", "--field", "--record-match", "--record-id", "--file", "--dry-run", "--apply", "Upload and bind the attachment", "--json", "preserved"},
 		},
 		{
 			args:     []string{"bitable", "record", "create", "--help"},
-			expected: []string{"Usage of ixf bitable record create", "-url", "-input", "-insert-position", "top|bottom", "default bottom", "-dry-run", "-apply", "-json"},
+			expected: []string{"usage: ixf bitable record create", "--url", "--input", "--insert-position", "top or bottom", "--dry-run", "--apply", "--json"},
 		},
 		{
 			args:     []string{"okr", "read", "--help"},
@@ -164,7 +172,40 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 		},
 		{
 			args:     []string{"messenger", "send", "--help"},
-			expected: []string{"Usage of ixf messenger send", "-to", "-message", "-dry-run", "-apply"},
+			expected: []string{"usage: ixf messenger send", "--to", "--mode", "--message", "--dry-run", "--apply", "live conversation"},
+		},
+		{
+			args:     []string{"deps", "install", "--help"},
+			expected: []string{"usage: ixf deps install", "--cookies", "--dry-run", "--apply", "--json", "command that installs anything"},
+		},
+		{
+			// The parent used to exit 2 with an error instead of listing its subcommand.
+			args:     []string{"cookies", "--help"},
+			expected: []string{"usage: ixf cookies", "export"},
+		},
+		{
+			args:     []string{"cookies", "export", "--help"},
+			expected: []string{"usage: ixf cookies export", "--provider", "macos-larkshell", "windows-larkshell", "must not be committed"},
+		},
+		{
+			args:     []string{"messenger", "doctor", "--help"},
+			expected: []string{"usage: ixf messenger doctor", "--json", "starts no browser"},
+		},
+		{
+			args:     []string{"messenger", "open", "--help"},
+			expected: []string{"usage: ixf messenger open", "--to", "--mode", "--timeout-ms", "never sends"},
+		},
+		{
+			// --apply here means "actually read", which is worth stating because every
+			// other command's --apply means "write".
+			args:     []string{"messenger", "read", "--help"},
+			expected: []string{"usage: ixf messenger read", "--scope", "--limit", "--messages-per-chat", "Read-only"},
+		},
+		{
+			// This one used to exit 2: parseUpdateArgs had no help handling, unlike its
+			// sibling update self.
+			args:     []string{"update", "check", "--help"},
+			expected: []string{"usage: ixf update check", "--repo", "--release-file", "--json", "never downloads"},
 		},
 		{
 			args:     []string{"update", "self", "--help"},

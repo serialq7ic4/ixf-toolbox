@@ -171,6 +171,19 @@ func runDeps(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 }
 
+func printDepsInstallHelp(w io.Writer) {
+	printUsageHelp(w, "ixf deps install [--dry-run|--apply] [--json]", [][2]string{
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--dry-run", "Report the planned dependency repair without installing. Default when --apply is absent."},
+		{"--apply", "Install the missing optional dependencies."},
+		{"--json", "Print machine-readable JSON output."},
+	})
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Repairs the optional Mermaid CLI and Puppeteer browser toolchain, which docs")
+	fmt.Fprintln(w, "writes need only when a document contains Mermaid diagrams. This is the only")
+	fmt.Fprintln(w, "command that installs anything; `ixf doctor` is read-only.")
+}
+
 func runDepsInstall(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("ixf deps install", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -179,8 +192,7 @@ func runDepsInstall(args []string, stdout io.Writer, stderr io.Writer) int {
 	dryRun := flags.Bool("dry-run", false, "")
 	asJSON := flags.Bool("json", false, "")
 	if hasHelpArg(args) {
-		flags.SetOutput(stdout)
-		flags.Usage()
+		printDepsInstallHelp(stdout)
 		return 0
 	}
 	if err := flags.Parse(args); err != nil {
@@ -237,9 +249,37 @@ func runDoctor(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 1
 }
 
+func printCookiesExportHelp(w io.Writer) {
+	printUsageHelp(w, "ixf cookies export [--provider auto|macos-larkshell|windows-larkshell] [--output PATH] [--json]", [][2]string{
+		{"--provider NAME", "auto (default) picks by platform: macos-larkshell or windows-larkshell."},
+		{"--output PATH", "Write the cookie JSON here. Defaults to the path every other command reads."},
+		{"--host-like PATTERN", "Only export cookies whose host matches this pattern."},
+		{"--app-support PATH", "Override the desktop app support directory to read from."},
+		{"--cookies-db PATH", "Read a specific cookie database file instead of locating one."},
+		{"--keychain-service NAME", "Keychain service holding the decryption key, on macOS."},
+		{"--keychain-account NAME", "Keychain account for that service."},
+		{"--app-data PATH", "Windows app data directory, for the windows-larkshell provider."},
+		{"--local-state PATH", "Windows Local State file, which holds the encryption key."},
+		{"--json", "Print machine-readable JSON output."},
+	})
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Reads the local desktop session and writes it where the other commands expect.")
+	fmt.Fprintln(w, "Run this when a command reports missing authentication, or when `ixf doctor`")
+	fmt.Fprintln(w, "reports cookies.ok false. Output contains live session cookies: it is written to")
+	fmt.Fprintln(w, "a temporary path by default and must not be committed.")
+}
+
 func runCookies(args []string, stdout io.Writer, stderr io.Writer) int {
+	rows := [][2]string{
+		{"export", "Export local desktop session cookies to a JSON file."},
+	}
+	if len(args) > 0 && isHelpArg(args[0]) {
+		printCommandHelp(stdout, "ixf cookies", rows)
+		return 0
+	}
 	if len(args) == 0 || args[0] != "export" {
 		fmt.Fprintln(stderr, "ERROR cookies requires subcommand: export")
+		printCommandHelp(stderr, "ixf cookies", rows)
 		return 2
 	}
 	flags := flag.NewFlagSet("ixf cookies export", flag.ContinueOnError)
@@ -256,8 +296,7 @@ func runCookies(args []string, stdout io.Writer, stderr io.Writer) int {
 	asJSON := flags.Bool("json", false, "")
 	for _, arg := range args[1:] {
 		if arg == "-h" || arg == "--help" {
-			flags.SetOutput(stdout)
-			flags.Usage()
+			printCookiesExportHelp(stdout)
 			return 0
 		}
 	}
@@ -526,8 +565,7 @@ func runBitableRecordCreate(args []string, stdout io.Writer, stderr io.Writer) i
 	apply := flags.Bool("apply", false, "")
 	asJSON := flags.Bool("json", false, "")
 	if hasHelpArg(args) {
-		flags.SetOutput(stdout)
-		flags.Usage()
+		printBitableRecordCreateHelp(stdout)
 		return 0
 	}
 	if err := flags.Parse(args); err != nil {
@@ -566,6 +604,53 @@ func runBitableRecordCreate(args []string, stdout io.Writer, stderr io.Writer) i
 	return 0
 }
 
+func printBitableInspectHelp(w io.Writer) {
+	printUsageHelp(w, "ixf bitable inspect --url URL [--json]", [][2]string{
+		{"--url URL", "Direct bitable URL, wiki-backed bitable, or a docx embedding one."},
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+		{"--json", "Print machine-readable JSON output."},
+	})
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Read-only. Reports table and field metadata, including field names and types,")
+	fmt.Fprintln(w, "which is what a record or attachment write needs to match against.")
+}
+
+func printBitableRecordCreateHelp(w io.Writer) {
+	printUsageHelp(w, "ixf bitable record create --url URL --input row.json [--dry-run|--apply] [--json]", [][2]string{
+		{"--url URL", "Direct bitable URL, wiki-backed bitable, or a docx embedding one."},
+		{"--input PATH", "JSON file of field values. A bare field map or a {\"fields\":{...}} wrapper both work."},
+		{"--insert-position WHERE", "top or bottom; bottom is the default and appends to the current view."},
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+		{"--json", "Print machine-readable JSON output."},
+		{"--dry-run", "Report the planned record without writing. Default when --apply is absent."},
+		{"--apply", "Create the record, then read it back to confirm."},
+	})
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Field names must match the table's own fields; a name that does not exist is")
+	fmt.Fprintln(w, "rejected before any write rather than skipped. Attachment fields take a local")
+	fmt.Fprintln(w, "file path. Check verify.ok and verify.recordIndex after applying.")
+}
+
+func printBitableAttachHelp(w io.Writer) {
+	printUsageHelp(w, "ixf bitable attach --url URL --field NAME --file PATH [--record-match F=V | --record-id ID] [--dry-run|--apply] [--json]", [][2]string{
+		{"--url URL", "Direct bitable URL, wiki-backed bitable, or a docx embedding one."},
+		{"--field NAME", "The attachment field to upload into."},
+		{"--file PATH", "Local file to upload."},
+		{"--record-match F=V", "Select the record whose field F equals V."},
+		{"--record-id ID", "Select the record by its identifier instead of by field value."},
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+		{"--json", "Print machine-readable JSON output."},
+		{"--dry-run", "Report the matched record and planned upload without writing."},
+		{"--apply", "Upload and bind the attachment to the matched record."},
+	})
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Existing attachments on the field are preserved; the upload is added to them.")
+	fmt.Fprintln(w, "Check verify.ok and verify.recordId after applying.")
+}
+
 func runBitableInspect(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("ixf bitable inspect", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -574,8 +659,7 @@ func runBitableInspect(args []string, stdout io.Writer, stderr io.Writer) int {
 	spaceAPI := flags.String("space-api", "", "")
 	asJSON := flags.Bool("json", false, "")
 	if hasHelpArg(args) {
-		flags.SetOutput(stdout)
-		flags.Usage()
+		printBitableInspectHelp(stdout)
 		return 0
 	}
 	if err := flags.Parse(args); err != nil {
@@ -620,8 +704,7 @@ func runBitableAttach(args []string, stdout io.Writer, stderr io.Writer) int {
 	apply := flags.Bool("apply", false, "Upload and bind the attachment to the matched record.")
 	asJSON := flags.Bool("json", false, "")
 	if hasHelpArg(args) {
-		flags.SetOutput(stdout)
-		flags.Usage()
+		printBitableAttachHelp(stdout)
 		return 0
 	}
 	if err := flags.Parse(args); err != nil {
@@ -752,6 +835,86 @@ func runDocsTable(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 }
 
+// messengerCommonOptions are the flags messengerFlags registers for every
+// messenger subcommand, kept in one place so each command's help lists the same
+// set the parser actually accepts.
+var messengerCommonOptions = [][2]string{
+	{"--profile-dir PATH", "Desktop profile directory to clone for automation."},
+	{"--app-support PATH", "Override the macOS application support directory."},
+	{"--app-data PATH", "Override the Windows app data directory."},
+	{"--browser-path PATH", "Chrome or Chromium binary to drive. Also settable via IXF_MESSENGER_BROWSER_PATH."},
+	{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+	{"--goos NAME", "Override the detected platform, for diagnostics."},
+	{"--json", "Print machine-readable JSON output."},
+}
+
+var messengerBrowserOptions = [][2]string{
+	{"--allow-visible-fallback", "Permit a visible browser window when headless automation cannot start."},
+	{"--keep-profile-clone", "Leave the cloned profile on disk afterwards, for debugging."},
+	{"--timeout-ms N", "Give up on a browser step after N milliseconds."},
+}
+
+func messengerHelpOptions(specific [][2]string, withBrowser bool) [][2]string {
+	options := append([][2]string{}, specific...)
+	if withBrowser {
+		options = append(options, messengerBrowserOptions...)
+	}
+	return append(options, messengerCommonOptions...)
+}
+
+func printMessengerDoctorHelp(w io.Writer) {
+	printUsageHelp(w, "ixf messenger doctor [--json]", messengerHelpOptions(nil, false))
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Read-only. Reports whether the desktop profile, browser, and cookies are ready")
+	fmt.Fprintln(w, "for Messenger automation. It starts no browser and sends nothing.")
+}
+
+func printMessengerOpenHelp(w io.Writer) {
+	printUsageHelp(w, "ixf messenger open --to TARGET --mode person|conversation [--dry-run|--apply] [--json]",
+		messengerHelpOptions([][2]string{
+			{"--to TARGET", "Person or conversation to open."},
+			{"--mode NAME", "person or conversation; which one decides how --to is resolved."},
+			{"--dry-run", "Report the resolution plan without starting a browser."},
+			{"--apply", "Start the browser and verify the target conversation."},
+		}, true))
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Opens a target to confirm it resolves. It never sends a message.")
+}
+
+func printMessengerSendHelp(w io.Writer) {
+	printUsageHelp(w, "ixf messenger send --to TARGET --mode person|conversation --message TEXT [--dry-run|--apply] [--json]",
+		messengerHelpOptions([][2]string{
+			{"--to TARGET", "Person or conversation to send to."},
+			{"--mode NAME", "person or conversation; which one decides how --to is resolved."},
+			{"--message TEXT", "The message body."},
+			{"--dry-run", "Report the plan without starting a browser or sending."},
+			{"--apply", "Send the message, then re-check it in a fresh session."},
+		}, true))
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Sends to a live conversation, so confirm the resolved target before applying.")
+	fmt.Fprintln(w, "Dry-run does not echo the full message body.")
+}
+
+func printDocsTableAppendRowHelp(w io.Writer) {
+	printUsageHelp(w, "ixf docs table append-row --url URL --input row.json [--table-index N] [--dry-run|--apply] [--json]", [][2]string{
+		{"--url URL", "Existing docx or wiki-backed docx URL containing the table."},
+		{"--input PATH", "JSON file of cell values. The {\"fields\":{...}} wrapper is required here."},
+		{"--table-index N", "1-based table number; omittable only when the document has exactly one table."},
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+		{"--dry-run", "Report the planned row without writing. Default when --apply is absent."},
+		{"--apply", "Append the row, upload any image cells, then read the table back."},
+		{"--json", "Print machine-readable JSON output."},
+	})
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Field names must match the table's first-row headers exactly; a name that matches")
+	fmt.Fprintln(w, "nothing is rejected rather than skipped. An image cell takes {\"file\":\"path\"} and")
+	fmt.Fprintln(w, "supports PNG, JPEG, and SVG.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "After applying, check verify.appendedRow.ok: it confirms the row is present as the")
+	fmt.Fprintln(w, "table's last row with its cells in the intended columns. verify.ok alone does not.")
+}
+
 func runDocsTableAppendRow(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("ixf docs table append-row", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -766,8 +929,7 @@ func runDocsTableAppendRow(args []string, stdout io.Writer, stderr io.Writer) in
 	var required repeatedStringFlag
 	flags.Var(&required, "require", "")
 	if hasHelpArg(args) {
-		flags.SetOutput(stdout)
-		flags.Usage()
+		printDocsTableAppendRowHelp(stdout)
 		return 0
 	}
 	if err := flags.Parse(args); err != nil {
@@ -1492,8 +1654,7 @@ func runMessengerDoctor(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	config, asJSON := messengerFlags(flags)
 	if hasHelpArg(args) {
-		flags.SetOutput(stdout)
-		flags.Usage()
+		printMessengerDoctorHelp(stdout)
 		return 0
 	}
 	if err := flags.Parse(args); err != nil {
@@ -1523,8 +1684,7 @@ func runMessengerOpen(args []string, stdout io.Writer, stderr io.Writer) int {
 	keepProfileClone := flags.Bool("keep-profile-clone", false, "")
 	timeoutMS := flags.Int("timeout-ms", 45000, "")
 	if hasHelpArg(args) {
-		flags.SetOutput(stdout)
-		flags.Usage()
+		printMessengerOpenHelp(stdout)
 		return 0
 	}
 	if err := flags.Parse(args); err != nil {
@@ -1557,6 +1717,22 @@ func runMessengerOpen(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
+func printMessengerReadHelp(w io.Writer) {
+	printUsageHelp(w, "ixf messenger read --scope unread|recent [--limit N] [--dry-run|--apply] [--json]",
+		messengerHelpOptions([][2]string{
+			{"--scope NAME", "unread (default) or recent; which conversations to read."},
+			{"--limit N", "Maximum conversations to read. Default 20."},
+			{"--messages-per-chat N", "Messages to take from each conversation. Default 5."},
+			{"--max-scrolls N", "How far to scroll a conversation list. Default 18."},
+			{"--include-self-messages", "Include your own messages in the excerpts."},
+			{"--dry-run", "Report the read plan without starting a browser."},
+			{"--apply", "Start the browser and read the conversations."},
+		}, true))
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Read-only: it never sends a message. --apply here means \"actually read\", not")
+	fmt.Fprintln(w, "\"write something\".")
+}
+
 func runMessengerRead(args []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("ixf messenger read", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -1572,8 +1748,7 @@ func runMessengerRead(args []string, stdout io.Writer, stderr io.Writer) int {
 	keepProfileClone := flags.Bool("keep-profile-clone", false, "")
 	timeoutMS := flags.Int("timeout-ms", 60000, "")
 	if hasHelpArg(args) {
-		flags.SetOutput(stdout)
-		flags.Usage()
+		printMessengerReadHelp(stdout)
 		return 0
 	}
 	if err := flags.Parse(args); err != nil {
@@ -1623,8 +1798,7 @@ func runMessengerSend(args []string, stdout io.Writer, stderr io.Writer) int {
 	keepProfileClone := flags.Bool("keep-profile-clone", false, "")
 	timeoutMS := flags.Int("timeout-ms", 90000, "")
 	if hasHelpArg(args) {
-		flags.SetOutput(stdout)
-		flags.Usage()
+		printMessengerSendHelp(stdout)
 		return 0
 	}
 	if err := flags.Parse(args); err != nil {
@@ -2274,7 +2448,22 @@ func runUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 }
 
+func printUpdateCheckHelp(w io.Writer) {
+	printUsageHelp(w, "ixf update check [--json]", [][2]string{
+		{"--repo OWNER/REPO", "GitHub repository to inspect for releases."},
+		{"--release-file PATH", "Use a local release JSON fixture instead of querying GitHub."},
+		{"--json", "Print machine-readable JSON output."},
+	})
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Reports the current and latest versions and whether an update is available.")
+	fmt.Fprintln(w, "Read-only: it never downloads or replaces a binary. Use `ixf update self` for that.")
+}
+
 func runUpdateCheck(args []string, stdout io.Writer, stderr io.Writer) int {
+	if hasHelpArg(args) {
+		printUpdateCheckHelp(stdout)
+		return 0
+	}
 	repo, releaseFile, asJSON, err := parseUpdateArgs(args, false)
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)

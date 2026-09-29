@@ -122,6 +122,34 @@ func TestReleaseWorkflowPublishesOnlyVersionedBinariesAndChecksums(t *testing.T)
 	}
 }
 
+// The release must be published before the workflow-artifact copy is uploaded.
+// Both carry the same dist/* files, so the copy is a convenience, but in the
+// earlier order a transient failure finalizing the upload skipped publishing and
+// left a tag with no release attached. The order is therefore a safety property
+// rather than a preference, which is why it is asserted rather than left to
+// review.
+func TestReleaseWorkflowPublishesBeforeUploadingTheArtifactCopy(t *testing.T) {
+	content := readRepoFile(t, ".github/workflows/release.yml")
+	release := strings.Index(content, "name: Create GitHub Release")
+	upload := strings.Index(content, "name: Upload workflow artifacts")
+	if release < 0 || upload < 0 {
+		t.Fatalf("release workflow is missing the publish or upload step:\n%s", content)
+	}
+	if release > upload {
+		t.Fatalf("Upload workflow artifacts precedes Create GitHub Release; a failed upload would skip publishing")
+	}
+	// continue-on-error on any step would hide a persistent problem behind a green
+	// build, so publishing first is the fix rather than tolerating the failure.
+	// Matched as a YAML key, since the surrounding comment names the directive to
+	// explain why it is absent.
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "continue-on-error:") {
+			t.Fatalf("release workflow sets %q; a failing step should stay visible", trimmed)
+		}
+	}
+}
+
 func TestVersionIsOwnedByVersionFileNotLdflags(t *testing.T) {
 	for _, relative := range []string{
 		".github/workflows/release.yml",

@@ -73,13 +73,23 @@ jobs:
             found { print }
           ' CHANGELOG.md | sed '/^[[:space:]]*$/d' > release-notes.md
           test -s release-notes.md
-      - name: Upload workflow artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ixf-toolbox-dist
-          path: dist/*
+      # The release is published before the workflow-artifact copy is uploaded.
+      # Both carry the same dist/* files, so the copy is a convenience while the
+      # release is the authoritative artifact -- but as the earlier order, a
+      # transient failure finalizing the upload skipped publishing entirely and
+      # left a tag with no release attached. Publishing first means that cannot
+      # happen again.
+      #
+      # The upload is deliberately still allowed to fail the run. continue-on-error
+      # would turn a persistent artifact-storage problem into a green build with the
+      # failure only visible in the logs.
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           body_path: release-notes.md
           files: dist/*
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ixf-toolbox-dist
+          path: dist/*

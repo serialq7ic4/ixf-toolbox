@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.28.2 - 2026-09-29
+
+- Fixed the release workflow skipping publication when uploading the workflow-artifact copy failed. Both steps carry the same `dist/*` files, so the copy is a convenience while the release is authoritative, but the copy ran first: a transient `403` finalizing the upload left a tag with no release attached. The release is now published first, so an upload failure can no longer block it.
+- The upload is deliberately still allowed to fail the run rather than being marked `continue-on-error`, which would hide a persistent artifact-storage problem behind a green build. A contract test asserts both the step order and the absence of `continue-on-error`.
+
 ## 3.28.1 - 2026-09-29
 
 - Fixed `--help` printing no description for any flag across eleven commands: `deps install`, `cookies export`, `bitable inspect`, `bitable attach`, `bitable record create`, `docs table append-row`, `messenger doctor`, `messenger open`, `messenger read`, `messenger send`, and `update check`. They emitted raw Go flag output rather than the formatting the documented commands use, so the place a caller looks before running a command said nothing about what its flags do. This is the defect that hid the tab-separated `--input` contract behind issue #8.

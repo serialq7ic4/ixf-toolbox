@@ -774,6 +774,7 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		{"patch", "Plan or apply localized docx/wiki block patches."},
 		{"table", "Plan or apply native docx table row changes."},
 		{"structure", "Print safe docx/wiki structure preflight metadata."},
+		{"tree", "List the documents under an authorized wiki node."},
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "ERROR docs requires a subcommand.")
@@ -805,6 +806,8 @@ func runDocs(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runDocsTable(args[1:], stdout, stderr)
 	case "structure":
 		return runDocsStructure(args[1:], stdout, stderr)
+	case "tree":
+		return runDocsTree(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "ERROR unsupported docs subcommand: %s\n", args[0])
 		printCommandHelp(stderr, "ixf docs", rows)
@@ -1037,6 +1040,102 @@ func runDocsStructure(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	writeJSON(stdout, payload)
 	return 0
+}
+
+func runDocsTree(args []string, stdout io.Writer, stderr io.Writer) int {
+	if hasHelpArg(args) {
+		printDocsTreeHelp(stdout)
+		return 0
+	}
+	parsed, err := parseDocsTreeArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	// Without --max-depth this lists the direct children only, which is one request.
+	// A deeper walk costs one request per node carrying children, so depth is opted
+	// into rather than paid for by default.
+	nodes, truncated, err := docslocal.ListWikiTree(docslocal.TreeConfig{
+		Source:      parsed.source,
+		CookiesPath: parsed.cookiesPath,
+		SpaceAPI:    parsed.spaceAPI,
+		Recursive:   parsed.maxDepth > 1,
+		MaxDepth:    parsed.maxDepth,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		return 2
+	}
+	counts := map[string]int{}
+	for _, node := range nodes {
+		counts[node.Kind]++
+	}
+	if parsed.asJSON {
+		writeJSON(stdout, map[string]any{
+			"ok":        true,
+			"source":    parsed.source,
+			"nodes":     docsTreeJSONNodes(nodes),
+			"count":     len(nodes),
+			"counts":    counts,
+			"truncated": truncated,
+		})
+		return 0
+	}
+	for _, node := range nodes {
+		// Depth 1 is a direct child and sits flush left. The guard keeps a node with
+		// an unset depth from panicking strings.Repeat with a negative count.
+		indent := ""
+		if node.Depth > 1 {
+			indent = strings.Repeat("  ", node.Depth-1)
+		}
+		marker := ""
+		if !node.Readable {
+			marker = " [not readable by docs read]"
+		}
+		fmt.Fprintf(stdout, "%s%-8s %s  %s%s\n", indent, node.Kind, node.Title, node.URL, marker)
+	}
+	fmt.Fprintf(stdout, "total %d  %s\n", len(nodes), formatDocsTreeCounts(counts))
+	if truncated {
+		fmt.Fprintln(stdout, "INCOMPLETE this listing is not the whole subtree: the walk hit its node limit and stopped. Narrow it with --max-depth or start from a deeper wiki node.")
+	}
+	return 0
+}
+
+// docsTreeJSONNodes renames the node fields for JSON output, because TreeNode
+// carries no struct tags and would otherwise marshal with Go field names.
+func docsTreeJSONNodes(nodes []docslocal.TreeNode) []map[string]any {
+	encoded := make([]map[string]any, 0, len(nodes))
+	for _, node := range nodes {
+		encoded = append(encoded, map[string]any{
+			"url":        node.URL,
+			"title":      node.Title,
+			"wikiToken":  node.WikiToken,
+			"objToken":   node.ObjToken,
+			"objType":    node.ObjType,
+			"kind":       node.Kind,
+			"readable":   node.Readable,
+			"hasChild":   node.HasChild,
+			"depth":      node.Depth,
+			"parentPath": node.ParentPath,
+		})
+	}
+	return encoded
+}
+
+func formatDocsTreeCounts(counts map[string]int) string {
+	kinds := make([]string, 0, len(counts))
+	for kind := range counts {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	parts := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		parts = append(parts, fmt.Sprintf("%s %d", kind, counts[kind]))
+	}
+	if len(parts) == 0 {
+		return "no documents"
+	}
+	return strings.Join(parts, ", ")
 }
 
 func runDocsOutline(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -1359,6 +1458,22 @@ func printDocsStructureHelp(w io.Writer) {
 		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
 		{"--space-api URL", "Override the i讯飞 Space API base URL."},
 	})
+}
+
+func printDocsTreeHelp(w io.Writer) {
+	printUsageHelp(w, "ixf docs tree <wiki-url> [--max-depth N] [--json]", [][2]string{
+		{"--max-depth N", "Also walk N levels below the node; without it only the direct children are listed."},
+		{"--json", "Print the listing as JSON."},
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+	})
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Read-only. Lists the directory's direct children in one request. --max-depth walks")
+	fmt.Fprintln(w, "deeper at one request per node carrying children, so a wide subtree costs many.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "ixf docs read reads docx and bitable nodes. Nodes of any other kind are marked")
+	fmt.Fprintln(w, "in the listing. A last line starting with INCOMPLETE means the walk hit its")
+	fmt.Fprintln(w, "node limit and the listing is missing nodes.")
 }
 
 func printDocsPublishHelp(w io.Writer) {
@@ -1877,6 +1992,14 @@ type docsStructureArgs struct {
 	asJSON      bool
 }
 
+type docsTreeArgs struct {
+	source      string
+	cookiesPath string
+	spaceAPI    string
+	maxDepth    int
+	asJSON      bool
+}
+
 type docsPublishArgs struct {
 	markdown      string
 	baseURL       string
@@ -2035,6 +2158,57 @@ func parseDocsStructureArgs(args []string) (docsStructureArgs, error) {
 	}
 	if parsed.source == "" {
 		return parsed, fmt.Errorf("structure requires one source URL")
+	}
+	return parsed, nil
+}
+
+func parseDocsTreeArgs(args []string) (docsTreeArgs, error) {
+	parsed := docsTreeArgs{
+		cookiesPath: defaultCookies,
+		spaceAPI:    docslocal.DefaultSpaceAPI,
+	}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case "--json":
+			parsed.asJSON = true
+		case "--max-depth":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			value, err := strconv.Atoi(args[i])
+			if err != nil {
+				return parsed, err
+			}
+			if value < 1 {
+				return parsed, fmt.Errorf("--max-depth must be at least 1")
+			}
+			parsed.maxDepth = value
+		case "--cookies":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.cookiesPath = args[i]
+		case "--space-api":
+			i++
+			if i >= len(args) {
+				return parsed, fmt.Errorf("%s requires a value", arg)
+			}
+			parsed.spaceAPI = args[i]
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return parsed, fmt.Errorf("unsupported docs tree flag: %s", arg)
+			}
+			if parsed.source != "" {
+				return parsed, fmt.Errorf("tree requires exactly one source URL")
+			}
+			parsed.source = arg
+		}
+	}
+	if parsed.source == "" {
+		return parsed, fmt.Errorf("tree requires one source URL")
 	}
 	return parsed, nil
 }

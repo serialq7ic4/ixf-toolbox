@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 3.29.0 - 2026-09-30
+
+- Added `ixf docs tree <wiki-url>`, which lists the documents directly under a wiki node with their URLs, so a caller can enumerate a directory instead of already knowing each document's link. `--max-depth N` opts into walking N levels below the node. The default is the direct children from a single request: a deeper walk costs one request per node carrying children, and that count cannot be predicted from the URL alone, so depth is opted into rather than paid for by default. A walk is bounded by an internal 500-node cap and reports the listing as `INCOMPLETE` when it stops there, rather than returning a partial tree that looks whole.
+- Each listed node reports its kind and whether `ixf docs read` can read it. Kind comes from the object-token prefix rather than the numeric `obj_type`, because the prefix is self-describing: `dox` is a docx, `sht` a native sheet, `box` an uploaded binary file, `bas` a bitable, `bmn` a mindnote. Mapping from the numeric code would mean maintaining a table of values observed on one tenant.
+- The readability flag exists because the kinds are not interchangeable: a wiki-hosted native sheet and an uploaded file both fail with `client_vars failed`, so feeding an entire listing to `ixf docs read` would fail partway through. Live-verified on a 57-node directory where 4 nodes are not readable.
+- `ixf docs read` reads bitable nodes as well as docx, which an earlier draft of this listing reported as unreadable. The wiki read path recognizes bitable HTML and routes to the bitable reader before looking for a docx token, so the node returns table metadata and a TSV block. A mindnote is reported unreadable, reasoned from that read path rather than live-confirmed. Drive folder URLs are out of scope; the command takes a wiki node URL.
+- A node URL is absolute by construction. A caller feeds it straight into `ixf docs read`, which needs a scheme and host, so a relative or absent value from the response is resolved against the origin instead of passed through. `wikiOriginAndToken` also now checks the scheme is `http` or `https` rather than merely non-empty, so another scheme fails with a message about the scheme instead of later with a message about something else.
+
 ## 3.28.2 - 2026-09-29
 
 - Fixed the release workflow skipping publication when uploading the workflow-artifact copy failed. Both steps carry the same `dist/*` files, so the copy is a convenience while the release is authoritative, but the copy ran first: a transient `403` finalizing the upload left a tag with no release attached. The release is now published first, so an upload failure can no longer block it.

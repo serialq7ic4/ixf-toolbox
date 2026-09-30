@@ -2539,3 +2539,150 @@ func fileURI(t *testing.T, path string) string {
 	}
 	return (&url.URL{Scheme: "file", Path: absolute}).String()
 }
+
+// The default listing is the directory's direct children, from a single request.
+//
+// This pins the CLI's own default rather than the library's: `docs tree` decides
+// whether to recurse, and a walk costs one request per node carrying children. A
+// test that passed Recursive explicitly would still pass if the default flipped
+// back to recursive, which is the regression this guards.
+func TestCLIDocsTreeListsOnlyDirectChildrenByDefault(t *testing.T) {
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+	treeRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/wiki/wikcnRootToken":
+			_, _ = w.Write([]byte(cliWikiSpacePageFixture("7100")))
+		case r.URL.Path == "/space/api/wiki/v2/tree/get_info/":
+			treeRequests++
+			assertHeader(t, r, "X-CSRFToken", "csrf-fixture")
+			assertCookie(t, r, "session", "session-fixture")
+			switch r.URL.Query().Get("wiki_token") {
+			case "wikcnRootToken":
+				writeTestJSON(t, w, cliWikiTreeFixture("wikcnRootToken", map[string]any{
+					"wikcnDocToken": map[string]any{
+						"title": "Release Plan", "obj_token": "doxcnFixtureToken",
+						"obj_type": 22, "has_child": true,
+					},
+				}, []string{"wikcnDocToken"}))
+			case "wikcnDocToken":
+				writeTestJSON(t, w, cliWikiTreeFixture("wikcnDocToken", map[string]any{
+					"wikcnGrandchildToken": map[string]any{
+						"title": "Rollback", "obj_token": "doxcnGrandchildToken",
+						"obj_type": 22, "has_child": false,
+					},
+				}, []string{"wikcnGrandchildToken"}))
+			default:
+				http.NotFound(w, r)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "tree", server.URL+"/wiki/wikcnRootToken",
+		"--space-api", server.URL, "--cookies", cookiesPath, "--json",
+	)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["count"] != float64(1) {
+		t.Fatalf("count = %v, want only the direct child: %s", payload["count"], stdout)
+	}
+	if treeRequests != 1 {
+		t.Fatalf("treeRequests = %d, want 1; the default must not walk descendants", treeRequests)
+	}
+	nodes := payload["nodes"].([]any)
+	first := nodes[0].(map[string]any)
+	if first["wikiToken"] != "wikcnDocToken" || first["depth"] != float64(1) {
+		t.Fatalf("node = %+v, want the depth-1 child", first)
+	}
+	if strings.Contains(stdout, "wikcnGrandchildToken") {
+		t.Fatalf("default listing reached a grandchild: %s", stdout)
+	}
+}
+
+// --max-depth is the opt-in for a deeper walk, and it costs a request per parent.
+func TestCLIDocsTreeMaxDepthOptsIntoADeeperWalk(t *testing.T) {
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+	treeRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/wiki/wikcnRootToken":
+			_, _ = w.Write([]byte(cliWikiSpacePageFixture("7100")))
+		case r.URL.Path == "/space/api/wiki/v2/tree/get_info/":
+			treeRequests++
+			switch r.URL.Query().Get("wiki_token") {
+			case "wikcnRootToken":
+				writeTestJSON(t, w, cliWikiTreeFixture("wikcnRootToken", map[string]any{
+					"wikcnDocToken": map[string]any{
+						"title": "Release Plan", "obj_token": "doxcnFixtureToken",
+						"obj_type": 22, "has_child": true,
+					},
+				}, []string{"wikcnDocToken"}))
+			case "wikcnDocToken":
+				writeTestJSON(t, w, cliWikiTreeFixture("wikcnDocToken", map[string]any{
+					"wikcnSheetToken": map[string]any{
+						"title": "Capacity", "obj_token": "shtcnFixtureToken",
+						"obj_type": 3, "has_child": false,
+					},
+				}, []string{"wikcnSheetToken"}))
+			default:
+				http.NotFound(w, r)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "tree", server.URL+"/wiki/wikcnRootToken",
+		"--max-depth", "2",
+		"--space-api", server.URL, "--cookies", cookiesPath, "--json",
+	)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	payload := decodeCLIJSON(t, stdout)
+	if payload["count"] != float64(2) {
+		t.Fatalf("count = %v, want the child and the grandchild: %s", payload["count"], stdout)
+	}
+	if treeRequests != 2 {
+		t.Fatalf("treeRequests = %d, want one per parent node", treeRequests)
+	}
+	// A native sheet is listed but cannot be read, so the listing must say so.
+	nodes := payload["nodes"].([]any)
+	second := nodes[1].(map[string]any)
+	if second["kind"] != "sheet" || second["readable"] != false {
+		t.Fatalf("grandchild = %+v, want an unreadable sheet", second)
+	}
+}
+
+func cliWikiSpacePageFixture(spaceID string) string {
+	return `<html><script>
+		window.current_space_wiki = Object();
+		window.current_space_wiki = Object({"space_id":"` + spaceID + `","name":"Fixture Space"});
+	</script></html>`
+}
+
+func cliWikiTreeFixture(token string, nodes map[string]any, childTokens []string) map[string]any {
+	children := make([]any, 0, len(childTokens))
+	for _, childToken := range childTokens {
+		children = append(children, childToken)
+	}
+	return map[string]any{
+		"code": 0,
+		"data": map[string]any{
+			"tree": map[string]any{
+				"nodes":     nodes,
+				"child_map": map[string]any{token: children},
+			},
+		},
+	}
+}

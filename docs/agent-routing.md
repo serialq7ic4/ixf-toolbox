@@ -68,6 +68,41 @@ advantages are deterministic artifact or manifest output, heading-aware
 outline/chunk processing for large files, and a shared preprocessing pipeline
 for remote document writes.
 
+## Docs Directory Listing Boundary
+
+Requests such as "list every document under this directory", "what is in this
+space", "enumerate the docs in this folder", or "give me the URLs under this
+node" are listing requests, not read requests. Route them to
+`ixf docs tree <wiki-url>`, optionally with `--json` for machine-readable
+output. Do not route them to `ixf docs read`, which reads one document's content
+and cannot enumerate siblings or children, and do not route them to a sheets or
+bitable command, which address cell and record data inside a single object.
+
+`ixf docs tree` accepts a `/wiki/<token>` node URL only. Drive folder URLs
+(`/drive/folder/...`) are out of scope and are rejected; ask the user for the
+wiki node or space URL instead of substituting a read command.
+
+By default the command lists the node's direct children only: one level, one
+HTTP request. `--max-depth N` opts into a deeper walk, where N is the number of
+levels below the node, so `--max-depth 1` is the default. A deeper walk is
+breadth-first, costs one request per node that has children, has no retry or
+rate limiting, and is bounded by an internal 500-node cap. When the cap is hit,
+the text output ends with a line starting `INCOMPLETE` and JSON reports
+`truncated:true`; report that listing as partial rather than complete.
+
+A node's type comes from its object-token prefix: `dox` is a docx document,
+`sht` a native sheet, `box` an uploaded binary file such as an `.xlsx`
+attachment, `bas` a bitable, and `bmn` a mindnote. `ixf docs read` reads docx and
+bitable nodes; every other kind is reported `readable:false` and is marked in the
+text listing. Do not pipe every listed URL into `ixf docs read`. Listing a
+wiki-hosted native sheet does not make it readable, because that would require a
+separate sheet-id lookup this command does not perform. An uploaded `box` file
+is not readable either. A child whose detail the current session cannot see is
+omitted from the listing, so treat the output as what is reachable now, not as a
+guaranteed complete inventory. The default listing covers one level, so it shows
+the kinds present among the direct children rather than every kind in the
+subtree; a bitable nested deeper appears only under `--max-depth`.
+
 ## Docs Publish Boundary
 
 When the user asks to publish or整理内容到 i讯飞文档, create the Markdown source

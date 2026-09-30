@@ -43,18 +43,23 @@ Use `ixf deps install`, not bootstrap, for Mermaid dependencies. Never invoke de
    `ixf cookies export --provider auto`
 3. Read direct sheets links with:
    `ixf sheets read "<source>"`
-4. Read other sources into a temporary output directory and inspect the manifest structure summary when it affects the analysis:
+4. When the user points at a wiki directory instead of one document, or asks
+   which documents live under a node, list it before reading:
+   `ixf docs tree "<wiki-url>" --json`
+5. Read other sources into a temporary output directory and inspect the manifest structure summary when it affects the analysis:
    `ixf docs read "<source>" --out-dir <dir> --print-manifest`
-5. For embedded sheets inside a docx, use:
+6. For embedded sheets inside a docx, use:
    `ixf docs read "<source>" --out-dir <dir> --expand-sheets --print-manifest`
-6. Analyze generated Markdown/TSV artifacts.
-7. Do not commit private artifacts unless the user explicitly asks.
+7. Analyze generated Markdown/TSV artifacts.
+8. Do not commit private artifacts unless the user explicitly asks.
 
 ## Commands
 
 ```bash
 ixf docs inspect "<source>" --json
 ixf docs structure "<doc-or-wiki-url>" --json
+ixf docs tree "<wiki-url>" --json
+ixf docs tree "<wiki-url>" --max-depth 3
 ixf sheets read "<direct-sheets-link>"
 ixf docs read "<source>" --out-dir /tmp/ixf-docs --print-manifest
 ixf docs read "<source>" --out-dir /tmp/ixf-docs --expand-sheets --print-manifest
@@ -62,6 +67,35 @@ ixf docs outline /tmp/ixf-docs/document.md --json
 ixf docs chunk /tmp/ixf-docs/document.md --index 0
 ixf docs cleanup /tmp/ixf-docs
 ```
+
+## Directory Listing Boundary
+
+Use `ixf docs tree` to answer "what documents are under this directory" before
+reading anything. It is read-only and has no `--apply`.
+
+- It accepts a `/wiki/<token>` node URL only. Drive folder URLs
+  (`/drive/folder/...`) are out of scope and are rejected; ask for the wiki node
+  or space URL rather than guessing a document.
+- It lists direct children only by default: one level, one request. Pass
+  `--max-depth N` to walk N levels below the node, so `--max-depth 1` is the
+  default. A deeper walk costs one request per node that has children, with no
+  retry or rate limiting, and stops at an internal 500-node cap.
+- A text listing ending with a line starting `INCOMPLETE`, or JSON with
+  `truncated:true`, means nodes are missing. Report it as a partial listing.
+- A node's kind comes from its object-token prefix: `dox` is a docx document,
+  `sht` a native sheet, `box` an uploaded binary file such as an `.xlsx`
+  attachment, `bas` a bitable, and `bmn` a mindnote.
+- `ixf docs read` reads docx and bitable nodes. A wiki-hosted native sheet and an
+  uploaded file both fail. Do not pipe every listed URL into `ixf docs read`; read
+  the nodes reported `readable:true` and tell the user what was skipped. Reading a
+  wiki-hosted native sheet needs a separate sheet-id lookup that this command does
+  not perform. A mindnote is reported unreadable: a wiki URL cannot reach the
+  mindnote read path, which is reasoned from that path rather than live-confirmed.
+- A child whose detail the current session cannot see is omitted, so the listing
+  is what is reachable now, not a guaranteed complete inventory.
+- Because the default is one level, the kinds you see are the ones among the
+  direct children, not every kind in the subtree. A readable bitable nested
+  deeper appears only when `--max-depth` reaches it.
 
 ## Safety
 

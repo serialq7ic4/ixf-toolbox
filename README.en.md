@@ -133,6 +133,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf docs chunk <file.md> --index <n>` | Print one dynamic Markdown chunk |
 | `ixf docs inspect <source>` | Print a safe routing summary without reading content or printing full tokens |
 | `ixf docs structure <doc-or-wiki-url> --json` | Print safe document structure preflight metadata, including heading paths, section ranges, and complex-block risk |
+| `ixf docs tree <wiki-url> --json` | List the direct children of a wiki node and their URLs, one level only by default, marking which nodes `ixf docs read` cannot read; `--max-depth N` walks N levels below the node |
 | `ixf docs cleanup <out-dir>` | Remove generated read artifacts |
 | `ixf docs publish <file.md>` | Publish Markdown as a new authorized docx document; does not overwrite existing docx files |
 | `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run` | Plan a non-destructive block insertion under a heading |

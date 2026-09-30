@@ -131,6 +131,7 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf docs chunk <file.md> --index <n>` | 输出指定动态分块 |
 | `ixf docs inspect <source>` | 输出安全路由摘要，不读取正文、不打印完整 token |
 | `ixf docs structure <doc-or-wiki-url> --json` | 输出安全文档结构 preflight，包括标题路径、章节范围和复杂块风险 |
+| `ixf docs tree <wiki-url> --json` | 默认只列出 wiki 节点的第一层子节点及其 URL，并标记哪些节点不能被 `ixf docs read` 读取；用 `--max-depth N` 才会往下多走 N 层 |
 | `ixf docs cleanup <out-dir>` | 删除读取流程生成的文件和图片产物 |
 | `ixf docs publish <file.md>` | 将 Markdown 发布为新的授权 docx 文档，不覆盖已有 docx |
 | `ixf docs patch insert <fragment.md> --url <doc-or-wiki-url> --under-heading <heading> --dry-run` | 规划在指定标题下非破坏性插入片段 |

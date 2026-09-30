@@ -272,10 +272,14 @@ var routingTriggers = []string{
 	"i讯飞", "讯飞文档", "LarkShell", "/docx/", "/wiki/", "/base/",
 	"docx", "wiki", "sheets", "bitable", "OKR", "Messenger",
 	"read", "publish", "update", "patch", "append row", "upload image", "attachment",
+	// A listing request names a directory and asks what is under it. It is read-only
+	// but is not a read: `docs read` takes one document and cannot enumerate children,
+	// so without this trigger an agent can conclude the toolbox cannot list a directory.
+	"list", "enumerate", "ixf docs tree",
 }
 
 func TestRoutingSkillTriggersNativePluginDiscovery(t *testing.T) {
-	const frontmatter = "description: Use when a request mentions i讯飞, 讯飞文档, or LarkShell and involves /docx/, /wiki/, /base/, docx, wiki, sheets, bitable, OKR, or Messenger, including read, publish, update, patch, append-row, image upload, attachment upload, or message workflows; do not use for ordinary local Markdown reading or editing."
+	const frontmatter = "description: Use when a request mentions i讯飞, 讯飞文档, or LarkShell and involves /docx/, /wiki/, /base/, docx, wiki, sheets, bitable, OKR, or Messenger, including read, list or enumerate the documents under a directory or space, publish, update, patch, append-row, image upload, attachment upload, or message workflows; do not use for ordinary local Markdown reading or editing."
 	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
 		path := filepath.ToSlash(filepath.Join(skillRoot, "using-ixf-toolbox", "SKILL.md"))
 		content := readRepoFile(t, path)

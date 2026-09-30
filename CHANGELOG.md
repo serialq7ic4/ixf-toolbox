@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.29.1 - 2026-09-30
+
+- Fixed the routing skill never naming a listing intent, which let an agent conclude the toolbox cannot enumerate a directory. `ixf docs tree` shipped in 3.29.0 with routing guidance in `docs/agent-routing.md` and `skills/ixf-docs-reader/SKILL.md`, but neither is loaded when an agent decides whether this toolbox applies at all: the `using-ixf-toolbox` frontmatter and its high-signal intents listed only read, publish, update, patch, append row, upload image, and attachment. Asked to list the documents under a directory, an agent saw only read intents and answered that only a specific link can be read — which had been true before 3.29.0.
+- Listing is now its own intent rather than a kind of read. The frontmatter, the high-signal intents, the `ixf-docs-reader` routing bullet, and the decision rules all name it, and the rule for classifying intent says a request naming a directory and asking what is under it is a listing request answered with `ixf docs tree`, not `ixf docs read`. The preceding rule defaults ambiguous intent to read-only, which would otherwise pull a listing request toward the wrong command.
+- The contract test that pins the routing frontmatter now also requires the triggers `list`, `enumerate`, and `ixf docs tree`, so a future edit cannot quietly drop the listing intent while the test still passes.
+
 ## 3.29.0 - 2026-09-30
 
 - Added `ixf docs tree <wiki-url>`, which lists the documents directly under a wiki node with their URLs, so a caller can enumerate a directory instead of already knowing each document's link. `--max-depth N` opts into walking N levels below the node. The default is the direct children from a single request: a deeper walk costs one request per node carrying children, and that count cannot be predicted from the URL alone, so depth is opted into rather than paid for by default. A walk is bounded by an internal 500-node cap and reports the listing as `INCOMPLETE` when it stops there, rather than returning a partial tree that looks whole.

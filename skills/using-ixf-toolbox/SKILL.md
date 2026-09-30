@@ -1,13 +1,13 @@
 ---
 name: using-ixf-toolbox
-description: Use when a request mentions i讯飞, 讯飞文档, or LarkShell and involves /docx/, /wiki/, /base/, docx, wiki, sheets, bitable, OKR, or Messenger, including read, publish, update, patch, append-row, image upload, attachment upload, or message workflows; do not use for ordinary local Markdown reading or editing.
+description: Use when a request mentions i讯飞, 讯飞文档, or LarkShell and involves /docx/, /wiki/, /base/, docx, wiki, sheets, bitable, OKR, or Messenger, including read, list or enumerate the documents under a directory or space, publish, update, patch, append-row, image upload, attachment upload, or message workflows; do not use for ordinary local Markdown reading or editing.
 ---
 
 # Using ixf Toolbox
 
 Use this as a lightweight routing skill for ixf Toolbox workflows. Users do not need to name this skill or any domain skill explicitly. Use background routing for natural user requests, then hand off to the correct domain skill or direct sheets CLI workflow.
 
-High-signal intents include read, publish, update, patch, append row, upload image, and attachment workflows for i讯飞 resources.
+High-signal intents include read, list the documents under a directory, publish, update, patch, append row, upload image, and attachment workflows for i讯飞 resources.
 
 ## Runtime Boundary
 
@@ -34,6 +34,7 @@ Use `ixf deps install`, not bootstrap, for Mermaid dependencies. Never invoke de
 - Use `docs/agent-routing.md`, `AGENTS.md`, and current `skills/*/SKILL.md` files as authoritative current guidance.
 - Do not route from historical implementation notes, old changelog entries, or `docs/superpowers/` plans.
 - Use `ixf-docs-reader` for authorized document, wiki, docx, cloud-doc, embedded sheet, mindnote, image artifact, and direct sheets link reads through `ixf sheets read`.
+- For a request to list, enumerate, or collect the URLs of the documents under a wiki directory, node, or space, route to `ixf docs tree <wiki-url>` through `ixf-docs-reader`. This is a listing intent, not a read intent: `ixf docs read` takes one document and cannot enumerate children, so do not answer such a request by saying only a specific link can be read.
 - Ordinary local Markdown files do not require ixf Toolbox. For local `.md` inspection, summary, review, or edits, use the host filesystem. Use `ixf` for local Markdown only when the user explicitly needs chunking, artifact generation, publish, update, or patch workflows.
 - Use `ixf-docs-writer` for approved Markdown publishing as a new docx document, localized insert under heading workflows, bounded one-section replace/delete workflows, or existing-docx update; existing-docx update can mean whole-body replacement through `ixf docs update`.
 - For localized document insertion or append-under-heading requests, route to `ixf docs patch insert` through `ixf-docs-writer`; do not route these to `ixf docs update`.
@@ -50,7 +51,7 @@ Use `ixf deps install`, not bootstrap, for Mermaid dependencies. Never invoke de
 ## Decision Rules
 
 1. Classify the request as docs, sheets, bitable, OKR, or messenger.
-2. Classify the intent as read or write.
+2. Classify the intent as list, read, or write. Listing is its own intent: a request naming a directory, node, or space and asking what is under it, or asking for the URLs of its documents, is a listing request even though it is read-only. Answer it with `ixf docs tree`, not `ixf docs read`.
 3. Default ambiguous intent to read-only. Default to read-only when uncertain.
 4. For writes, confirm the exact target and content, then follow the relevant writer skill or sheet CLI dry-run-first workflow.
 5. For direct sheets link reads, prefer `ixf sheets read`; for embedded sheet reads inside docx, use `ixf docs read --expand-sheets`.

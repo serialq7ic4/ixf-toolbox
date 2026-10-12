@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -835,5 +836,142 @@ func TestReadOptionsRejectsDownloadImagesWithoutOutputRoot(t *testing.T) {
 	})
 	if err == nil || err.Error() != "download_images requires output_root" {
 		t.Fatalf("error = %v, want output_root requirement", err)
+	}
+}
+
+// A TSV body keeps every delimiter, so a row stays as wide as its header.
+//
+// This is what the pre-existing fixture cannot show: its only empty cell sits
+// mid-row, where a following tab protects it. The damage needs a trailing empty
+// cell, and an all-empty record, neither of which that fixture has.
+//
+// The rendered body used to pass through normalizeLines, a Markdown normalizer.
+// Right-trimming deleted trailing tabs, which are columns. Blank-run collapsing
+// was worse: a record whose every cell is empty renders as tabs alone, trims to
+// "", and was then treated as a blank line, so consecutive empty records merged
+// into one and trailing ones vanished -- while the meta line kept reporting the
+// original row count.
+func TestReadSourcesWithOptionsKeepsEmptyTrailingBitableCells(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/space/api/v1/bitable/bas_ragged/clientvars" {
+			http.NotFound(w, r)
+			return
+		}
+		writeJSONResponse(t, w, map[string]any{
+			"code": 0,
+			"data": raggedBitableFixtureData(t),
+		})
+	}))
+	defer server.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	results, err := ReadSourcesWithOptions([]string{server.URL + "/base/bas_ragged"}, ReadOptions{
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	})
+	if err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+	content := results[0].Content
+
+	// rows=4 is computed before rendering, so every one of the four must be present
+	// as its own line or the document contradicts its own meta field.
+	if !strings.Contains(content, "rows=4 cols=3") {
+		t.Fatalf("content lost its meta line:\n%s", content)
+	}
+	body, ok := tsvBodyRows(content)
+	if !ok {
+		t.Fatalf("content has no tsv fence:\n%s", content)
+	}
+	if len(body) != 5 {
+		t.Fatalf("tsv body has %d lines, want a header and 4 records:\n%q", len(body), body)
+	}
+	for index, row := range body {
+		if got := strings.Count(row, "\t"); got != 2 {
+			t.Fatalf("row %d = %q has %d tabs, want 2 so it stays as wide as the header",
+				index, row, got)
+		}
+	}
+	if body[2] != "\t\t" {
+		t.Fatalf("all-empty record = %q, want a row of delimiters alone", body[2])
+	}
+	if body[3] != "\t\t" {
+		t.Fatalf("second all-empty record = %q, want it kept rather than collapsed into the first", body[3])
+	}
+	if body[4] != "Trailing gone\t\t" {
+		t.Fatalf("trailing-empty record = %q, want its empty columns kept", body[4])
+	}
+}
+
+// tsvBodyRows returns the lines inside the first ```tsv fence.
+func tsvBodyRows(content string) ([]string, bool) {
+	_, after, found := strings.Cut(content, "```tsv\n")
+	if !found {
+		return nil, false
+	}
+	body, _, found := strings.Cut(after, "\n```")
+	if !found {
+		return nil, false
+	}
+	return strings.Split(body, "\n"), true
+}
+
+// raggedBitableFixtureData has what the main fixture lacks: a record with empty
+// trailing cells, and two adjacent records that are empty across every column.
+func raggedBitableFixtureData(t *testing.T) map[string]any {
+	t.Helper()
+	emptyRecord := map[string]any{
+		"fld_title":  map[string]any{"value": ""},
+		"fld_owner":  map[string]any{"value": []any{}},
+		"fld_module": map[string]any{"value": ""},
+	}
+	schema := map[string]any{
+		"base": map[string]any{
+			"name":       "Ragged",
+			"timezone":   "Asia/Shanghai",
+			"tables":     []any{"tbl_main"},
+			"tableInfos": map[string]any{"tbl_main": map[string]any{"name": "Rows"}},
+		},
+		"data": map[string]any{
+			"table": map[string]any{
+				"id":    "tbl_main",
+				"views": []any{"vew_grid"},
+				"viewMap": map[string]any{
+					"vew_grid": map[string]any{
+						"id":   "vew_grid",
+						"name": "Grid",
+						"type": float64(1),
+						"property": map[string]any{
+							"fields":  []any{"fld_title", "fld_owner", "fld_module"},
+							"records": []any{"rec_full", "rec_blank_1", "rec_blank_2", "rec_trailing"},
+						},
+					},
+				},
+				"fieldMap": map[string]any{
+					"fld_title":  map[string]any{"id": "fld_title", "name": "Title", "type": float64(1)},
+					"fld_owner":  map[string]any{"id": "fld_owner", "name": "Owner", "type": float64(11)},
+					"fld_module": map[string]any{"id": "fld_module", "name": "Module", "type": float64(1)},
+				},
+			},
+			"recordMap": map[string]any{
+				"rec_full": map[string]any{
+					"fld_title":  map[string]any{"value": "Complete"},
+					"fld_owner":  map[string]any{"value": []any{"usr_1"}},
+					"fld_module": map[string]any{"value": "Core"},
+				},
+				"rec_blank_1": emptyRecord,
+				"rec_blank_2": emptyRecord,
+				"rec_trailing": map[string]any{
+					"fld_title":  map[string]any{"value": "Trailing gone"},
+					"fld_owner":  map[string]any{"value": []any{}},
+					"fld_module": map[string]any{"value": ""},
+				},
+			},
+		},
+	}
+	return map[string]any{
+		"users":     map[string]any{"usr_1": map[string]any{"name": "Mei"}},
+		"oldSchema": map[string]any{"gzipSchema": gzipJSON(t, schema)},
 	}
 }

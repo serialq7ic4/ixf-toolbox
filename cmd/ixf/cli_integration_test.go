@@ -1091,14 +1091,15 @@ func TestCLIDocsReadDirectBitableBaseURL(t *testing.T) {
 	if entry["file"] != markdownPath {
 		t.Fatalf("manifest file = %v, want %q", entry["file"], markdownPath)
 	}
-	// This fixture's last column (Screenshot) is empty on every row, and the shared
-	// bitable content path trims trailing whitespace per line, so the rendered rows
-	// stop after the Module column. The exact-content contract for a row whose last
-	// column is populated is pinned in internal/docslocal TestReadSourcesWithOptionsReadsDirectBitableBaseLinks.
+	// This fixture's last column (Screenshot) is empty on every row, so it is the
+	// case that distinguishes a rectangular body from a trimmed one: each row ends
+	// with the delimiter for that empty column, keeping it as wide as the header.
+	// Rows used to stop after Module, because the body was passed through a Markdown
+	// normalizer that right-trimmed the trailing tab away.
 	assertFileText(t, markdownPath, "# Bug Tracker\n\n[bitable token=bas_fixture]\n"+
 		"[bitable-meta base_token=bas_fixture table_id=tbl_main table_name=\"Issues\" "+
 		"view_id=vew_grid view_name=\"Grid\" rows=2 cols=3 views=1]\n"+
-		"```tsv\nTitle\tModule\tScreenshot\nImage bug\tCollab\nResume failed\tCollab\n```\n")
+		"```tsv\nTitle\tModule\tScreenshot\nImage bug\tCollab\t\nResume failed\tCollab\t\n```\n")
 }
 
 func TestCLISheetsReadDirectSheet(t *testing.T) {

@@ -654,6 +654,173 @@ func TestInspectHTTPFetchesDocxEmbeddedBitableClientVars(t *testing.T) {
 	}
 }
 
+func TestCommandsRefuseTableNotDescribedByFetchedMetadata(t *testing.T) {
+	file := writeFixtureFile(t, "ceph_logo.jpeg", []byte{0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00})
+	input := writeFixtureJSON(t, "record.json", map[string]any{"Title": "New issue"})
+
+	testCases := []struct {
+		name        string
+		url         string
+		clientVars  func(*testing.T) map[string]any
+		wantRefused bool
+		wantInError []string
+	}{
+		{
+			name:       "table matching fetched metadata is accepted",
+			url:        "https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid",
+			clientVars: bitableClientVarsFixture,
+		},
+		{
+			name:       "no table parameter uses the metadata table",
+			url:        "https://tenant.example/base/bas_fixture?view=vew_grid",
+			clientVars: bitableClientVarsFixture,
+		},
+		{
+			name:        "table absent from the base is refused",
+			url:         "https://tenant.example/base/bas_fixture?table=tbl_ghost&view=vew_grid",
+			clientVars:  bitableClientVarsFixture,
+			wantRefused: true,
+			wantInError: []string{"tbl_ghost", "tbl_main", "table mismatch"},
+		},
+		{
+			name:        "second table in the base is refused because it is not described",
+			url:         "https://tenant.example/base/bas_fixture?table=tbl_archive&view=vew_grid",
+			clientVars:  bitableClientVarsFixtureWithSecondTable,
+			wantRefused: true,
+			wantInError: []string{"tbl_archive", "tbl_main", "exists in this base"},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Every command shares one prologue; assert all three, and assert
+			// the dry-run paths refuse rather than reporting a clean plan.
+			commands := map[string]func() (map[string]any, error){
+				"inspect": func() (map[string]any, error) {
+					return Inspect(InspectConfig{URL: testCase.url, ClientVars: testCase.clientVars(t)})
+				},
+				"attach dry-run": func() (map[string]any, error) {
+					return Attach(AttachConfig{
+						URL:         testCase.url,
+						Field:       "Screenshot",
+						RecordMatch: "Title=Image bug",
+						FilePath:    file,
+						DryRun:      true,
+						ClientVars:  testCase.clientVars(t),
+					})
+				},
+				"record create dry-run": func() (map[string]any, error) {
+					return RecordCreate(RecordCreateConfig{
+						URL:        testCase.url,
+						InputPath:  input,
+						DryRun:     true,
+						ClientVars: testCase.clientVars(t),
+					})
+				},
+			}
+			for label, run := range commands {
+				payload, err := run()
+				if !testCase.wantRefused {
+					if err != nil {
+						t.Fatalf("%s returned error: %v", label, err)
+					}
+					if payload["ok"] != true {
+						t.Fatalf("%s payload = %+v, want ok", label, payload)
+					}
+					target := payload["target"].(map[string]any)
+					if target["tableId"] != "tbl_main" {
+						t.Fatalf("%s target = %+v, want tableId tbl_main", label, target)
+					}
+					continue
+				}
+				if err == nil {
+					t.Fatalf("%s accepted a mismatched table and returned %+v", label, payload)
+				}
+				for _, want := range testCase.wantInError {
+					if !strings.Contains(err.Error(), want) {
+						t.Fatalf("%s error = %q, want it to mention %q", label, err.Error(), want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestRecordCreateApplyRefusesMismatchedTableBeforeAnyRequest(t *testing.T) {
+	input := writeFixtureJSON(t, "record.json", map[string]any{"Title": "New issue"})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("apply issued a request to %s despite a mismatched table", r.URL.Path)
+	}))
+	defer server.Close()
+
+	_, err := RecordCreate(RecordCreateConfig{
+		URL:         server.URL + "/base/bas_fixture?table=tbl_ghost&view=vew_grid",
+		InputPath:   input,
+		Apply:       true,
+		CookiesPath: writeCookieFixture(t),
+		SpaceAPI:    server.URL,
+		ClientVars:  bitableClientVarsFixture(t),
+	})
+	if err == nil || !strings.Contains(err.Error(), "tbl_ghost") {
+		t.Fatalf("RecordCreate apply error = %v, want refusal naming tbl_ghost", err)
+	}
+}
+
+func TestInspectHTTPKeepsDocxDiscoveredTableThatMetadataDoesNotDescribe(t *testing.T) {
+	// An embedded docx bitable populates Source.TableID from block discovery,
+	// not from a user query string. The clientvars default table can legitimately
+	// differ, so the mismatch guard must not fire here.
+	cookiesPath := writeCookieFixture(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/docx/pages/client_vars":
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{
+				"block_map": map[string]any{
+					"dox_fixture": map[string]any{
+						"data": map[string]any{"type": "page", "children": []any{"blk_bitable"}},
+					},
+					"blk_bitable": map[string]any{
+						"data": map[string]any{
+							"type":       "bitable",
+							"base_token": "bas_fixture",
+							"table_id":   "tbl_embedded",
+							"view_id":    "vew_embedded",
+						},
+					},
+				},
+			}})
+		case "/space/api/v1/bitable/bas_fixture/clientvars":
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": bitableClientVarsFixture(t)})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	payload, err := Inspect(InspectConfig{
+		URL:         server.URL + "/docx/dox_fixture",
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	})
+	if err != nil {
+		t.Fatalf("Inspect returned error: %v", err)
+	}
+	if payload["ok"] != true || payload["sourceKind"] != "docx_embedded_bitable" {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func bitableClientVarsFixtureWithSecondTable(t *testing.T) map[string]any {
+	t.Helper()
+	data := bitableClientVarsFixture(t)
+	schema := decodeFixtureSchema(t, data)
+	base := schema["base"].(map[string]any)
+	base["tables"] = []any{"tbl_main", "tbl_archive"}
+	base["tableInfos"].(map[string]any)["tbl_archive"] = map[string]any{"name": "Archive"}
+	data["oldSchema"].(map[string]any)["gzipSchema"] = gzipBase64JSON(t, schema)
+	return data
+}
+
 func bitableClientVarsFixture(t *testing.T) map[string]any {
 	t.Helper()
 	schema := map[string]any{

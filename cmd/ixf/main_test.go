@@ -163,6 +163,16 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 			expected: []string{"usage: ixf bitable inspect", "--url", "--cookies", "--space-api", "--json", "Read-only"},
 		},
 		{
+			// read used to delegate to inspect, so this help named a command the
+			// caller never typed. Metadata-only is the scope, and the dispatcher row
+			// was the only place that said so.
+			args: []string{"bitable", "read", "--help"},
+			expected: []string{
+				"usage: ixf bitable read", "--url", "--cookies", "--space-api", "--json",
+				"metadata only", "does not report cell values",
+			},
+		},
+		{
 			args:     []string{"bitable", "attach", "--help"},
 			expected: []string{"usage: ixf bitable attach", "--url", "--field", "--record-match", "--record-id", "--file", "--dry-run", "--apply", "Upload and bind the attachment", "--json", "preserved"},
 		},
@@ -233,6 +243,48 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 				t.Fatalf("run(%v) stdout missing %q:\n%s", test.args, expected, stdout.String())
 			}
 		}
+	}
+}
+
+// TestBitableReadHelpAndErrorsAttributeToRead pins the attribution rather than
+// the wording. `read` delegated to `inspect`, which owned the help writer and
+// the FlagSet name, so both the usage line and any flag parse error named
+// `inspect` to a caller who had typed `read`.
+func TestBitableReadHelpAndErrorsAttributeToRead(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if code := run([]string{"bitable", "read", "--help"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("bitable read --help exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	usage := strings.SplitN(stdout.String(), "\n", 2)[0]
+	if usage != "usage: ixf bitable read --url URL [--json]" {
+		t.Fatalf("bitable read --help first line = %q, want the read usage line", usage)
+	}
+	if strings.Contains(usage, "inspect") {
+		t.Fatalf("bitable read --help usage line names inspect: %q", usage)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"bitable", "inspect", "--help"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("bitable inspect --help exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	if usage := strings.SplitN(stdout.String(), "\n", 2)[0]; !strings.Contains(usage, "ixf bitable inspect") {
+		t.Fatalf("bitable inspect --help first line = %q, want it to keep naming inspect", usage)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run([]string{"bitable", "read", "--url", "https://example.invalid/base/x", "--nope"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("bitable read --nope exit code = %d, want 2; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ixf bitable read") {
+		t.Fatalf("bitable read parse error does not attribute to read:\n%s", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "ixf bitable inspect") {
+		t.Fatalf("bitable read parse error attributes to inspect:\n%s", stderr.String())
 	}
 }
 
@@ -1489,4 +1541,57 @@ func mustReadFile(t *testing.T, path string) []byte {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return content
+}
+
+// The reported operation names the subcommand the caller typed.
+//
+// read and inspect are one operation, so this is not a behaviour difference. It is
+// the same attribution the help text and flag-set name already carry: a caller who
+// typed read should not be told about inspect. The repo's convention supports it --
+// docs patch replace-section and delete-section share one payload builder and still
+// report distinct operations, selected by which handler was entered.
+//
+// The field is printed in both modes, so this covers text output too: a caller
+// without --json sees the operation line from formatBitableSummary.
+func TestBitableMetadataOperationNamesTheInvokedVerb(t *testing.T) {
+	original := bitableInspect
+	defer func() { bitableInspect = original }()
+	var gotVerb string
+	bitableInspect = func(config ixfbitable.InspectConfig) (map[string]any, error) {
+		gotVerb = config.Verb
+		return map[string]any{
+			"ok":        true,
+			"operation": "bitable_" + config.Verb,
+		}, nil
+	}
+
+	for _, verb := range []string{"read", "inspect"} {
+		t.Run(verb, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := runBitableMetadata(verb, []string{"--url", "https://host.example.test/base/bas_fixture", "--json"}, &stdout, &stderr); code != 0 {
+				t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+			}
+			if gotVerb != verb {
+				t.Fatalf("Verb passed to Inspect = %q, want %q", gotVerb, verb)
+			}
+			if want := "\"operation\":\"bitable_" + verb + "\""; !strings.Contains(stdout.String(), want) {
+				t.Fatalf("stdout = %s, want it to contain %s", stdout.String(), want)
+			}
+		})
+	}
+}
+
+// An unset Verb keeps the original operation name, so a library caller that does
+// not care is unaffected.
+func TestBitableInspectConfigWithoutVerbReportsInspect(t *testing.T) {
+	payload, err := ixfbitable.Inspect(ixfbitable.InspectConfig{
+		URL:        "https://host.example.test/base/bas_fixture",
+		ClientVars: bitableCLIFixtureData(t),
+	})
+	if err != nil {
+		t.Fatalf("Inspect returned error: %v", err)
+	}
+	if payload["operation"] != "bitable_inspect" {
+		t.Fatalf("operation = %v, want bitable_inspect for an unset verb", payload["operation"])
+	}
 }

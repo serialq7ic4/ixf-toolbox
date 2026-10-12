@@ -1031,6 +1031,76 @@ func TestCLIDocsReadManifestCleanupAndOKRGuard(t *testing.T) {
 	}
 }
 
+func TestCLIDocsReadDirectBitableBaseURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	cookiesPath := filepath.Join(tmpDir, "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+
+	var clientVarsRequested bool
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/v1/bitable/bas_fixture/clientvars":
+			clientVarsRequested = true
+			assertHeader(t, r, "X-CSRFToken", "csrf-fixture")
+			assertCookie(t, r, "session", "session-fixture")
+			if got := r.Header.Get("Referer"); got != server.URL+"/base/bas_fixture?table=tbl_main&view=vew_grid" {
+				t.Fatalf("clientvars referer = %q, want direct base URL", got)
+			}
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": bitableCLIFixtureData(t)})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	outDir := filepath.Join(tmpDir, "out")
+	stdout, stderr, code := runCLITest(t,
+		"docs", "read", server.URL+"/base/bas_fixture?table=tbl_main&view=vew_grid",
+		"--space-api", server.URL,
+		"--cookies", cookiesPath,
+		"--out-dir", outDir,
+		"--print-manifest",
+	)
+	if code != 0 {
+		t.Fatalf("docs read direct base exit code = %d, stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	if !clientVarsRequested {
+		t.Fatal("bitable clientvars endpoint was not requested")
+	}
+	if stderr != "" {
+		t.Fatalf("docs read direct base stderr = %q, want empty", stderr)
+	}
+
+	manifest := decodeCLIJSON(t, stdout)
+	entry, ok := manifest["bitable_1"].(map[string]any)
+	if !ok {
+		t.Fatalf("manifest is missing the bitable_1 entry: %+v", manifest)
+	}
+	if entry["kind"] != "bitable" || entry["title"] != "Bug Tracker" || entry["token"] != "bas_fixture" {
+		t.Fatalf("manifest entry = %+v", entry)
+	}
+	assertMapNumbers(t, entry["counts"], map[string]int{
+		"bitable":         1,
+		"bitable_views":   1,
+		"bitable_fields":  3,
+		"bitable_records": 2,
+	})
+
+	markdownPath := filepath.Join(outDir, "bitable-1.md")
+	if entry["file"] != markdownPath {
+		t.Fatalf("manifest file = %v, want %q", entry["file"], markdownPath)
+	}
+	// This fixture's last column (Screenshot) is empty on every row, and the shared
+	// bitable content path trims trailing whitespace per line, so the rendered rows
+	// stop after the Module column. The exact-content contract for a row whose last
+	// column is populated is pinned in internal/docslocal TestReadSourcesWithOptionsReadsDirectBitableBaseLinks.
+	assertFileText(t, markdownPath, "# Bug Tracker\n\n[bitable token=bas_fixture]\n"+
+		"[bitable-meta base_token=bas_fixture table_id=tbl_main table_name=\"Issues\" "+
+		"view_id=vew_grid view_name=\"Grid\" rows=2 cols=3 views=1]\n"+
+		"```tsv\nTitle\tModule\tScreenshot\nImage bug\tCollab\nResume failed\tCollab\n```\n")
+}
+
 func TestCLISheetsReadDirectSheet(t *testing.T) {
 	tmpDir := t.TempDir()
 	cookiesPath := filepath.Join(tmpDir, "cookies.json")

@@ -519,6 +519,205 @@ func TestReadSourcesWithOptionsKeepsMindnoteArtifactsEmptyWhenDownloadingImages(
 	}
 }
 
+func TestRemoteKindFromPathRecognizesDirectBitableLinks(t *testing.T) {
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"/base/bas_fixture", "bitable"},
+		{"/base/bas_fixture/tbl_main", "bitable"},
+		{"/docx/dox_page_1", "docx"},
+		{"/wiki/wiki_1", "wiki"},
+		{"/sheets/shtr_fixture", "sheet"},
+		{"/base/", "remote"},
+	}
+	for _, testCase := range cases {
+		if got := remoteKindFromPath(testCase.path); got != testCase.want {
+			t.Fatalf("remoteKindFromPath(%q) = %q, want %q", testCase.path, got, testCase.want)
+		}
+	}
+	if got := remoteKindFromSource("https://tenant.example.test/base/bas_fixture?table=tbl_main"); got != "bitable" {
+		t.Fatalf("remoteKindFromSource(direct base URL) = %q, want bitable", got)
+	}
+}
+
+func TestReadSourcesWithOptionsReadsDirectBitableBaseLinks(t *testing.T) {
+	var requested []string
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/v1/bitable/bas_fixture/clientvars":
+			requested = append(requested, r.URL.String())
+			if got := r.Header.Get("X-CSRFToken"); got != "csrf-fixture" {
+				t.Fatalf("X-CSRFToken = %q, want csrf-fixture", got)
+			}
+			if got := r.Header.Get("Referer"); got != server.URL+"/base/bas_fixture?table=tbl_main" {
+				t.Fatalf("referer = %q, want direct base URL", got)
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": bitableFixtureData(t)})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	results, err := ReadSourcesWithOptions([]string{server.URL + "/base/bas_fixture?table=tbl_main"}, ReadOptions{
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	})
+	if err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+
+	if len(requested) != 1 {
+		t.Fatalf("bitable clientvars requests = %#v, want exactly one", requested)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results length = %d, want 1", len(results))
+	}
+	result := results[0]
+	if result.Kind != "bitable" || result.Title != "Bug Tracker" || result.Token != "bas_fixture" {
+		t.Fatalf("result metadata = %#v", result)
+	}
+	if result.Content != wantBitableFixtureContent {
+		t.Fatalf("content = %q, want %q", result.Content, wantBitableFixtureContent)
+	}
+	assertResultCounts(t, result.Counts, map[string]int{
+		"bitable":         1,
+		"bitable_views":   1,
+		"bitable_fields":  3,
+		"bitable_records": 2,
+	})
+	if len(result.Assets) != 0 {
+		t.Fatalf("assets = %#v, want empty", result.Assets)
+	}
+	if len(result.Warnings) != 0 {
+		t.Fatalf("warnings = %#v, want empty", result.Warnings)
+	}
+	if result.Structure != nil {
+		t.Fatalf("structure = %#v, want nil for a bitable read", result.Structure)
+	}
+}
+
+func TestReadSourcesWithOptionsStillReadsWikiHostedBitable(t *testing.T) {
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = append(requested, r.URL.Path)
+		switch r.URL.Path {
+		case "/wiki/wiki_1":
+			_, _ = w.Write([]byte(`<html><script>
+				current_space_wiki = Object({"obj_token":"bas_fixture","wiki_token":"wiki_1"});
+				window.wiki_suite_type = 'bitable';
+			</script></html>`))
+		case "/space/api/v1/bitable/bas_fixture/clientvars":
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": bitableFixtureData(t)})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	results, err := ReadSourcesWithOptions([]string{server.URL + "/wiki/wiki_1"}, ReadOptions{
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	})
+	if err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+
+	result := results[0]
+	if result.Kind != "wiki_bitable" || result.Title != "Bug Tracker" || result.Token != "bas_fixture" {
+		t.Fatalf("result metadata = %#v", result)
+	}
+	if result.Content != wantBitableFixtureContent {
+		t.Fatalf("content = %q, want %q", result.Content, wantBitableFixtureContent)
+	}
+	assertResultCounts(t, result.Counts, map[string]int{
+		"bitable":         1,
+		"bitable_views":   1,
+		"bitable_fields":  3,
+		"bitable_records": 2,
+	})
+	want := []string{"/wiki/wiki_1", "/space/api/v1/bitable/bas_fixture/clientvars"}
+	if len(requested) != len(want) {
+		t.Fatalf("requested paths = %#v, want %#v", requested, want)
+	}
+	for index, path := range want {
+		if requested[index] != path {
+			t.Fatalf("requested paths = %#v, want %#v", requested, want)
+		}
+	}
+}
+
+const wantBitableFixtureContent = "# Bug Tracker\n\n[bitable token=bas_fixture]\n" +
+	"[bitable-meta base_token=bas_fixture table_id=tbl_main table_name=\"Issues\" " +
+	"view_id=vew_grid view_name=\"Grid\" rows=2 cols=3 views=1]\n" +
+	"```tsv\nTitle\tOwner\tModule\nImage bug\tMei\tCollab\nResume failed\t\tDocs\n```\n"
+
+func bitableFixtureData(t *testing.T) map[string]any {
+	t.Helper()
+	schema := map[string]any{
+		"base": map[string]any{
+			"name":       "Bug Tracker",
+			"timezone":   "Asia/Shanghai",
+			"tables":     []any{"tbl_main"},
+			"tableInfos": map[string]any{"tbl_main": map[string]any{"name": "Issues"}},
+		},
+		"data": map[string]any{
+			"table": map[string]any{
+				"id":    "tbl_main",
+				"views": []any{"vew_grid"},
+				"viewMap": map[string]any{
+					"vew_grid": map[string]any{
+						"id":   "vew_grid",
+						"name": "Grid",
+						"type": float64(1),
+						"property": map[string]any{
+							"fields":  []any{"fld_title", "fld_owner", "fld_module"},
+							"records": []any{"rec_1", "rec_2"},
+						},
+					},
+				},
+				"fieldMap": map[string]any{
+					"fld_title": map[string]any{"id": "fld_title", "name": "Title", "type": float64(1)},
+					"fld_owner": map[string]any{"id": "fld_owner", "name": "Owner", "type": float64(11)},
+					"fld_module": map[string]any{
+						"id":   "fld_module",
+						"name": "Module",
+						"type": float64(3),
+						"property": map[string]any{
+							"options": []any{
+								map[string]any{"id": "opt_collab", "name": "Collab"},
+								map[string]any{"id": "opt_docs", "name": "Docs"},
+							},
+						},
+					},
+				},
+			},
+			"recordMap": map[string]any{
+				"rec_1": map[string]any{
+					"fld_title":  map[string]any{"value": "Image bug"},
+					"fld_owner":  map[string]any{"value": []any{"usr_1"}},
+					"fld_module": map[string]any{"value": "opt_collab"},
+				},
+				"rec_2": map[string]any{
+					"fld_title":  map[string]any{"value": "Resume failed"},
+					"fld_owner":  map[string]any{"value": []any{}},
+					"fld_module": map[string]any{"value": "opt_docs"},
+				},
+			},
+		},
+	}
+	return map[string]any{
+		"users":     map[string]any{"usr_1": map[string]any{"name": "Mei"}},
+		"oldSchema": map[string]any{"gzipSchema": gzipJSON(t, schema)},
+	}
+}
+
 func writeCookieFixture(t *testing.T, path string) {
 	t.Helper()
 	content, err := json.Marshal([]map[string]string{

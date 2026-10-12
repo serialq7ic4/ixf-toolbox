@@ -26,6 +26,18 @@ func (session *remoteReadSession) readBitableWiki(source string, origin string, 
 	if baseToken == "" {
 		return Result{}, fmt.Errorf("unable to locate bitable base token from wiki HTML")
 	}
+	return session.readBitableBase(source, origin, baseToken, "wiki_bitable")
+}
+
+func (session *remoteReadSession) readDirectBitable(source string, origin string, path string) (Result, error) {
+	baseToken := tokenAfter(path, "/base/")
+	if baseToken == "" {
+		return Result{}, fmt.Errorf("direct bitable URL missing base token")
+	}
+	return session.readBitableBase(source, origin, baseToken, "bitable")
+}
+
+func (session *remoteReadSession) readBitableBase(source string, origin string, baseToken string, kind string) (Result, error) {
 	clientVarsData, err := session.bitableClientVars(origin, baseToken, source)
 	if err != nil {
 		return Result{}, err
@@ -38,7 +50,7 @@ func (session *remoteReadSession) readBitableWiki(source string, origin string, 
 	contentLines = append(contentLines, lines...)
 	return Result{
 		Source:   source,
-		Kind:     "wiki_bitable",
+		Kind:     kind,
 		Title:    title,
 		Token:    baseToken,
 		Content:  strings.Join(normalizeLines(contentLines), "\n") + "\n",

@@ -872,3 +872,62 @@ func repoRoot(t *testing.T) string {
 	}
 	return filepath.Dir(file)
 }
+
+// The bitable clientvars query string exists in two packages and must stay identical.
+//
+// internal/docslocal reads a bitable as one of several media types behind
+// `ixf docs read`; internal/bitable operates on it as a record store. Each owns its
+// own session, which is this repo's pattern, but both build the same clientvars
+// query -- and the copy was literal: the 2026-08-14 bitable plan records the helpers
+// as "copied into internal/bitable", and the query string reached docslocal first.
+//
+// This is pinned because the drift already happened once. The write-safety guard that
+// reconciles ?table= with the fetched metadata landed in internal/bitable alone,
+// leaving the identical hardcoded tableID= in docslocal unguarded, where it selects
+// the described table positionally instead. docslocal's bitable fetch has no test of
+// its own, so nothing else would notice a one-sided edit.
+//
+// The query is asserted rather than merged because the two call sites resolve their
+// host differently and provably reach different hosts: internal/bitable defaults its
+// spaceAPI to the URL's own origin, while docslocal's falls back to DefaultSpaceAPI,
+// an internal hostname that is not any tenant origin. Both work in production, so
+// which host serves this path is an empirical fact about the server, not something
+// derivable from the code. Settling it needs a live probe; keeping the two in step
+// does not.
+func TestBitableClientVarsQueryStaysIdenticalAcrossPackages(t *testing.T) {
+	// The fragments are matched as they appear in source, where both copies build the
+	// query from three concatenated literals rather than one string.
+	fragments := []string{
+		`"?tableID=&viewID=&recordLimit=2000&ondemandLimit=200" +`,
+		`"&needBase=true&viewLazyLoad=true&ondemandVer=2" +`,
+		`"&openType=0&noMissCS=true&optimizationFlag=1"`,
+	}
+
+	for _, relative := range []string{
+		"internal/docslocal/bitable.go",
+		"internal/bitable/bitable.go",
+	} {
+		source := readRepoFile(t, relative)
+		for _, fragment := range fragments {
+			if !strings.Contains(source, fragment) {
+				t.Fatalf("%s no longer builds the shared bitable clientvars query.\n"+
+					"If this was deliberate, make the same change in the other copy and update this test.\n"+
+					"missing fragment: %s", relative, fragment)
+			}
+		}
+	}
+
+	// The empty tableID is called out separately because it is the fragment with a
+	// known defect behind it: it pins the fetch to the table the server picks, which
+	// is what made a ?table= request validate against one table and write to another.
+	// A future change to scope the fetch has to touch both copies, and this is the
+	// assertion that fails if only one is changed.
+	for _, relative := range []string{
+		"internal/docslocal/bitable.go",
+		"internal/bitable/bitable.go",
+	} {
+		if !strings.Contains(readRepoFile(t, relative), "?tableID=&viewID=") {
+			t.Fatalf("%s changed the unscoped tableID parameter; the other copy needs the same change", relative)
+		}
+	}
+}

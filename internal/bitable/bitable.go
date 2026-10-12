@@ -91,6 +91,10 @@ type InspectConfig struct {
 	CookiesPath string
 	SpaceAPI    string
 	ClientVars  map[string]any
+	// Verb is the subcommand the caller typed, "inspect" or "read". It selects the
+	// reported operation name and nothing else, since the two are one operation.
+	// Empty means "inspect", so a caller that does not care keeps the old value.
+	Verb string
 }
 
 type AttachConfig struct {
@@ -167,7 +171,7 @@ func Inspect(config InspectConfig) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return inspectPayload(source, meta), nil
+	return inspectPayload(source, meta, config.Verb), nil
 }
 
 func Attach(config AttachConfig) (map[string]any, error) {
@@ -784,7 +788,15 @@ func ParseClientVars(data map[string]any, baseToken string) (Metadata, error) {
 	return meta, nil
 }
 
-func inspectPayload(source Source, meta Metadata) map[string]any {
+// inspectPayload reports the metadata, naming the verb the caller typed.
+//
+// verb is "inspect", "read", or empty for "inspect". The repo's convention is that
+// operation tracks the invoked subcommand even where two subcommands share one
+// implementation: docs patch replace-section and delete-section run through a single
+// builder and still report docs_patch_replace_section and docs_patch_delete_section,
+// selected by which handler was entered. Reporting bitable_inspect for a caller who
+// typed read would be the one place a command names something else.
+func inspectPayload(source Source, meta Metadata, verb string) map[string]any {
 	fields := make([]map[string]any, 0, len(meta.Fields))
 	for _, field := range meta.Fields {
 		fields = append(fields, map[string]any{
@@ -805,7 +817,7 @@ func inspectPayload(source Source, meta Metadata) map[string]any {
 	}
 	return map[string]any{
 		"ok":            true,
-		"operation":     "bitable_inspect",
+		"operation":     bitableMetadataOperation(verb),
 		"sourceKind":    source.Kind,
 		"target":        map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": firstTableID(meta), "viewId": firstViewID(meta)},
 		"title":         meta.Title,
@@ -2199,4 +2211,15 @@ func containsString(values []string, expected string) bool {
 		}
 	}
 	return false
+}
+
+// bitableMetadataOperation names the operation for the verb the caller typed.
+//
+// Anything other than "read" reports bitable_inspect, so an empty verb and any
+// future caller that does not set one keep the original value.
+func bitableMetadataOperation(verb string) string {
+	if strings.TrimSpace(verb) == "read" {
+		return "bitable_read"
+	}
+	return "bitable_inspect"
 }

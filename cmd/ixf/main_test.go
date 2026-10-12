@@ -1542,3 +1542,56 @@ func mustReadFile(t *testing.T, path string) []byte {
 	}
 	return content
 }
+
+// The reported operation names the subcommand the caller typed.
+//
+// read and inspect are one operation, so this is not a behaviour difference. It is
+// the same attribution the help text and flag-set name already carry: a caller who
+// typed read should not be told about inspect. The repo's convention supports it --
+// docs patch replace-section and delete-section share one payload builder and still
+// report distinct operations, selected by which handler was entered.
+//
+// The field is printed in both modes, so this covers text output too: a caller
+// without --json sees the operation line from formatBitableSummary.
+func TestBitableMetadataOperationNamesTheInvokedVerb(t *testing.T) {
+	original := bitableInspect
+	defer func() { bitableInspect = original }()
+	var gotVerb string
+	bitableInspect = func(config ixfbitable.InspectConfig) (map[string]any, error) {
+		gotVerb = config.Verb
+		return map[string]any{
+			"ok":        true,
+			"operation": "bitable_" + config.Verb,
+		}, nil
+	}
+
+	for _, verb := range []string{"read", "inspect"} {
+		t.Run(verb, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := runBitableMetadata(verb, []string{"--url", "https://host.example.test/base/bas_fixture", "--json"}, &stdout, &stderr); code != 0 {
+				t.Fatalf("code = %d, stderr = %q", code, stderr.String())
+			}
+			if gotVerb != verb {
+				t.Fatalf("Verb passed to Inspect = %q, want %q", gotVerb, verb)
+			}
+			if want := "\"operation\":\"bitable_" + verb + "\""; !strings.Contains(stdout.String(), want) {
+				t.Fatalf("stdout = %s, want it to contain %s", stdout.String(), want)
+			}
+		})
+	}
+}
+
+// An unset Verb keeps the original operation name, so a library caller that does
+// not care is unaffected.
+func TestBitableInspectConfigWithoutVerbReportsInspect(t *testing.T) {
+	payload, err := ixfbitable.Inspect(ixfbitable.InspectConfig{
+		URL:        "https://host.example.test/base/bas_fixture",
+		ClientVars: bitableCLIFixtureData(t),
+	})
+	if err != nil {
+		t.Fatalf("Inspect returned error: %v", err)
+	}
+	if payload["operation"] != "bitable_inspect" {
+		t.Fatalf("operation = %v, want bitable_inspect for an unset verb", payload["operation"])
+	}
+}

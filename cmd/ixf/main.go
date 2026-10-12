@@ -710,6 +710,7 @@ func runBitableMetadata(verb string, args []string, stdout io.Writer, stderr io.
 		URL:         *targetURL,
 		CookiesPath: *cookiesPath,
 		SpaceAPI:    *spaceAPI,
+		Verb:        verb,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)

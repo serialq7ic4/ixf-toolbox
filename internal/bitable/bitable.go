@@ -66,6 +66,10 @@ type Metadata struct {
 	Views     []View
 	Fields    []Field
 	Records   []Record
+	// describedTableID is the table whose views, fields, and records this
+	// payload actually carries. Tables lists every table in the base, but the
+	// clientvars request is not table-scoped, so only one table is described.
+	describedTableID string
 }
 
 type bitableUploadedFile struct {
@@ -84,6 +88,10 @@ type Source struct {
 	HostToken string
 	TableID   string
 	ViewID    string
+	// tableIDFromQuery records that TableID was requested by the caller through
+	// the URL query string, rather than discovered from an embedding document.
+	// Only a caller-requested table can contradict the fetched metadata.
+	tableIDFromQuery bool
 }
 
 type InspectConfig struct {
@@ -131,13 +139,15 @@ func ParseSource(rawURL string) (Source, error) {
 	baseToken := firstNonEmptyString(tokenAfterPath(parsed.Path, "/base/"), tokenAfterPath(parsed.Path, "/bitable/"))
 	if baseToken != "" {
 		query := parsed.Query()
+		tableID := firstNonEmptyString(query.Get("table"), query.Get("table_id"), query.Get("tableId"))
 		return Source{
-			Kind:      "direct_bitable",
-			RawURL:    strings.TrimSpace(rawURL),
-			BaseURL:   parsed.Scheme + "://" + parsed.Host,
-			BaseToken: baseToken,
-			TableID:   firstNonEmptyString(query.Get("table"), query.Get("table_id"), query.Get("tableId")),
-			ViewID:    firstNonEmptyString(query.Get("view"), query.Get("view_id"), query.Get("viewId")),
+			Kind:             "direct_bitable",
+			RawURL:           strings.TrimSpace(rawURL),
+			BaseURL:          parsed.Scheme + "://" + parsed.Host,
+			BaseToken:        baseToken,
+			TableID:          tableID,
+			ViewID:           firstNonEmptyString(query.Get("view"), query.Get("view_id"), query.Get("viewId")),
+			tableIDFromQuery: strings.TrimSpace(tableID) != "",
 		}, nil
 	}
 	if strings.Contains(parsed.Path, "/wiki/") {
@@ -154,16 +164,88 @@ func ParseSource(rawURL string) (Source, error) {
 	return Source{}, fmt.Errorf("unsupported bitable source URL")
 }
 
-func Inspect(config InspectConfig) (map[string]any, error) {
-	source, err := ParseSource(config.URL)
+// resolveSourceMetadata is the single prologue shared by every bitable command.
+// It parses the source, fetches the metadata, and refuses any requested table
+// that the fetched metadata does not describe. Every read, dry-run, and apply
+// path runs through here before any write is planned or sent.
+func resolveSourceMetadata(rawURL string, injected map[string]any, cookiesPath string, spaceAPI string) (Source, Metadata, error) {
+	source, err := ParseSource(rawURL)
 	if err != nil {
-		return nil, err
+		return Source{}, Metadata{}, err
 	}
-	clientVars, source, err := resolveClientVars(source, config.ClientVars, config.CookiesPath, config.SpaceAPI)
+	clientVars, source, err := resolveClientVars(source, injected, cookiesPath, spaceAPI)
 	if err != nil {
-		return nil, err
+		return source, Metadata{}, err
 	}
 	meta, err := ParseClientVars(clientVars, source.BaseToken)
+	if err != nil {
+		return source, Metadata{}, err
+	}
+	if err := validateRequestedTable(source, meta); err != nil {
+		return source, Metadata{}, err
+	}
+	return source, meta, nil
+}
+
+// validateRequestedTable refuses a caller-requested table that the fetched
+// metadata does not describe. The clientvars request is not table-scoped, so
+// the fields and records always belong to the base's default table. Writing to
+// a different table would validate field names against one table and POST
+// table-scoped field IDs to another.
+func validateRequestedTable(source Source, meta Metadata) error {
+	requested := strings.TrimSpace(source.TableID)
+	if requested == "" || !source.tableIDFromQuery {
+		return nil
+	}
+	described := describedTableID(meta)
+	if requested == described {
+		return nil
+	}
+	detail := ""
+	if containsTableID(meta.Tables, requested) {
+		detail = fmt.Sprintf(" table %q exists in this base, but the metadata request is not table-scoped, so only %s was fetched.",
+			requested, describedTableLabel(meta))
+	}
+	return fmt.Errorf(
+		"bitable table mismatch: --url requested table %q but the fetched metadata describes %s; "+
+			"field names would be validated against %s while the write would target %q, so this request is refused.%s"+
+			" Remove the table parameter from --url to operate on %s",
+		requested, describedTableLabel(meta), describedTableLabel(meta), requested, detail, describedTableLabel(meta))
+}
+
+func containsTableID(tables []Table, tableID string) bool {
+	for _, table := range tables {
+		if table.ID == tableID {
+			return true
+		}
+	}
+	return false
+}
+
+// describedTableID reports the table whose views, fields, and records the
+// metadata carries.
+func describedTableID(meta Metadata) string {
+	if described := strings.TrimSpace(meta.describedTableID); described != "" {
+		return described
+	}
+	return firstTableID(meta)
+}
+
+func describedTableLabel(meta Metadata) string {
+	described := describedTableID(meta)
+	if described == "" {
+		return "no table"
+	}
+	for _, table := range meta.Tables {
+		if table.ID == described && strings.TrimSpace(table.Name) != "" && table.Name != described {
+			return fmt.Sprintf("%q (%s)", described, table.Name)
+		}
+	}
+	return fmt.Sprintf("%q", described)
+}
+
+func Inspect(config InspectConfig) (map[string]any, error) {
+	source, meta, err := resolveSourceMetadata(config.URL, config.ClientVars, config.CookiesPath, config.SpaceAPI)
 	if err != nil {
 		return nil, err
 	}
@@ -177,15 +259,7 @@ func Attach(config AttachConfig) (map[string]any, error) {
 	if !config.Apply && !config.DryRun {
 		return nil, fmt.Errorf("bitable attach requires --dry-run or --apply")
 	}
-	source, err := ParseSource(config.URL)
-	if err != nil {
-		return nil, err
-	}
-	clientVars, source, err := resolveClientVars(source, config.ClientVars, config.CookiesPath, config.SpaceAPI)
-	if err != nil {
-		return nil, err
-	}
-	meta, err := ParseClientVars(clientVars, source.BaseToken)
+	source, meta, err := resolveSourceMetadata(config.URL, config.ClientVars, config.CookiesPath, config.SpaceAPI)
 	if err != nil {
 		return nil, err
 	}
@@ -228,15 +302,7 @@ func RecordCreate(config RecordCreateConfig) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	source, err := ParseSource(config.URL)
-	if err != nil {
-		return nil, err
-	}
-	clientVars, source, err := resolveClientVars(source, config.ClientVars, config.CookiesPath, config.SpaceAPI)
-	if err != nil {
-		return nil, err
-	}
-	meta, err := ParseClientVars(clientVars, source.BaseToken)
+	source, meta, err := resolveSourceMetadata(config.URL, config.ClientVars, config.CookiesPath, config.SpaceAPI)
 	if err != nil {
 		return nil, err
 	}
@@ -703,6 +769,9 @@ func ParseClientVars(data map[string]any, baseToken string) (Metadata, error) {
 		BaseToken: strings.TrimSpace(baseToken),
 		Title:     firstNonEmptyString(base["name"], baseToken),
 		TableRev:  intValue(asMap(tableData["meta"])["rev"]),
+		// The payload carries exactly one table's schema. Prefer its own id and
+		// fall back to the base's first table when the id is absent.
+		describedTableID: firstNonEmptyString(tableData["id"], tableIDs[0]),
 	}
 	for _, tableID := range tableIDs {
 		tableInfo := asMap(asMap(base["tableInfos"])[tableID])

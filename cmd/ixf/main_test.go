@@ -163,6 +163,16 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 			expected: []string{"usage: ixf bitable inspect", "--url", "--cookies", "--space-api", "--json", "Read-only"},
 		},
 		{
+			// read used to delegate to inspect, so this help named a command the
+			// caller never typed. Metadata-only is the scope, and the dispatcher row
+			// was the only place that said so.
+			args: []string{"bitable", "read", "--help"},
+			expected: []string{
+				"usage: ixf bitable read", "--url", "--cookies", "--space-api", "--json",
+				"metadata only", "does not report cell values",
+			},
+		},
+		{
 			args:     []string{"bitable", "attach", "--help"},
 			expected: []string{"usage: ixf bitable attach", "--url", "--field", "--record-match", "--record-id", "--file", "--dry-run", "--apply", "Upload and bind the attachment", "--json", "preserved"},
 		},
@@ -233,6 +243,48 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 				t.Fatalf("run(%v) stdout missing %q:\n%s", test.args, expected, stdout.String())
 			}
 		}
+	}
+}
+
+// TestBitableReadHelpAndErrorsAttributeToRead pins the attribution rather than
+// the wording. `read` delegated to `inspect`, which owned the help writer and
+// the FlagSet name, so both the usage line and any flag parse error named
+// `inspect` to a caller who had typed `read`.
+func TestBitableReadHelpAndErrorsAttributeToRead(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	if code := run([]string{"bitable", "read", "--help"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("bitable read --help exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	usage := strings.SplitN(stdout.String(), "\n", 2)[0]
+	if usage != "usage: ixf bitable read --url URL [--json]" {
+		t.Fatalf("bitable read --help first line = %q, want the read usage line", usage)
+	}
+	if strings.Contains(usage, "inspect") {
+		t.Fatalf("bitable read --help usage line names inspect: %q", usage)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"bitable", "inspect", "--help"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("bitable inspect --help exit code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	if usage := strings.SplitN(stdout.String(), "\n", 2)[0]; !strings.Contains(usage, "ixf bitable inspect") {
+		t.Fatalf("bitable inspect --help first line = %q, want it to keep naming inspect", usage)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code := run([]string{"bitable", "read", "--url", "https://example.invalid/base/x", "--nope"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("bitable read --nope exit code = %d, want 2; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "ixf bitable read") {
+		t.Fatalf("bitable read parse error does not attribute to read:\n%s", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "ixf bitable inspect") {
+		t.Fatalf("bitable read parse error attributes to inspect:\n%s", stderr.String())
 	}
 }
 

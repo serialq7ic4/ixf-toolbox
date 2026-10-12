@@ -501,7 +501,7 @@ func runSheetsUpdate(args []string, stdout io.Writer, stderr io.Writer) int {
 func runBitable(args []string, stdout io.Writer, stderr io.Writer) int {
 	rows := [][2]string{
 		{"inspect", "Inspect a bitable source and report safe metadata."},
-		{"read", "Read bitable metadata as a safe JSON summary."},
+		{"read", "Report bitable metadata as a text summary, or JSON with --json."},
 		{"attach", "Dry-run or apply an existing-record attachment upload."},
 		{"record", "Inspect or plan approved bitable record changes."},
 	}
@@ -616,6 +616,22 @@ func printBitableInspectHelp(w io.Writer) {
 	fmt.Fprintln(w, "which is what a record or attachment write needs to match against.")
 }
 
+func printBitableReadHelp(w io.Writer) {
+	printUsageHelp(w, "ixf bitable read --url URL [--json]", [][2]string{
+		{"--url URL", "Direct bitable URL, wiki-backed bitable, or a docx embedding one."},
+		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+		{"--json", "Print machine-readable JSON output."},
+	})
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Read-only, and metadata only. Reports the table, field, and view structure plus")
+	fmt.Fprintln(w, "a record count. It does not report cell values, so it will not tell you what any")
+	fmt.Fprintln(w, "record contains. Use it to learn the field names and types a write must match.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Without --json the output is a short text summary; --json prints the full")
+	fmt.Fprintln(w, "metadata payload. Equivalent to `ixf bitable inspect`.")
+}
+
 func printBitableRecordCreateHelp(w io.Writer) {
 	printUsageHelp(w, "ixf bitable record create --url URL --input row.json [--dry-run|--apply] [--json]", [][2]string{
 		{"--url URL", "Direct bitable URL, wiki-backed bitable, or a docx embedding one."},
@@ -652,16 +668,37 @@ func printBitableAttachHelp(w io.Writer) {
 }
 
 func runBitableInspect(args []string, stdout io.Writer, stderr io.Writer) int {
-	flags := flag.NewFlagSet("ixf bitable inspect", flag.ContinueOnError)
+	if hasHelpArg(args) {
+		printBitableInspectHelp(stdout)
+		return 0
+	}
+	return runBitableMetadata("inspect", args, stdout, stderr)
+}
+
+// runBitableRead is a thin handler over the same implementation as `inspect`
+// rather than a call through to runBitableInspect. The delegation it replaces
+// made the command report itself as `inspect` in both its help output and its
+// flag parse errors, naming a command the caller never typed. Owning the help
+// text and the FlagSet name is the whole point; the behaviour stays identical,
+// which is why neither handler carries its own copy of the implementation.
+func runBitableRead(args []string, stdout io.Writer, stderr io.Writer) int {
+	if hasHelpArg(args) {
+		printBitableReadHelp(stdout)
+		return 0
+	}
+	return runBitableMetadata("read", args, stdout, stderr)
+}
+
+// runBitableMetadata backs both `bitable inspect` and `bitable read`. verb names
+// the FlagSet only, so a parse error attributes itself to the command the caller
+// actually typed.
+func runBitableMetadata(verb string, args []string, stdout io.Writer, stderr io.Writer) int {
+	flags := flag.NewFlagSet("ixf bitable "+verb, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	targetURL := flags.String("url", "", "")
 	cookiesPath := flags.String("cookies", defaultCookies, "")
 	spaceAPI := flags.String("space-api", "", "")
 	asJSON := flags.Bool("json", false, "")
-	if hasHelpArg(args) {
-		printBitableInspectHelp(stdout)
-		return 0
-	}
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -684,10 +721,6 @@ func runBitableInspect(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	formatBitableSummary(stdout, payload)
 	return 0
-}
-
-func runBitableRead(args []string, stdout io.Writer, stderr io.Writer) int {
-	return runBitableInspect(args, stdout, stderr)
 }
 
 func runBitableAttach(args []string, stdout io.Writer, stderr io.Writer) int {

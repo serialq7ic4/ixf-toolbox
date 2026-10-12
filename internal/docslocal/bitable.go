@@ -26,6 +26,18 @@ func (session *remoteReadSession) readBitableWiki(source string, origin string, 
 	if baseToken == "" {
 		return Result{}, fmt.Errorf("unable to locate bitable base token from wiki HTML")
 	}
+	return session.readBitableBase(source, origin, baseToken, "wiki_bitable")
+}
+
+func (session *remoteReadSession) readDirectBitable(source string, origin string, path string) (Result, error) {
+	baseToken := tokenAfter(path, "/base/")
+	if baseToken == "" {
+		return Result{}, fmt.Errorf("direct bitable URL missing base token")
+	}
+	return session.readBitableBase(source, origin, baseToken, "bitable")
+}
+
+func (session *remoteReadSession) readBitableBase(source string, origin string, baseToken string, kind string) (Result, error) {
 	clientVarsData, err := session.bitableClientVars(origin, baseToken, source)
 	if err != nil {
 		return Result{}, err
@@ -34,14 +46,29 @@ func (session *remoteReadSession) readBitableWiki(source string, origin string, 
 	if err != nil {
 		return Result{}, err
 	}
+	// The lines are joined verbatim rather than passed through normalizeLines.
+	//
+	// That function is a Markdown normalizer: it right-trims each line and collapses
+	// blank runs. Both are wrong for a TSV body. A tab is a delimiter here, since
+	// escapeTSVCell escapes any tab inside a cell, so trimming a line's trailing
+	// tabs deletes columns. Worse, a record whose every cell is empty renders as a
+	// line of tabs alone, which trims to "" and is then treated as a blank line:
+	// consecutive such records collapse into one and trailing ones are dropped, while
+	// the meta line above still reports the pre-normalization row count. The document
+	// would contradict its own rows= field.
+	//
+	// Nothing is lost by skipping it. Every Markdown line this function emits is
+	// trim-safe already: the title is TrimSpace'd by renderBitableAsTSV and the rest
+	// are literals or a fmt.Sprintf of them, so none can end in the two spaces that
+	// would make a Markdown hard break. readDirectSheet joins its lines the same way.
 	contentLines := []string{"# " + title, "", "[bitable token=" + baseToken + "]"}
 	contentLines = append(contentLines, lines...)
 	return Result{
 		Source:   source,
-		Kind:     "wiki_bitable",
+		Kind:     kind,
 		Title:    title,
 		Token:    baseToken,
-		Content:  strings.Join(normalizeLines(contentLines), "\n") + "\n",
+		Content:  strings.Join(contentLines, "\n"),
 		Counts:   counts,
 		Assets:   []map[string]any{},
 		Warnings: []string{},

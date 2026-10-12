@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -519,6 +520,205 @@ func TestReadSourcesWithOptionsKeepsMindnoteArtifactsEmptyWhenDownloadingImages(
 	}
 }
 
+func TestRemoteKindFromPathRecognizesDirectBitableLinks(t *testing.T) {
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"/base/bas_fixture", "bitable"},
+		{"/base/bas_fixture/tbl_main", "bitable"},
+		{"/docx/dox_page_1", "docx"},
+		{"/wiki/wiki_1", "wiki"},
+		{"/sheets/shtr_fixture", "sheet"},
+		{"/base/", "remote"},
+	}
+	for _, testCase := range cases {
+		if got := remoteKindFromPath(testCase.path); got != testCase.want {
+			t.Fatalf("remoteKindFromPath(%q) = %q, want %q", testCase.path, got, testCase.want)
+		}
+	}
+	if got := remoteKindFromSource("https://tenant.example.test/base/bas_fixture?table=tbl_main"); got != "bitable" {
+		t.Fatalf("remoteKindFromSource(direct base URL) = %q, want bitable", got)
+	}
+}
+
+func TestReadSourcesWithOptionsReadsDirectBitableBaseLinks(t *testing.T) {
+	var requested []string
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/v1/bitable/bas_fixture/clientvars":
+			requested = append(requested, r.URL.String())
+			if got := r.Header.Get("X-CSRFToken"); got != "csrf-fixture" {
+				t.Fatalf("X-CSRFToken = %q, want csrf-fixture", got)
+			}
+			if got := r.Header.Get("Referer"); got != server.URL+"/base/bas_fixture?table=tbl_main" {
+				t.Fatalf("referer = %q, want direct base URL", got)
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": bitableFixtureData(t)})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	results, err := ReadSourcesWithOptions([]string{server.URL + "/base/bas_fixture?table=tbl_main"}, ReadOptions{
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	})
+	if err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+
+	if len(requested) != 1 {
+		t.Fatalf("bitable clientvars requests = %#v, want exactly one", requested)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results length = %d, want 1", len(results))
+	}
+	result := results[0]
+	if result.Kind != "bitable" || result.Title != "Bug Tracker" || result.Token != "bas_fixture" {
+		t.Fatalf("result metadata = %#v", result)
+	}
+	if result.Content != wantBitableFixtureContent {
+		t.Fatalf("content = %q, want %q", result.Content, wantBitableFixtureContent)
+	}
+	assertResultCounts(t, result.Counts, map[string]int{
+		"bitable":         1,
+		"bitable_views":   1,
+		"bitable_fields":  3,
+		"bitable_records": 2,
+	})
+	if len(result.Assets) != 0 {
+		t.Fatalf("assets = %#v, want empty", result.Assets)
+	}
+	if len(result.Warnings) != 0 {
+		t.Fatalf("warnings = %#v, want empty", result.Warnings)
+	}
+	if result.Structure != nil {
+		t.Fatalf("structure = %#v, want nil for a bitable read", result.Structure)
+	}
+}
+
+func TestReadSourcesWithOptionsStillReadsWikiHostedBitable(t *testing.T) {
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = append(requested, r.URL.Path)
+		switch r.URL.Path {
+		case "/wiki/wiki_1":
+			_, _ = w.Write([]byte(`<html><script>
+				current_space_wiki = Object({"obj_token":"bas_fixture","wiki_token":"wiki_1"});
+				window.wiki_suite_type = 'bitable';
+			</script></html>`))
+		case "/space/api/v1/bitable/bas_fixture/clientvars":
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": bitableFixtureData(t)})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	results, err := ReadSourcesWithOptions([]string{server.URL + "/wiki/wiki_1"}, ReadOptions{
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	})
+	if err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+
+	result := results[0]
+	if result.Kind != "wiki_bitable" || result.Title != "Bug Tracker" || result.Token != "bas_fixture" {
+		t.Fatalf("result metadata = %#v", result)
+	}
+	if result.Content != wantBitableFixtureContent {
+		t.Fatalf("content = %q, want %q", result.Content, wantBitableFixtureContent)
+	}
+	assertResultCounts(t, result.Counts, map[string]int{
+		"bitable":         1,
+		"bitable_views":   1,
+		"bitable_fields":  3,
+		"bitable_records": 2,
+	})
+	want := []string{"/wiki/wiki_1", "/space/api/v1/bitable/bas_fixture/clientvars"}
+	if len(requested) != len(want) {
+		t.Fatalf("requested paths = %#v, want %#v", requested, want)
+	}
+	for index, path := range want {
+		if requested[index] != path {
+			t.Fatalf("requested paths = %#v, want %#v", requested, want)
+		}
+	}
+}
+
+const wantBitableFixtureContent = "# Bug Tracker\n\n[bitable token=bas_fixture]\n" +
+	"[bitable-meta base_token=bas_fixture table_id=tbl_main table_name=\"Issues\" " +
+	"view_id=vew_grid view_name=\"Grid\" rows=2 cols=3 views=1]\n" +
+	"```tsv\nTitle\tOwner\tModule\nImage bug\tMei\tCollab\nResume failed\t\tDocs\n```\n"
+
+func bitableFixtureData(t *testing.T) map[string]any {
+	t.Helper()
+	schema := map[string]any{
+		"base": map[string]any{
+			"name":       "Bug Tracker",
+			"timezone":   "Asia/Shanghai",
+			"tables":     []any{"tbl_main"},
+			"tableInfos": map[string]any{"tbl_main": map[string]any{"name": "Issues"}},
+		},
+		"data": map[string]any{
+			"table": map[string]any{
+				"id":    "tbl_main",
+				"views": []any{"vew_grid"},
+				"viewMap": map[string]any{
+					"vew_grid": map[string]any{
+						"id":   "vew_grid",
+						"name": "Grid",
+						"type": float64(1),
+						"property": map[string]any{
+							"fields":  []any{"fld_title", "fld_owner", "fld_module"},
+							"records": []any{"rec_1", "rec_2"},
+						},
+					},
+				},
+				"fieldMap": map[string]any{
+					"fld_title": map[string]any{"id": "fld_title", "name": "Title", "type": float64(1)},
+					"fld_owner": map[string]any{"id": "fld_owner", "name": "Owner", "type": float64(11)},
+					"fld_module": map[string]any{
+						"id":   "fld_module",
+						"name": "Module",
+						"type": float64(3),
+						"property": map[string]any{
+							"options": []any{
+								map[string]any{"id": "opt_collab", "name": "Collab"},
+								map[string]any{"id": "opt_docs", "name": "Docs"},
+							},
+						},
+					},
+				},
+			},
+			"recordMap": map[string]any{
+				"rec_1": map[string]any{
+					"fld_title":  map[string]any{"value": "Image bug"},
+					"fld_owner":  map[string]any{"value": []any{"usr_1"}},
+					"fld_module": map[string]any{"value": "opt_collab"},
+				},
+				"rec_2": map[string]any{
+					"fld_title":  map[string]any{"value": "Resume failed"},
+					"fld_owner":  map[string]any{"value": []any{}},
+					"fld_module": map[string]any{"value": "opt_docs"},
+				},
+			},
+		},
+	}
+	return map[string]any{
+		"users":     map[string]any{"usr_1": map[string]any{"name": "Mei"}},
+		"oldSchema": map[string]any{"gzipSchema": gzipJSON(t, schema)},
+	}
+}
+
 func writeCookieFixture(t *testing.T, path string) {
 	t.Helper()
 	content, err := json.Marshal([]map[string]string{
@@ -636,5 +836,142 @@ func TestReadOptionsRejectsDownloadImagesWithoutOutputRoot(t *testing.T) {
 	})
 	if err == nil || err.Error() != "download_images requires output_root" {
 		t.Fatalf("error = %v, want output_root requirement", err)
+	}
+}
+
+// A TSV body keeps every delimiter, so a row stays as wide as its header.
+//
+// This is what the pre-existing fixture cannot show: its only empty cell sits
+// mid-row, where a following tab protects it. The damage needs a trailing empty
+// cell, and an all-empty record, neither of which that fixture has.
+//
+// The rendered body used to pass through normalizeLines, a Markdown normalizer.
+// Right-trimming deleted trailing tabs, which are columns. Blank-run collapsing
+// was worse: a record whose every cell is empty renders as tabs alone, trims to
+// "", and was then treated as a blank line, so consecutive empty records merged
+// into one and trailing ones vanished -- while the meta line kept reporting the
+// original row count.
+func TestReadSourcesWithOptionsKeepsEmptyTrailingBitableCells(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/space/api/v1/bitable/bas_ragged/clientvars" {
+			http.NotFound(w, r)
+			return
+		}
+		writeJSONResponse(t, w, map[string]any{
+			"code": 0,
+			"data": raggedBitableFixtureData(t),
+		})
+	}))
+	defer server.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	results, err := ReadSourcesWithOptions([]string{server.URL + "/base/bas_ragged"}, ReadOptions{
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	})
+	if err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+	content := results[0].Content
+
+	// rows=4 is computed before rendering, so every one of the four must be present
+	// as its own line or the document contradicts its own meta field.
+	if !strings.Contains(content, "rows=4 cols=3") {
+		t.Fatalf("content lost its meta line:\n%s", content)
+	}
+	body, ok := tsvBodyRows(content)
+	if !ok {
+		t.Fatalf("content has no tsv fence:\n%s", content)
+	}
+	if len(body) != 5 {
+		t.Fatalf("tsv body has %d lines, want a header and 4 records:\n%q", len(body), body)
+	}
+	for index, row := range body {
+		if got := strings.Count(row, "\t"); got != 2 {
+			t.Fatalf("row %d = %q has %d tabs, want 2 so it stays as wide as the header",
+				index, row, got)
+		}
+	}
+	if body[2] != "\t\t" {
+		t.Fatalf("all-empty record = %q, want a row of delimiters alone", body[2])
+	}
+	if body[3] != "\t\t" {
+		t.Fatalf("second all-empty record = %q, want it kept rather than collapsed into the first", body[3])
+	}
+	if body[4] != "Trailing gone\t\t" {
+		t.Fatalf("trailing-empty record = %q, want its empty columns kept", body[4])
+	}
+}
+
+// tsvBodyRows returns the lines inside the first ```tsv fence.
+func tsvBodyRows(content string) ([]string, bool) {
+	_, after, found := strings.Cut(content, "```tsv\n")
+	if !found {
+		return nil, false
+	}
+	body, _, found := strings.Cut(after, "\n```")
+	if !found {
+		return nil, false
+	}
+	return strings.Split(body, "\n"), true
+}
+
+// raggedBitableFixtureData has what the main fixture lacks: a record with empty
+// trailing cells, and two adjacent records that are empty across every column.
+func raggedBitableFixtureData(t *testing.T) map[string]any {
+	t.Helper()
+	emptyRecord := map[string]any{
+		"fld_title":  map[string]any{"value": ""},
+		"fld_owner":  map[string]any{"value": []any{}},
+		"fld_module": map[string]any{"value": ""},
+	}
+	schema := map[string]any{
+		"base": map[string]any{
+			"name":       "Ragged",
+			"timezone":   "Asia/Shanghai",
+			"tables":     []any{"tbl_main"},
+			"tableInfos": map[string]any{"tbl_main": map[string]any{"name": "Rows"}},
+		},
+		"data": map[string]any{
+			"table": map[string]any{
+				"id":    "tbl_main",
+				"views": []any{"vew_grid"},
+				"viewMap": map[string]any{
+					"vew_grid": map[string]any{
+						"id":   "vew_grid",
+						"name": "Grid",
+						"type": float64(1),
+						"property": map[string]any{
+							"fields":  []any{"fld_title", "fld_owner", "fld_module"},
+							"records": []any{"rec_full", "rec_blank_1", "rec_blank_2", "rec_trailing"},
+						},
+					},
+				},
+				"fieldMap": map[string]any{
+					"fld_title":  map[string]any{"id": "fld_title", "name": "Title", "type": float64(1)},
+					"fld_owner":  map[string]any{"id": "fld_owner", "name": "Owner", "type": float64(11)},
+					"fld_module": map[string]any{"id": "fld_module", "name": "Module", "type": float64(1)},
+				},
+			},
+			"recordMap": map[string]any{
+				"rec_full": map[string]any{
+					"fld_title":  map[string]any{"value": "Complete"},
+					"fld_owner":  map[string]any{"value": []any{"usr_1"}},
+					"fld_module": map[string]any{"value": "Core"},
+				},
+				"rec_blank_1": emptyRecord,
+				"rec_blank_2": emptyRecord,
+				"rec_trailing": map[string]any{
+					"fld_title":  map[string]any{"value": "Trailing gone"},
+					"fld_owner":  map[string]any{"value": []any{}},
+					"fld_module": map[string]any{"value": ""},
+				},
+			},
+		},
+	}
+	return map[string]any{
+		"users":     map[string]any{"usr_1": map[string]any{"name": "Mei"}},
+		"oldSchema": map[string]any{"gzipSchema": gzipJSON(t, schema)},
 	}
 }

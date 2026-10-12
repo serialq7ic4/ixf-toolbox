@@ -196,6 +196,9 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 	if kind == "sheet" {
 		return session.readDirectSheet(source, origin, parsed)
 	}
+	if kind == "bitable" {
+		return session.readDirectBitable(source, origin, parsed.Path)
+	}
 	token := tokenAfter(parsed.Path, "/docx/")
 	if token == "" && kind == "wiki" {
 		html, err := session.fetchHTML(source, origin)
@@ -282,6 +285,9 @@ func remoteKindFromPath(path string) string {
 	}
 	if tokenAfter(path, "/sheets/") != "" {
 		return "sheet"
+	}
+	if tokenAfter(path, "/base/") != "" {
+		return "bitable"
 	}
 	if strings.Contains(path, "/okr/user/") {
 		return "okr"

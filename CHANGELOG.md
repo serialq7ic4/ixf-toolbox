@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.30.2 - 2026-10-13
+
+- Fixed `ixf docs read` refusing every bitable, sheet and mindnote source, a regression in 3.30.1. `parseDocsReadArgs` seeded its `spaceAPI` with `DefaultSpaceAPI`, so `ReadOptions.SpaceAPI` was never empty and the new override check could not tell an explicit `--space-api` from an absent one: every such read looked like an override naming a different host and was rejected. The parser now leaves it empty and lets the read session apply its own default, which is the same host for the docx path either way.
+- The regression shipped because no test ran the argument parser for this case. The library tests build `ReadOptions` directly, and the one CLI test passing `--space-api` pointed it at the same server as the document, which is the allowed shape. A CLI test now reads an origin-addressed source with no `--space-api` at all, and was confirmed to fail against 3.30.1.
+
 ## 3.30.1 - 2026-10-13
 
 - **Behaviour change.** `ixf docs read --space-api` is refused for a sheet, bitable or mindnote source when it names a host other than the document's own origin, instead of being accepted and then ignored. Only the docx path sends its request to the Space API host; the others address the origin, so an override pointing elsewhere was stored on the session and never consulted — the read succeeded against the origin and looked like it had honoured the flag. An override equal to the origin is still accepted, since the request goes there regardless. The flag's help now says it applies to a docx source, which its previous description did not.

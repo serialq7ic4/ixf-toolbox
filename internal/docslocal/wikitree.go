@@ -128,8 +128,12 @@ func ListWikiTree(config TreeConfig) ([]TreeNode, bool, error) {
 // plus that token's children, so a walk has to call it once per node rather than
 // reading a whole subtree from a single response.
 func (session *remoteReadSession) wikiChildren(origin string, spaceID string, token string) ([]TreeNode, error) {
+	// The URL goes to the resolved API host so --space-api is honoured; Origin and
+	// Referer stay tied to the document, matching internal/bitable. The node URLs
+	// built from the response keep using origin: those are document links, not API
+	// calls, and must stay where the document actually lives.
 	requestURL := fmt.Sprintf("%s/space/api/wiki/v2/tree/get_info/?space_id=%s&wiki_token=%s",
-		origin, url.QueryEscape(spaceID), url.QueryEscape(token))
+		session.apiHostFor(origin), url.QueryEscape(spaceID), url.QueryEscape(token))
 	payload, err := session.getJSON(requestURL, origin, origin+"/wiki/"+token)
 	if err != nil {
 		return nil, err

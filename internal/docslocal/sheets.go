@@ -127,7 +127,9 @@ func (session *remoteReadSession) fetchEmbeddedSheet(origin string, hostPageToke
 }
 
 func (session *remoteReadSession) fetchSheetClientVars(origin string, hostToken string, workbookToken string, sheetID string, referer string) (map[string]any, error) {
-	requestURL := origin + "/space/api/v3/sheet/client_vars?synced_block_host_token=" +
+	// The URL goes to the resolved API host so --space-api is honoured; Origin and
+	// Referer below stay tied to the document, matching internal/bitable.
+	requestURL := session.apiHostFor(origin) + "/space/api/v3/sheet/client_vars?synced_block_host_token=" +
 		url.QueryEscape(hostToken) + "&synced_block_host_type=22"
 	body, err := json.Marshal(map[string]any{
 		"memberId":      0,

@@ -2107,9 +2107,13 @@ func (flag *repeatedStringFlag) Set(value string) error {
 }
 
 func parseDocsReadArgs(args []string) (docsReadArgs, error) {
+	// spaceAPI stays empty when the caller does not pass --space-api, so the read
+	// session can tell an explicit choice from an absent one. It applies
+	// docslocal.DefaultSpaceAPI itself for the docx path, so this is the same host
+	// either way; filling it in here would make every read look like an override and
+	// get refused on the paths that address the document's own origin.
 	parsed := docsReadArgs{
 		cookiesPath: defaultCookies,
-		spaceAPI:    docslocal.DefaultSpaceAPI,
 	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]

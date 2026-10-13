@@ -2757,3 +2757,45 @@ func cliWikiTreeFixture(token string, nodes map[string]any, childTokens []string
 		},
 	}
 }
+
+// Reading without --space-api must work for a source that addresses its own origin.
+//
+// This covers the gap that shipped a broken 3.30.1: parseDocsReadArgs used to seed
+// spaceAPI with DefaultSpaceAPI, so ReadOptions.SpaceAPI was never empty and every
+// bitable, sheet and mindnote read looked like an override of a different host and
+// was refused. Library-level tests could not catch it, because they build ReadOptions
+// directly and never run the argument parser, and the one CLI test that passed
+// --space-api pointed it at the same server as the document, which is allowed.
+//
+// So the assertion that matters is the absence of the flag, exercised through the
+// real parser.
+func TestCLIDocsReadWithoutSpaceAPIReadsAnOriginAddressedSource(t *testing.T) {
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/space/api/v1/bitable/bas_fixture/clientvars" {
+			http.NotFound(w, r)
+			return
+		}
+		requests++
+		writeTestJSON(t, w, map[string]any{"code": 0, "data": bitableCLIFixtureData(t)})
+	}))
+	defer server.Close()
+
+	// No --space-api. The source's own origin is the fake server, which is what an
+	// origin-addressed read must use.
+	stdout, stderr, code := runCLITest(t,
+		"docs", "read", server.URL+"/base/bas_fixture",
+		"--cookies", cookiesPath,
+	)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want the read to reach the origin", requests)
+	}
+	if !strings.Contains(stdout, "[bitable token=bas_fixture]") {
+		t.Fatalf("stdout = %q, want the rendered bitable", stdout)
+	}
+}

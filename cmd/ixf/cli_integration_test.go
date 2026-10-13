@@ -2727,11 +2727,12 @@ func TestCLIDocsTreeMaxDepthOptsIntoADeeperWalk(t *testing.T) {
 	if treeRequests != 2 {
 		t.Fatalf("treeRequests = %d, want one per parent node", treeRequests)
 	}
-	// A native sheet is listed but cannot be read, so the listing must say so.
+	// A native sheet now reads, via the workbook-token then sheet-id lookup, so the
+	// listing must report it readable. It was marked unreadable until that path existed.
 	nodes := payload["nodes"].([]any)
 	second := nodes[1].(map[string]any)
-	if second["kind"] != "sheet" || second["readable"] != false {
-		t.Fatalf("grandchild = %+v, want an unreadable sheet", second)
+	if second["kind"] != "sheet" || second["readable"] != true {
+		t.Fatalf("grandchild = %+v, want a readable sheet", second)
 	}
 }
 

@@ -213,17 +213,21 @@ func wikiObjKind(objToken string, objType int) string {
 
 // wikiKindIsReadable reports whether `ixf docs read` can read this node.
 //
-// A docx-backed node reads through the docx path. A bitable-backed one reads as well,
-// because the wiki read path fetches the page, recognizes bitable HTML and routes to the
-// bitable reader before it looks for a docx token; both were confirmed against a live
-// directory. A wiki-hosted native sheet and an uploaded file both fail with
-// "client_vars failed", so reporting the kind without this would leave a caller to
-// discover it by feeding the whole listing to docs read and watching part of it fail. A
-// mindnote is treated as unreadable because a /wiki/ URL never reaches the mindnote
+// Three kinds read, each by its own route, and all three are live-confirmed: a docx
+// through the docx path, a bitable because the wiki read path recognizes bitable HTML
+// and routes to the bitable reader before looking for a docx token, and a native sheet
+// by resolving the workbook token from the page and then the sheet id from the workbook.
+//
+// An uploaded file stays unreadable: it is a binary attachment rather than a document.
+// A mindnote is reported unreadable because a /wiki/ URL never reaches the mindnote
 // branch and carries no docx token; that one is reasoned from the read path rather than
 // live-confirmed.
+//
+// This flag exists so a caller can filter a listing before reading it, instead of
+// feeding every URL to docs read and watching part of it fail. That makes a stale entry
+// here worse than no flag at all: a readable node marked false is silently skipped.
 func wikiKindIsReadable(kind string) bool {
-	return kind == "docx" || kind == "bitable"
+	return kind == "docx" || kind == "bitable" || kind == "sheet"
 }
 
 // wikiTokenList reads a child_map entry, which is a JSON array of token strings.

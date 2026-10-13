@@ -719,6 +719,61 @@ func bitableFixtureData(t *testing.T) map[string]any {
 	}
 }
 
+// wikiSheetHTML mirrors the live wiki page of a native-sheet node.
+//
+// Two details are load-bearing. current_space_wiki is assigned empty first and populated
+// only later, guarded by a test on that empty value, so reading just the first
+// occurrence of the anchor finds no token. And the page mentions bitable in an unrelated
+// feature flag, which is all isBitableWikiHTML looks for, so a sheet node reaches the
+// bitable branch unless the obj_token prefix is checked first.
+func wikiSheetHTML(objToken string) string {
+	return `<html><script>
+		window.current_space_wiki = Object(); window.wiki_suite_type = 'sheet';
+	</script><script>
+		if (!window.current_space_wiki.space_id) { window.current_space_wiki = Object(` +
+		`{"space_id":"7433","wiki_token":"wiki_sheet_1","obj_token":"` + objToken + `","obj_type":3}); }
+		var r = window.User.clientFeatures["ccm.bitable.wiki_sidebar_collapsed.enable"];
+	</script></html>`
+}
+
+type fixtureSheet struct {
+	id    string
+	name  string
+	index int
+}
+
+// sheetWorkbookFixture answers the sheet-id probe in the live server's shape: the
+// snapshot's sheets map is keyed by sheet NAME with the id in an inner "id" field, the
+// workbook reports its own sheetCount, and the sheet the server would open is named at
+// extra_data.sheet_id.
+func sheetWorkbookFixture(t *testing.T, title string, active string, sheetCount int, sheets ...fixtureSheet) map[string]any {
+	t.Helper()
+	sheetMap := map[string]any{}
+	for _, sheet := range sheets {
+		sheetMap[sheet.name] = map[string]any{
+			"id":          sheet.id,
+			"name":        sheet.name,
+			"index":       sheet.index,
+			"rowCount":    2,
+			"columnCount": 2,
+		}
+	}
+	snapshot := map[string]any{"sheets": sheetMap}
+	if sheetCount > 0 {
+		snapshot["sheetCount"] = sheetCount
+	}
+	return map[string]any{
+		"token": "workbook",
+		"formerlySchema": map[string]any{
+			"title": title,
+			"clientvars": map[string]any{
+				"gzip_snapshot": gzipJSON(t, snapshot),
+				"extra_data":    map[string]any{"sheet_id": active, "sub_type": 0},
+			},
+		},
+	}
+}
+
 func writeCookieFixture(t *testing.T, path string) {
 	t.Helper()
 	content, err := json.Marshal([]map[string]string{
@@ -976,6 +1031,339 @@ func raggedBitableFixtureData(t *testing.T) map[string]any {
 	}
 }
 
+// A wiki node backed by a native sheet reads end to end: wiki HTML -> workbook token ->
+// sheet id -> content. Before this path existed the read died at `client_vars failed`,
+// because the wiki branch found no docx token and called the docx endpoint anyway.
+func TestReadSourcesWithOptionsReadsWikiHostedNativeSheet(t *testing.T) {
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = append(requested, r.URL.Path)
+		switch r.URL.Path {
+		case "/wiki/wiki_sheet_1":
+			_, _ = w.Write([]byte(wikiSheetHTML("shtrWorkbook")))
+		case "/space/api/v3/sheet/client_vars":
+			var request map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatal(err)
+			}
+			if _, named := request["sheetRange"]; !named {
+				writeJSONResponse(t, w, map[string]any{
+					"code": 0,
+					"data": sheetWorkbookFixture(t, "Q4 Rollout", "l0tsDa", 1,
+						fixtureSheet{id: "l0tsDa", name: "问题报告", index: 0}),
+				})
+				return
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": sheetFixtureData(t, "l0tsDa")})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	results, err := ReadSourcesWithOptions([]string{server.URL + "/wiki/wiki_sheet_1"}, ReadOptions{
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	})
+	if err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+
+	result := results[0]
+	if result.Kind != "wiki_sheet" || result.Title != "Q4 Rollout" || result.Token != "shtrWorkbook_l0tsDa" {
+		t.Fatalf("result metadata = %#v", result)
+	}
+	want := "# Q4 Rollout\n\n[sheet-workbook token=shtrWorkbook sheets=1 sheet_id=l0tsDa sheet_name=\"问题报告\"]\n" +
+		"[sheet-meta workbook_token=shtrWorkbook sheet_id=l0tsDa rows=2 cols=2]\n" +
+		"```tsv\nName\tValue\nAlpha\t42\n```\n"
+	if result.Content != want {
+		t.Fatalf("content = %q, want %q", result.Content, want)
+	}
+	assertResultCounts(t, result.Counts, map[string]int{"sheet": 1, "sheet_total": 1})
+	// A single-sheet workbook has nothing to caveat.
+	if len(result.Warnings) != 0 {
+		t.Fatalf("warnings = %#v, want empty for a one-sheet workbook", result.Warnings)
+	}
+	wantPaths := []string{"/wiki/wiki_sheet_1", "/space/api/v3/sheet/client_vars", "/space/api/v3/sheet/client_vars"}
+	if len(requested) != len(wantPaths) {
+		t.Fatalf("requested paths = %#v, want %#v", requested, wantPaths)
+	}
+}
+
+// The sheet-id lookup is a POST that names no sheet.
+//
+// Sending no sheetRange at all is what makes the server answer with the sheet it would
+// open; a sheetRange naming an id it does not have is not the same request. An empty
+// sheetId string is also wrong, so the body must not carry the key at all.
+func TestWikiHostedSheetResolvesTheSheetIDWithoutNamingOne(t *testing.T) {
+	type sheetCall struct {
+		method    string
+		query     string
+		hasRange  bool
+		rangeData map[string]any
+	}
+	var calls []sheetCall
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/wiki/wiki_sheet_1":
+			_, _ = w.Write([]byte(wikiSheetHTML("shtrWorkbook")))
+		case "/space/api/v3/sheet/client_vars":
+			var request map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatal(err)
+			}
+			rangeValue, hasRange := request["sheetRange"]
+			call := sheetCall{method: r.Method, query: r.URL.RawQuery, hasRange: hasRange}
+			if hasRange {
+				call.rangeData = asMap(rangeValue)
+			}
+			calls = append(calls, call)
+			if request["token"] != "shtrWorkbook" {
+				t.Fatalf("token = %#v, want the workbook token", request["token"])
+			}
+			if !hasRange {
+				writeJSONResponse(t, w, map[string]any{
+					"code": 0,
+					"data": sheetWorkbookFixture(t, "Probe", "l0tsDa", 1,
+						fixtureSheet{id: "l0tsDa", name: "Only", index: 0}),
+				})
+				return
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": sheetFixtureData(t, "l0tsDa")})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	if _, err := ReadSourcesWithOptions([]string{server.URL + "/wiki/wiki_sheet_1"}, ReadOptions{
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	}); err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("sheet client_vars calls = %#v, want a lookup then a content read", calls)
+	}
+	lookup := calls[0]
+	if lookup.method != http.MethodPost {
+		t.Fatalf("lookup method = %s, want POST", lookup.method)
+	}
+	if lookup.hasRange {
+		t.Fatalf("lookup body carried sheetRange = %#v, want no sheet named at all", lookup.rangeData)
+	}
+	wantQuery := "synced_block_host_token=shtrWorkbook&synced_block_host_type=22"
+	if lookup.query != wantQuery {
+		t.Fatalf("lookup query = %q, want %q", lookup.query, wantQuery)
+	}
+	// The content read is the existing sheet reader, addressing the resolved id.
+	if !calls[1].hasRange || calls[1].rangeData["sheetId"] != "l0tsDa" {
+		t.Fatalf("content read range = %#v, want sheetId l0tsDa", calls[1].rangeData)
+	}
+}
+
+// A workbook with more than one sheet says so, in the header line and in a warning.
+//
+// Only the first sheet is read, and a caller handed 1 of 3 sheets with no indication
+// that 2 are missing is the silent-wrong-output failure worth preventing. "First" is the
+// lowest-indexed sheet, not the sheet the server happens to open: this fixture opens on
+// index 1, and the read must still cover index 0 so the default does not depend on the
+// workbook's saved cursor position.
+func TestReadSourcesWithOptionsReportsMultiSheetWorkbooks(t *testing.T) {
+	var contentSheetID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/wiki/wiki_sheet_1":
+			_, _ = w.Write([]byte(wikiSheetHTML("shtrMulti")))
+		case "/space/api/v3/sheet/client_vars":
+			var request map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatal(err)
+			}
+			rangeValue, hasRange := request["sheetRange"]
+			if !hasRange {
+				writeJSONResponse(t, w, map[string]any{
+					"code": 0,
+					"data": sheetWorkbookFixture(t, "Three Tabs", "sheetB", 3,
+						fixtureSheet{id: "sheetC", name: "Gamma", index: 2},
+						fixtureSheet{id: "sheetA", name: "Alpha", index: 0},
+						fixtureSheet{id: "sheetB", name: "Beta", index: 1}),
+				})
+				return
+			}
+			contentSheetID = stringValue(asMap(rangeValue)["sheetId"])
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": sheetFixtureData(t, contentSheetID)})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	results, err := ReadSourcesWithOptions([]string{server.URL + "/wiki/wiki_sheet_1"}, ReadOptions{
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	})
+	if err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+
+	if contentSheetID != "sheetA" {
+		t.Fatalf("content read sheet %q, want sheetA, the lowest-indexed sheet", contentSheetID)
+	}
+	result := results[0]
+	wantHeader := "[sheet-workbook token=shtrMulti sheets=3 sheet_id=sheetA sheet_name=\"Alpha\"]"
+	if !strings.Contains(result.Content, wantHeader) {
+		t.Fatalf("content = %q, want it to carry %q", result.Content, wantHeader)
+	}
+	if len(result.Warnings) != 1 {
+		t.Fatalf("warnings = %#v, want one naming the unread sheets", result.Warnings)
+	}
+	// The warning has to carry the count, not just say "more than one".
+	for _, fragment := range []string{"3 sheets", "first sheet only"} {
+		if !strings.Contains(result.Warnings[0], fragment) {
+			t.Fatalf("warning = %q, want it to contain %q", result.Warnings[0], fragment)
+		}
+	}
+	assertResultCounts(t, result.Counts, map[string]int{"sheet": 1, "sheet_total": 3})
+}
+
+// A response that reports no sheet count says so rather than claiming one.
+//
+// Inventing "sheets=1" for a workbook whose count could not be read would be the same
+// silent-wrong-output failure as omitting the count entirely.
+func TestReadSourcesWithOptionsReportsAnUnknownSheetCount(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/wiki/wiki_sheet_1":
+			_, _ = w.Write([]byte(wikiSheetHTML("shtrBare")))
+		case "/space/api/v3/sheet/client_vars":
+			var request map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatal(err)
+			}
+			if _, hasRange := request["sheetRange"]; !hasRange {
+				// No sheetCount, no sheets map: only the active sheet id is on offer.
+				writeJSONResponse(t, w, map[string]any{
+					"code": 0,
+					"data": map[string]any{
+						"formerlySchema": map[string]any{
+							"title": "Bare",
+							"clientvars": map[string]any{
+								"extra_data": map[string]any{"sheet_id": "03df21"},
+							},
+						},
+					},
+				})
+				return
+			}
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": sheetFixtureData(t, "03df21")})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	results, err := ReadSourcesWithOptions([]string{server.URL + "/wiki/wiki_sheet_1"}, ReadOptions{
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	})
+	if err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+
+	result := results[0]
+	if !strings.Contains(result.Content, "sheets=unknown") {
+		t.Fatalf("content = %q, want the count reported as unknown", result.Content)
+	}
+	// Falling back to the active sheet id is what keeps the read possible at all here.
+	if !strings.Contains(result.Content, "sheet_id=03df21") {
+		t.Fatalf("content = %q, want the active sheet id used", result.Content)
+	}
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "unavailable") {
+		t.Fatalf("warnings = %#v, want one saying the count is unavailable", result.Warnings)
+	}
+	// No sheet_total key, rather than sheet_total: 0, which would read as "no sheets".
+	assertResultCounts(t, result.Counts, map[string]int{"sheet": 1})
+}
+
+func TestWikiSheetWorkbookTokenOnlyClaimsSheetBackedNodes(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		html string
+		want string
+	}{
+		{
+			name: "skips the empty first assignment",
+			html: wikiSheetHTML("shtrWorkbook"),
+			want: "shtrWorkbook",
+		},
+		{
+			name: "docx node is not a sheet",
+			html: `<html><script>current_space_wiki = Object({"obj_token":"dox_page_1"});</script></html>`,
+			want: "",
+		},
+		{
+			name: "bitable node is not a sheet",
+			html: `<html><script>current_space_wiki = Object({"obj_token":"bas_fixture"});</script></html>`,
+			want: "",
+		},
+		{
+			// The loose `obj_token":"..."` scan the docx path falls back to would match
+			// this; the structured object is empty, so no sheet is claimed.
+			name: "a bare obj_token elsewhere on the page is not enough",
+			html: `<html><script>current_space_wiki = Object();
+				window.other = {"obj_token":"shtrSomeOtherNode"};</script></html>`,
+			want: "",
+		},
+		{
+			name: "no wiki object at all",
+			html: `<html><body>nothing here</body></html>`,
+			want: "",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := wikiSheetWorkbookToken(test.html); got != test.want {
+				t.Fatalf("wikiSheetWorkbookToken() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+// A wiki-hosted sheet page reaches the sheet branch even though it also looks like a
+// bitable page to isBitableWikiHTML, and a docx wiki node is unaffected by the new
+// branch. Both pages are built from the same wiki template, which is why the sheet check
+// has to come first and has to key off the obj_token rather than the page text.
+func TestWikiDispatchSeparatesSheetFromBitableAndDocxPages(t *testing.T) {
+	sheetPage := wikiSheetHTML("shtrWorkbook")
+	if !isBitableWikiHTML(sheetPage) {
+		t.Fatal("fixture no longer reproduces the overlap: a sheet page must still look " +
+			"like a bitable page to isBitableWikiHTML, or this ordering stops mattering")
+	}
+	if got := wikiSheetWorkbookToken(sheetPage); got != "shtrWorkbook" {
+		t.Fatalf("sheet page resolved %q, want the workbook token", got)
+	}
+	// The pre-existing docx fallback fixture must not be claimed by the sheet branch.
+	docxPage := `<html><script>
+		current_space_wiki = Object();
+		window.wiki_suite_type = 'docx';
+		window.bootstrap = {"obj_token":"dox_page_1"};
+	</script><script src="/static/bitable-runtime.js"></script></html>`
+	if got := wikiSheetWorkbookToken(docxPage); got != "" {
+		t.Fatalf("docx page resolved %q, want no workbook token", got)
+	}
+}
+
+// An override naming a host this read cannot use is refused rather than ignored.
+
 // An override sends the API request to the named host, not to the document's origin.
 //
 // The document URL and the override point at two different servers, so only a read
@@ -1059,6 +1447,57 @@ func TestReadSourcesWithOptionsSendsAPIRequestsToTheOverrideHost(t *testing.T) {
 				t.Fatalf("Referer header = %q, want the document URL %q", gotReferer, source)
 			}
 		})
+	}
+}
+
+// A wiki-hosted sheet refuses an override it cannot apply, like the other
+// origin-addressed reads. The refusal comes after the page fetch, because only the HTML
+// says this wiki node is a sheet, but before any sheet request.
+// A wiki-hosted sheet sends its API calls to the override host and keeps fetching the
+// document page from the document's origin.
+//
+// This replaced a test asserting the override was refused for this path. The refusal
+// existed only while the correct host per endpoint was unknown; a live probe then showed
+// both hosts serve these endpoints, so the override is applied rather than rejected.
+// The split asserted here is the rule: the page is the document, the rest is the API.
+func TestWikiHostedSheetSendsAPIRequestsToTheOverrideHost(t *testing.T) {
+	var docPaths, apiPaths []string
+	docServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		docPaths = append(docPaths, r.URL.Path)
+		_, _ = w.Write([]byte(wikiSheetHTML("shtrWorkbook")))
+	}))
+	defer docServer.Close()
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiPaths = append(apiPaths, r.URL.Path)
+		writeJSONResponse(t, w, map[string]any{"code": 0,
+			"data": sheetWorkbookFixture(t, "Override", "sht_first", 1,
+				fixtureSheet{id: "sht_first", name: "Sheet1", index: 0})})
+	}))
+	defer apiServer.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	results, err := ReadSourcesWithOptions([]string{docServer.URL + "/wiki/wiki_sheet_1"}, ReadOptions{
+		CookiesPath: cookiesPath,
+		SpaceAPI:    apiServer.URL,
+	})
+	if err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+	if results[0].Kind != "wiki_sheet" {
+		t.Fatalf("kind = %q, want wiki_sheet", results[0].Kind)
+	}
+	// The page comes from the document host and nothing else does.
+	if len(docPaths) != 1 || docPaths[0] != "/wiki/wiki_sheet_1" {
+		t.Fatalf("document host saw %#v, want only the page fetch", docPaths)
+	}
+	if len(apiPaths) == 0 {
+		t.Fatal("override host saw no requests; the sheet API calls went elsewhere")
+	}
+	for _, path := range apiPaths {
+		if !strings.Contains(path, "/space/api/") {
+			t.Fatalf("override host saw %q, want only Space API calls", path)
+		}
 	}
 }
 

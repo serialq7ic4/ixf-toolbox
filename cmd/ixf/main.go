@@ -1482,8 +1482,12 @@ func printDocsReadHelp(w io.Writer) {
 		{"--expand-sheets", "Expand embedded sheet blocks into local TSV/Markdown artifacts when available."},
 		{"--download-images", "Download referenced images into the output directory."},
 		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
-		{"--space-api URL", "Override the i讯飞 Space API base URL."},
+		{"--space-api URL", "Override the Space API base URL; applies to a docx source only."},
 	})
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "--space-api applies to a docx source. A sheet, bitable, or mindnote source is read")
+	fmt.Fprintln(w, "from the document's own origin, so an override naming a different host is refused")
+	fmt.Fprintln(w, "rather than accepted and ignored.")
 }
 
 func printDocsStructureHelp(w io.Writer) {

@@ -372,7 +372,11 @@ func runSheetsRead(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	source := ""
 	cookiesPath := defaultCookies
-	spaceAPI := docslocal.DefaultSpaceAPI
+	// Left empty when --space-api is absent, for the same reason as docs read: a
+	// direct sheet is read through docslocal, which addresses the document's own
+	// origin and refuses an override naming a different host. Seeding the default
+	// here would make every sheets read look like such an override.
+	spaceAPI := ""
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch arg {

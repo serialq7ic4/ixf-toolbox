@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.30.3 - 2026-10-13
+
+- Fixed `ixf sheets read` refusing every read, the same regression 3.30.2 fixed for `ixf docs read`. A direct sheet is read through `docslocal.ReadSourcesWithOptions`, so it inherits the override check added in 3.30.1, and its own argument parser also seeded `spaceAPI` with `DefaultSpaceAPI` — making every invocation look like an override of a host the sheet path cannot use. The two commands have separate parsers and only `docs read` was traced when fixing 3.30.2.
+- Both entry points that reach `ReadSourcesWithOptions` are now covered by a CLI test that passes no `--space-api` at all, each confirmed to fail against the broken code. The remaining five parsers that seed the default feed the publish, bitable and OKR packages, which do not go through that check.
+
 ## 3.30.2 - 2026-10-13
 
 - Fixed `ixf docs read` refusing every bitable, sheet and mindnote source, a regression in 3.30.1. `parseDocsReadArgs` seeded its `spaceAPI` with `DefaultSpaceAPI`, so `ReadOptions.SpaceAPI` was never empty and the new override check could not tell an explicit `--space-api` from an absent one: every such read looked like an override naming a different host and was rejected. The parser now leaves it empty and lets the read session apply its own default, which is the same host for the docx path either way.

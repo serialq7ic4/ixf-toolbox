@@ -128,8 +128,12 @@ func ListWikiTree(config TreeConfig) ([]TreeNode, bool, error) {
 // plus that token's children, so a walk has to call it once per node rather than
 // reading a whole subtree from a single response.
 func (session *remoteReadSession) wikiChildren(origin string, spaceID string, token string) ([]TreeNode, error) {
+	// The URL goes to the resolved API host so --space-api is honoured; Origin and
+	// Referer stay tied to the document, matching internal/bitable. The node URLs
+	// built from the response keep using origin: those are document links, not API
+	// calls, and must stay where the document actually lives.
 	requestURL := fmt.Sprintf("%s/space/api/wiki/v2/tree/get_info/?space_id=%s&wiki_token=%s",
-		origin, url.QueryEscape(spaceID), url.QueryEscape(token))
+		session.apiHostFor(origin), url.QueryEscape(spaceID), url.QueryEscape(token))
 	payload, err := session.getJSON(requestURL, origin, origin+"/wiki/"+token)
 	if err != nil {
 		return nil, err
@@ -209,17 +213,21 @@ func wikiObjKind(objToken string, objType int) string {
 
 // wikiKindIsReadable reports whether `ixf docs read` can read this node.
 //
-// A docx-backed node reads through the docx path. A bitable-backed one reads as well,
-// because the wiki read path fetches the page, recognizes bitable HTML and routes to the
-// bitable reader before it looks for a docx token; both were confirmed against a live
-// directory. A wiki-hosted native sheet and an uploaded file both fail with
-// "client_vars failed", so reporting the kind without this would leave a caller to
-// discover it by feeding the whole listing to docs read and watching part of it fail. A
-// mindnote is treated as unreadable because a /wiki/ URL never reaches the mindnote
+// Three kinds read, each by its own route, and all three are live-confirmed: a docx
+// through the docx path, a bitable because the wiki read path recognizes bitable HTML
+// and routes to the bitable reader before looking for a docx token, and a native sheet
+// by resolving the workbook token from the page and then the sheet id from the workbook.
+//
+// An uploaded file stays unreadable: it is a binary attachment rather than a document.
+// A mindnote is reported unreadable because a /wiki/ URL never reaches the mindnote
 // branch and carries no docx token; that one is reasoned from the read path rather than
 // live-confirmed.
+//
+// This flag exists so a caller can filter a listing before reading it, instead of
+// feeding every URL to docs read and watching part of it fail. That makes a stale entry
+// here worse than no flag at all: a readable node marked false is silently skipped.
 func wikiKindIsReadable(kind string) bool {
-	return kind == "docx" || kind == "bitable"
+	return kind == "docx" || kind == "bitable" || kind == "sheet"
 }
 
 // wikiTokenList reads a child_map entry, which is a JSON array of token strings.

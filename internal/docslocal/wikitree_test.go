@@ -47,7 +47,7 @@ func TestWikiObjKindNamesNodesFromTheObjectTokenPrefix(t *testing.T) {
 // "client_vars failed". A mindnote is unreadable by the same reasoning the read path gives:
 // a /wiki/ URL never reaches the mindnote branch, so it falls through to a docx token
 // extraction that finds nothing.
-func TestWikiKindIsReadableAcceptsDocxAndBitableBackedNodes(t *testing.T) {
+func TestWikiKindIsReadableAcceptsDocxBitableAndSheetBackedNodes(t *testing.T) {
 	tests := []struct {
 		name string
 		kind string
@@ -55,7 +55,9 @@ func TestWikiKindIsReadableAcceptsDocxAndBitableBackedNodes(t *testing.T) {
 	}{
 		{name: "docx", kind: "docx", want: true},
 		{name: "bitable", kind: "bitable", want: true},
-		{name: "native sheet", kind: "sheet", want: false},
+		// A native sheet reads by resolving the workbook token from the page and then
+		// the sheet id from the workbook. It was unreadable until that path existed.
+		{name: "native sheet", kind: "sheet", want: true},
 		{name: "uploaded file", kind: "file", want: false},
 		{name: "mindnote", kind: "mindnote", want: false},
 		{name: "unknown", kind: "unknown(objType=99)", want: false},
@@ -320,7 +322,7 @@ func TestTreeNodeFromRawBuildsNodesFromTheTreeResponseShape(t *testing.T) {
 				ObjToken:  "shtcnFixtureToken",
 				ObjType:   3,
 				Kind:      "sheet",
-				Readable:  false,
+				Readable:  true,
 				HasChild:  false,
 			},
 		},
@@ -446,7 +448,9 @@ func TestTreeNodeFromRawBuildsNodesFromTheTreeResponseShape(t *testing.T) {
 			if got != test.want {
 				t.Fatalf("treeNodeFromRaw = %#v, want %#v", got, test.want)
 			}
-			if got.Readable != (got.Kind == "docx" || got.Kind == "bitable") {
+			// Calls the rule rather than restating it, so adding a readable kind cannot
+			// leave this check asserting the old set.
+			if got.Readable != wikiKindIsReadable(got.Kind) {
 				t.Fatalf("Readable = %v disagrees with Kind = %q", got.Readable, got.Kind)
 			}
 			if got.Depth != 0 || got.ParentPath != "" {
@@ -578,7 +582,7 @@ func TestListWikiTreeListsDirectChildrenFromOneRequest(t *testing.T) {
 		{
 			URL: server.URL + "/wiki/wikcnSheetToken", Title: "Capacity",
 			WikiToken: "wikcnSheetToken", ObjToken: "shtcnFixtureToken", ObjType: 3,
-			Kind: "sheet", Readable: false, HasChild: false, Depth: 1,
+			Kind: "sheet", Readable: true, HasChild: false, Depth: 1,
 		},
 		{
 			URL: server.URL + "/wiki/wikcnFileToken", Title: "架构图.pdf",
@@ -725,6 +729,79 @@ func TestListWikiTreeRejectsSourcesThatAreNotWikiURLs(t *testing.T) {
 // wikiSpacePageFixture mirrors the wiki page the reader scrapes for the space identifier.
 // The empty guard assignment comes first, exactly as the live page has it, so a reader that
 // took the first assignment would find no identifier.
+// The tree API request goes to the override; the wiki page itself does not.
+//
+// This is the clearest case of the split: ListWikiTree fetches the document's own
+// HTML page to read the space id, then calls get_info. Only the second is a Space API
+// call, and only it may be rerouted, because the API host does not serve wiki pages.
+//
+// Two servers are used so an ignored override would be visible. With both pointed at
+// one server, as the other tests here do, the assertion cannot fail.
+func TestListWikiTreeSendsOnlyTheTreeAPIRequestToTheOverrideHost(t *testing.T) {
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	treeRequests := 0
+	var treeOrigin, treeReferer string
+	override := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/space/api/wiki/v2/tree/get_info/" {
+			http.NotFound(w, r)
+			return
+		}
+		treeRequests++
+		treeOrigin = r.Header.Get("Origin")
+		treeReferer = r.Header.Get("Referer")
+		writeJSONResponse(t, w, wikiTreeResponseFixture("wikcnRootToken", map[string]any{
+			"wikcnDocToken": map[string]any{
+				"title": "Release Plan", "obj_token": "doxcnFixtureToken",
+				"obj_type": 22, "has_child": false,
+			},
+		}, []string{"wikcnDocToken"}))
+	}))
+	defer override.Close()
+
+	pageRequests := 0
+	document := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/wiki/wikcnRootToken" {
+			t.Errorf("unexpected request to the document host: %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		pageRequests++
+		_, _ = w.Write([]byte(wikiSpacePageFixture("7100")))
+	}))
+	defer document.Close()
+
+	nodes, _, err := ListWikiTree(TreeConfig{
+		Source:      document.URL + "/wiki/wikcnRootToken",
+		CookiesPath: cookiesPath,
+		SpaceAPI:    override.URL,
+	})
+	if err != nil {
+		t.Fatalf("ListWikiTree returned error: %v", err)
+	}
+	if treeRequests != 1 {
+		t.Fatalf("tree requests to the override = %d, want 1; the override was not used", treeRequests)
+	}
+	if pageRequests != 1 {
+		t.Fatalf("page requests to the document host = %d, want 1", pageRequests)
+	}
+	if treeOrigin != document.URL {
+		t.Fatalf("Origin header = %q, want the document origin %q", treeOrigin, document.URL)
+	}
+	if want := document.URL + "/wiki/wikcnRootToken"; treeReferer != want {
+		t.Fatalf("Referer header = %q, want %q", treeReferer, want)
+	}
+	// Node URLs are document links, so they stay on the document's host even though
+	// the response came from the override.
+	if len(nodes) != 1 {
+		t.Fatalf("nodes = %#v, want one child", nodes)
+	}
+	if want := document.URL + "/wiki/wikcnDocToken"; nodes[0].URL != want {
+		t.Fatalf("node URL = %q, want %q; node links must not point at the API host", nodes[0].URL, want)
+	}
+}
+
 func wikiSpacePageFixture(spaceID string) string {
 	return `<html><script>
 		window.current_space_wiki = Object();

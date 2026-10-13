@@ -2727,11 +2727,12 @@ func TestCLIDocsTreeMaxDepthOptsIntoADeeperWalk(t *testing.T) {
 	if treeRequests != 2 {
 		t.Fatalf("treeRequests = %d, want one per parent node", treeRequests)
 	}
-	// A native sheet is listed but cannot be read, so the listing must say so.
+	// A native sheet now reads, via the workbook-token then sheet-id lookup, so the
+	// listing must report it readable. It was marked unreadable until that path existed.
 	nodes := payload["nodes"].([]any)
 	second := nodes[1].(map[string]any)
-	if second["kind"] != "sheet" || second["readable"] != false {
-		t.Fatalf("grandchild = %+v, want an unreadable sheet", second)
+	if second["kind"] != "sheet" || second["readable"] != true {
+		t.Fatalf("grandchild = %+v, want a readable sheet", second)
 	}
 }
 
@@ -2755,6 +2756,171 @@ func cliWikiTreeFixture(token string, nodes map[string]any, childTokens []string
 				"child_map": map[string]any{token: children},
 			},
 		},
+	}
+}
+
+// --space-api routes the read's API request to the override host, per media type.
+//
+// The document URL and the override point at two different servers. Every other
+// --space-api test in this file points both at one server, which passes whether or
+// not the flag is honoured; this is the shape that fails if it is ignored.
+//
+// Issue #40: the flag was applied to a docx source and silently dropped for sheet and
+// bitable sources, which addressed the document's own origin instead. 3.30.1 turned
+// that into a refusal because the correct host per endpoint was unknown. Probing
+// showed bitable clientvars and docx client_vars both answer on the tenant origin and
+// on the Space API host, so the override can simply be applied.
+func TestCLIDocsReadSendsAPIRequestsToTheSpaceAPIOverride(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		args     func(source string, override string, cookiesPath string) []string
+		apiPath  string
+		sourceOf func(documentHost string) string
+		respond  func(t *testing.T, w http.ResponseWriter)
+		wantOut  string
+	}{
+		{
+			name:    "docs read bitable",
+			apiPath: "/space/api/v1/bitable/bas_fixture/clientvars",
+			sourceOf: func(documentHost string) string {
+				return documentHost + "/base/bas_fixture"
+			},
+			args: func(source string, override string, cookiesPath string) []string {
+				return []string{"docs", "read", source, "--space-api", override, "--cookies", cookiesPath}
+			},
+			respond: func(t *testing.T, w http.ResponseWriter) {
+				writeTestJSON(t, w, map[string]any{"code": 0, "data": bitableCLIFixtureData(t)})
+			},
+			wantOut: "[bitable token=bas_fixture]",
+		},
+		{
+			name:    "docs read sheet",
+			apiPath: "/space/api/v3/sheet/client_vars",
+			sourceOf: func(documentHost string) string {
+				return documentHost + "/sheets/sht_fixture?sheet=sht1"
+			},
+			args: func(source string, override string, cookiesPath string) []string {
+				return []string{"docs", "read", source, "--space-api", override, "--cookies", cookiesPath}
+			},
+			respond: func(t *testing.T, w http.ResponseWriter) {
+				writeTestJSON(t, w, map[string]any{"code": 0, "data": sheetCLIFixtureData(t, "sht1")})
+			},
+		},
+		{
+			name:    "sheets read",
+			apiPath: "/space/api/v3/sheet/client_vars",
+			sourceOf: func(documentHost string) string {
+				return documentHost + "/sheets/sht_fixture?sheet=sht1"
+			},
+			args: func(source string, override string, cookiesPath string) []string {
+				return []string{"sheets", "read", source, "--space-api", override, "--cookies", cookiesPath}
+			},
+			respond: func(t *testing.T, w http.ResponseWriter) {
+				writeTestJSON(t, w, map[string]any{"code": 0, "data": sheetCLIFixtureData(t, "sht1")})
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+			writeCLICookieFixture(t, cookiesPath)
+
+			overrideRequests := 0
+			var gotOrigin, gotReferer string
+			override := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != test.apiPath {
+					http.NotFound(w, r)
+					return
+				}
+				overrideRequests++
+				gotOrigin = r.Header.Get("Origin")
+				gotReferer = r.Header.Get("Referer")
+				test.respond(t, w)
+			}))
+			defer override.Close()
+
+			documentRequests := 0
+			document := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				documentRequests++
+				http.NotFound(w, r)
+			}))
+			defer document.Close()
+
+			source := test.sourceOf(document.URL)
+			stdout, stderr, code := runCLITest(t, test.args(source, override.URL, cookiesPath)...)
+			if code != 0 || stderr != "" {
+				t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+			}
+			if overrideRequests != 1 {
+				t.Fatalf("override requests = %d, want 1; --space-api was not applied", overrideRequests)
+			}
+			if documentRequests != 0 {
+				t.Fatalf("document-origin requests = %d, want 0; --space-api was ignored", documentRequests)
+			}
+			// Origin and Referer identify the document, not the API host.
+			if gotOrigin != document.URL {
+				t.Fatalf("Origin header = %q, want the document origin %q", gotOrigin, document.URL)
+			}
+			if gotReferer != source {
+				t.Fatalf("Referer header = %q, want the document URL %q", gotReferer, source)
+			}
+			if test.wantOut != "" && !strings.Contains(stdout, test.wantOut) {
+				t.Fatalf("stdout = %q, want it to contain %q", stdout, test.wantOut)
+			}
+		})
+	}
+}
+
+// docs tree sends get_info to the override while the wiki page stays on the document.
+//
+// Only the API call may be rerouted: the Space API host does not serve wiki pages, and
+// the node URLs in the output are document links.
+func TestCLIDocsTreeSendsOnlyTheTreeAPIRequestToTheSpaceAPIOverride(t *testing.T) {
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+
+	treeRequests := 0
+	override := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/space/api/wiki/v2/tree/get_info/" {
+			http.NotFound(w, r)
+			return
+		}
+		treeRequests++
+		writeTestJSON(t, w, cliWikiTreeFixture("wikcnRootToken", map[string]any{
+			"wikcnDocToken": map[string]any{
+				"title": "Release Plan", "obj_token": "doxcnFixtureToken",
+				"obj_type": 22, "has_child": false,
+			},
+		}, []string{"wikcnDocToken"}))
+	}))
+	defer override.Close()
+
+	pageRequests := 0
+	document := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/wiki/wikcnRootToken" {
+			http.NotFound(w, r)
+			return
+		}
+		pageRequests++
+		_, _ = w.Write([]byte(cliWikiSpacePageFixture("7100")))
+	}))
+	defer document.Close()
+
+	stdout, stderr, code := runCLITest(t,
+		"docs", "tree", document.URL+"/wiki/wikcnRootToken",
+		"--space-api", override.URL,
+		"--cookies", cookiesPath,
+	)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	if treeRequests != 1 {
+		t.Fatalf("tree requests to the override = %d, want 1; --space-api was not applied", treeRequests)
+	}
+	if pageRequests != 1 {
+		t.Fatalf("page requests to the document host = %d, want 1", pageRequests)
+	}
+	if !strings.Contains(stdout, document.URL+"/wiki/wikcnDocToken") {
+		t.Fatalf("stdout = %q, want node links on the document host", stdout)
 	}
 }
 
@@ -2797,6 +2963,47 @@ func TestCLIDocsReadWithoutSpaceAPIReadsAnOriginAddressedSource(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "[bitable token=bas_fixture]") {
 		t.Fatalf("stdout = %q, want the rendered bitable", stdout)
+	}
+}
+
+// docs tree without --space-api must reach the document's own origin.
+//
+// Same class as the docs read and sheets read cases below: the tree API request now
+// honours --space-api, so a parser that seeds a fixed default would send every no-flag
+// walk to that host instead of to the tenant the wiki actually lives on.
+func TestCLIDocsTreeWithoutSpaceAPIReachesTheDocumentOrigin(t *testing.T) {
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+
+	treeRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/wiki/wikcnRootToken":
+			_, _ = w.Write([]byte(cliWikiSpacePageFixture("7100")))
+		case "/space/api/wiki/v2/tree/get_info/":
+			treeRequests++
+			writeTestJSON(t, w, cliWikiTreeFixture("wikcnRootToken", map[string]any{
+				"wikcnDocToken": map[string]any{
+					"title": "Release Plan", "obj_token": "doxcnFixtureToken",
+					"obj_type": 22, "has_child": false,
+				},
+			}, []string{"wikcnDocToken"}))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	// No --space-api. The wiki's own origin is the fake server.
+	stdout, stderr, code := runCLITest(t,
+		"docs", "tree", server.URL+"/wiki/wikcnRootToken",
+		"--cookies", cookiesPath,
+	)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	if treeRequests != 1 {
+		t.Fatalf("tree requests = %d, want the walk to reach the document origin", treeRequests)
 	}
 }
 

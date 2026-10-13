@@ -2799,3 +2799,36 @@ func TestCLIDocsReadWithoutSpaceAPIReadsAnOriginAddressedSource(t *testing.T) {
 		t.Fatalf("stdout = %q, want the rendered bitable", stdout)
 	}
 }
+
+// sheets read without --space-api must work, for the same reason docs read must.
+//
+// `ixf sheets read` delegates to docslocal.ReadSourcesWithOptions, so it inherits
+// the override check. Its parser seeded spaceAPI with DefaultSpaceAPI, which made
+// every invocation look like an override of a host the sheet path cannot use. The
+// 3.30.2 fix covered docs read only and left this one broken, because the two
+// commands have separate argument parsers and only one was traced.
+func TestCLISheetsReadWithoutSpaceAPISucceeds(t *testing.T) {
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/space/api/v3/sheet/client_vars" {
+			http.NotFound(w, r)
+			return
+		}
+		requests++
+		writeTestJSON(t, w, map[string]any{"code": 0, "data": sheetCLIFixtureData(t, "sht1")})
+	}))
+	defer server.Close()
+
+	stdout, stderr, code := runCLITest(t,
+		"sheets", "read", server.URL+"/sheets/shtFixture?sheet=sht1",
+		"--cookies", cookiesPath,
+	)
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	if requests == 0 {
+		t.Fatal("no request reached the origin; the override check refused the read")
+	}
+}

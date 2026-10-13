@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.30.1 - 2026-10-13
+
+- **Behaviour change.** `ixf docs read --space-api` is refused for a sheet, bitable or mindnote source when it names a host other than the document's own origin, instead of being accepted and then ignored. Only the docx path sends its request to the Space API host; the others address the origin, so an override pointing elsewhere was stored on the session and never consulted — the read succeeded against the origin and looked like it had honoured the flag. An override equal to the origin is still accepted, since the request goes there regardless. The flag's help now says it applies to a docx source, which its previous description did not.
+- Refused rather than applied because the correct host per endpoint is not yet known: this package defaults to an internal Space API hostname that is no tenant origin, while `internal/bitable` defaults to the URL's own origin, and both answer in production. Settling it needs a live probe, which #40 tracks. A flag that errors on a combination it cannot serve is correct either way.
+
 ## 3.30.0 - 2026-10-13
 
 - **Behaviour change.** `ixf bitable record create`, `attach` and `inspect` now refuse a `--url` whose `?table=` is not the table the fetched metadata describes, instead of validating against one table and writing to another. `clientVars` requests metadata with `tableID=` empty, so the payload always describes the table the server picks, while `targetTableID` preferred the URL's value — a record create against a non-default table checked field names against the default table and then wrote cell data keyed by field IDs scoped to the table they came from. The check sits in a shared prologue that every command's metadata now passes through, so it fires during `--dry-run` rather than after entity watches and attachment uploads have already run, and a new command cannot bypass it by construction. A `?table=` that matches the described table is unaffected, as is the table that embedded-docx discovery supplies rather than a query string.

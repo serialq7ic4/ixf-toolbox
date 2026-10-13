@@ -47,7 +47,7 @@ func TestWikiObjKindNamesNodesFromTheObjectTokenPrefix(t *testing.T) {
 // "client_vars failed". A mindnote is unreadable by the same reasoning the read path gives:
 // a /wiki/ URL never reaches the mindnote branch, so it falls through to a docx token
 // extraction that finds nothing.
-func TestWikiKindIsReadableAcceptsDocxAndBitableBackedNodes(t *testing.T) {
+func TestWikiKindIsReadableAcceptsDocxBitableAndSheetBackedNodes(t *testing.T) {
 	tests := []struct {
 		name string
 		kind string
@@ -55,7 +55,9 @@ func TestWikiKindIsReadableAcceptsDocxAndBitableBackedNodes(t *testing.T) {
 	}{
 		{name: "docx", kind: "docx", want: true},
 		{name: "bitable", kind: "bitable", want: true},
-		{name: "native sheet", kind: "sheet", want: false},
+		// A native sheet reads by resolving the workbook token from the page and then
+		// the sheet id from the workbook. It was unreadable until that path existed.
+		{name: "native sheet", kind: "sheet", want: true},
 		{name: "uploaded file", kind: "file", want: false},
 		{name: "mindnote", kind: "mindnote", want: false},
 		{name: "unknown", kind: "unknown(objType=99)", want: false},
@@ -320,7 +322,7 @@ func TestTreeNodeFromRawBuildsNodesFromTheTreeResponseShape(t *testing.T) {
 				ObjToken:  "shtcnFixtureToken",
 				ObjType:   3,
 				Kind:      "sheet",
-				Readable:  false,
+				Readable:  true,
 				HasChild:  false,
 			},
 		},
@@ -446,7 +448,9 @@ func TestTreeNodeFromRawBuildsNodesFromTheTreeResponseShape(t *testing.T) {
 			if got != test.want {
 				t.Fatalf("treeNodeFromRaw = %#v, want %#v", got, test.want)
 			}
-			if got.Readable != (got.Kind == "docx" || got.Kind == "bitable") {
+			// Calls the rule rather than restating it, so adding a readable kind cannot
+			// leave this check asserting the old set.
+			if got.Readable != wikiKindIsReadable(got.Kind) {
 				t.Fatalf("Readable = %v disagrees with Kind = %q", got.Readable, got.Kind)
 			}
 			if got.Depth != 0 || got.ParentPath != "" {
@@ -578,7 +582,7 @@ func TestListWikiTreeListsDirectChildrenFromOneRequest(t *testing.T) {
 		{
 			URL: server.URL + "/wiki/wikcnSheetToken", Title: "Capacity",
 			WikiToken: "wikcnSheetToken", ObjToken: "shtcnFixtureToken", ObjType: 3,
-			Kind: "sheet", Readable: false, HasChild: false, Depth: 1,
+			Kind: "sheet", Readable: true, HasChild: false, Depth: 1,
 		},
 		{
 			URL: server.URL + "/wiki/wikcnFileToken", Title: "架构图.pdf",

@@ -246,6 +246,20 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 		if err != nil {
 			return Result{}, err
 		}
+		// A wiki node backed by a native sheet is checked before the bitable branch.
+		// isBitableWikiHTML only looks for the words "wiki_suite_type" and "bitable"
+		// anywhere in the page, and a sheet page contains both (its scripts mention
+		// bitable feature flags), so it answers true here too. The obj_token's sht
+		// prefix is the signal that actually distinguishes the two.
+		if workbookToken := wikiSheetWorkbookToken(html); workbookToken != "" {
+			// Origin-addressed like the other non-docx reads, so the same override
+			// check applies; it happens after the fetch because only the HTML says
+			// which kind of node this is.
+			if err := session.requireSpaceAPIUnused(origin, "wiki-hosted sheet"); err != nil {
+				return Result{}, err
+			}
+			return session.readWikiSheet(source, origin, workbookToken)
+		}
 		var bitableErr error
 		if isBitableWikiHTML(html) {
 			// Also an origin-addressed read, so the same override check applies. It is

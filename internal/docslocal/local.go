@@ -123,13 +123,42 @@ func readLocalSource(source string) (Result, error) {
 }
 
 type remoteReadSession struct {
-	client         *http.Client
-	cookies        []http.Cookie
-	csrfToken      string
-	spaceAPI       string
-	downloadImages bool
-	outputRoot     string
-	expandSheets   bool
+	client    *http.Client
+	cookies   []http.Cookie
+	csrfToken string
+	spaceAPI  string
+	// spaceAPIRequested is the caller's --space-api verbatim, empty when they did not
+	// pass one. spaceAPI cannot answer that question because it carries
+	// DefaultSpaceAPI once the option is absent.
+	//
+	// It is needed because only the docx path sends its request to spaceAPI. Every
+	// other media type here addresses the URL's own origin, so an override that
+	// differs from the origin has no effect on them, and silently reading the wrong
+	// host is worse than refusing.
+	spaceAPIRequested string
+	downloadImages    bool
+	outputRoot        string
+	expandSheets      bool
+}
+
+// requireSpaceAPIUnused rejects an override that this media path cannot apply.
+//
+// The caller asked for a host and would otherwise be served a different one with no
+// indication, which is the failure that is hard to notice: the read succeeds against
+// the origin and looks like it honoured the flag.
+//
+// An override equal to the origin is accepted, since the request goes there anyway.
+// That is the shape every test uses, pointing both the document URL and the override
+// at one httptest server.
+func (session *remoteReadSession) requireSpaceAPIUnused(origin string, mediaKind string) error {
+	requested := strings.TrimRight(strings.TrimSpace(session.spaceAPIRequested), "/")
+	if requested == "" || requested == strings.TrimRight(origin, "/") {
+		return nil
+	}
+	return fmt.Errorf(
+		"--space-api %s cannot be applied to a %s source: that read addresses the document's own origin %s, "+
+			"and only a docx source is fetched from the Space API host. Drop --space-api to read it from %s",
+		requested, mediaKind, origin, origin)
 }
 
 type cookieObject struct {
@@ -173,13 +202,14 @@ func newRemoteReadSession(options ReadOptions) (*remoteReadSession, error) {
 		})
 	}
 	return &remoteReadSession{
-		client:         &http.Client{Timeout: 30 * time.Second},
-		cookies:        cookies,
-		csrfToken:      csrfToken,
-		spaceAPI:       spaceAPI,
-		downloadImages: options.DownloadImages,
-		outputRoot:     options.OutputRoot,
-		expandSheets:   options.ExpandSheets,
+		client:            &http.Client{Timeout: 30 * time.Second},
+		cookies:           cookies,
+		csrfToken:         csrfToken,
+		spaceAPI:          spaceAPI,
+		spaceAPIRequested: options.SpaceAPI,
+		downloadImages:    options.DownloadImages,
+		outputRoot:        options.OutputRoot,
+		expandSheets:      options.ExpandSheets,
 	}, nil
 }
 
@@ -190,13 +220,24 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 	}
 	origin := originForURL(parsed)
 	kind := remoteKindFromPath(parsed.Path)
+	// Each of these addresses origin rather than spaceAPI, so an override naming a
+	// different host would be accepted and then ignored.
 	if kind == "mindnote" {
+		if err := session.requireSpaceAPIUnused(origin, "mindnote"); err != nil {
+			return Result{}, err
+		}
 		return session.readMindnote(source, origin, parsed.Path)
 	}
 	if kind == "sheet" {
+		if err := session.requireSpaceAPIUnused(origin, "sheet"); err != nil {
+			return Result{}, err
+		}
 		return session.readDirectSheet(source, origin, parsed)
 	}
 	if kind == "bitable" {
+		if err := session.requireSpaceAPIUnused(origin, "bitable"); err != nil {
+			return Result{}, err
+		}
 		return session.readDirectBitable(source, origin, parsed.Path)
 	}
 	token := tokenAfter(parsed.Path, "/docx/")
@@ -207,6 +248,12 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 		}
 		var bitableErr error
 		if isBitableWikiHTML(html) {
+			// Also an origin-addressed read, so the same override check applies. It is
+			// made here rather than before the fetch because only the HTML says whether
+			// this wiki node is a bitable or a docx, and a docx does honour the override.
+			if err := session.requireSpaceAPIUnused(origin, "wiki-hosted bitable"); err != nil {
+				return Result{}, err
+			}
 			if result, err := session.readBitableWiki(source, origin, html); err == nil {
 				return result, nil
 			} else {

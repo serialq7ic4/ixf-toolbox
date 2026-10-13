@@ -975,3 +975,80 @@ func raggedBitableFixtureData(t *testing.T) map[string]any {
 		"oldSchema": map[string]any{"gzipSchema": gzipJSON(t, schema)},
 	}
 }
+
+// An override naming a host this read cannot use is refused rather than ignored.
+//
+// Only the docx path sends its request to spaceAPI. Every other media type here
+// addresses the document's own origin, so an override pointing elsewhere used to be
+// accepted and then silently dropped: the read succeeded against the origin and
+// looked like it had honoured the flag.
+func TestReadSourcesWithOptionsRefusesASpaceAPIItCannotApply(t *testing.T) {
+	// Any request at all means the refusal came too late.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected request to %s; the override should be refused first", r.URL.Path)
+	}))
+	defer server.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	for _, test := range []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{name: "direct sheet", source: "https://tenant.example.test/sheets/shtFixture?sheet=abc", want: "sheet source"},
+		{name: "direct bitable", source: "https://tenant.example.test/base/basFixture", want: "bitable source"},
+		{name: "mindnote", source: "https://tenant.example.test/mindnotes/bmnFixture", want: "mindnote source"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := ReadSourcesWithOptions([]string{test.source}, ReadOptions{
+				CookiesPath: cookiesPath,
+				SpaceAPI:    server.URL,
+			})
+			if err == nil {
+				t.Fatal("ReadSourcesWithOptions succeeded, want a refusal naming the override")
+			}
+			if !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want it to name the %s", err, test.want)
+			}
+			// The message has to be actionable: both hosts, and what to do.
+			for _, fragment := range []string{server.URL, "https://tenant.example.test", "Drop --space-api"} {
+				if !strings.Contains(err.Error(), fragment) {
+					t.Fatalf("error = %v, want it to contain %q", err, fragment)
+				}
+			}
+		})
+	}
+}
+
+// An override equal to the origin is accepted, since the request goes there anyway.
+// This is the shape every other test in this package uses.
+func TestReadSourcesWithOptionsAcceptsASpaceAPIEqualToTheOrigin(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/space/api/v1/bitable/bas_fixture/clientvars" {
+			http.NotFound(w, r)
+			return
+		}
+		requests++
+		writeJSONResponse(t, w, map[string]any{"code": 0, "data": bitableFixtureData(t)})
+	}))
+	defer server.Close()
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+
+	// A trailing slash must not make an otherwise-equal override look different.
+	results, err := ReadSourcesWithOptions([]string{server.URL + "/base/bas_fixture"}, ReadOptions{
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL + "/",
+	})
+	if err != nil {
+		t.Fatalf("ReadSourcesWithOptions returned error: %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want the read to proceed", requests)
+	}
+	if results[0].Kind != "bitable" {
+		t.Fatalf("kind = %q, want bitable", results[0].Kind)
+	}
+}

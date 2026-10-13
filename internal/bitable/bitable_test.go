@@ -46,6 +46,36 @@ func TestParseClientVarsReturnsTablesViewsFieldsAndRecords(t *testing.T) {
 	}
 }
 
+// The described table comes from data.table.meta.id, the only place the real
+// payload names it. The fixture describes tbl_archive while base.tables[0] is
+// tbl_main, so a positional guess cannot pass this.
+func TestParseClientVarsReadsDescribedTableFromMetaID(t *testing.T) {
+	meta, err := ParseClientVars(bitableClientVarsFixtureDescribing(t, "tbl_archive"), "bas_fixture")
+	if err != nil {
+		t.Fatalf("ParseClientVars returned error: %v", err)
+	}
+	if got := describedTableID(meta); got != "tbl_archive" {
+		t.Fatalf("describedTableID = %q, want tbl_archive from data.table.meta.id", got)
+	}
+	// The views in the payload belong to the described table, not to the first
+	// table in the base.
+	if len(meta.Views) != 1 || meta.Views[0].TableID != "tbl_archive" {
+		t.Fatalf("views = %+v, want the described table", meta.Views)
+	}
+}
+
+// With data.table.meta.id absent, the positional fallback still resolves a
+// table rather than leaving the field empty.
+func TestParseClientVarsFallsBackToFirstTableWhenMetaIDIsAbsent(t *testing.T) {
+	meta, err := ParseClientVars(bitableClientVarsFixtureWithoutDescribedTableID(t), "bas_fixture")
+	if err != nil {
+		t.Fatalf("ParseClientVars returned error: %v", err)
+	}
+	if got := describedTableID(meta); got != "tbl_main" {
+		t.Fatalf("describedTableID = %q, want the positional fallback tbl_main", got)
+	}
+}
+
 func TestParseSourceRecognizesDirectBitableURL(t *testing.T) {
 	source, err := ParseSource("https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid")
 	if err != nil {
@@ -397,6 +427,11 @@ func TestRecordCreateApplyUploadsAttachmentsWritesRecordAndVerifies(t *testing.T
 		switch r.URL.Path {
 		case "/space/api/v1/bitable/bas_fixture/clientvars":
 			clientVarsCalls++
+			// Every fetch carries the scope, the verification refetch included:
+			// verifying against another table's records would prove nothing.
+			if got := r.URL.Query().Get("tableID"); got != "tbl_main" {
+				t.Fatalf("clientvars call %d tableID = %q, want tbl_main", clientVarsCalls, got)
+			}
 			data := bitableClientVarsFixture(t)
 			if sawUserChanges {
 				data = bitableClientVarsFixtureWithCreatedRecord(t, createdRecordID, "New image bug", "ceph_logo.jpeg")
@@ -535,6 +570,16 @@ func TestInspectHTTPFetchesDirectBitableClientVars(t *testing.T) {
 		if got := r.Header.Get("Origin"); got != serverOrigin(r) {
 			t.Fatalf("Origin = %q, want %q", got, serverOrigin(r))
 		}
+		// The fetch is scoped to the requested table, so the metadata, the
+		// guard, and any write all describe one table.
+		if got := r.URL.Query().Get("tableID"); got != "tbl_main" {
+			t.Fatalf("clientvars tableID = %q, want tbl_main", got)
+		}
+		// viewID stays empty: the response does not vary by view, so sending it
+		// buys nothing. See the comment in session.clientVars.
+		if got := r.URL.Query().Get("viewID"); got != "" {
+			t.Fatalf("clientvars viewID = %q, want it left empty", got)
+		}
 		writeJSONResponse(t, w, map[string]any{"code": 0, "data": bitableClientVarsFixture(t)})
 	}))
 	defer server.Close()
@@ -552,6 +597,72 @@ func TestInspectHTTPFetchesDirectBitableClientVars(t *testing.T) {
 	}
 	if payload["ok"] != true || payload["sourceKind"] != "direct_bitable" || payload["recordCount"] != 2 {
 		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+// A ?table= naming a non-default table is served, not refused. The fixture
+// server honours tableID the way the live server does, so the payload describes
+// the requested table and the guard has nothing to object to.
+func TestInspectHTTPServesSecondTableWhenServerHonoursRequestedScope(t *testing.T) {
+	cookiesPath := writeCookieFixture(t)
+	var gotTableID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/space/api/v1/bitable/bas_fixture/clientvars" {
+			http.NotFound(w, r)
+			return
+		}
+		gotTableID = r.URL.Query().Get("tableID")
+		described := gotTableID
+		if described == "" {
+			described = "tbl_main"
+		}
+		writeJSONResponse(t, w, map[string]any{"code": 0, "data": bitableClientVarsFixtureDescribing(t, described)})
+	}))
+	defer server.Close()
+
+	payload, err := Inspect(InspectConfig{
+		URL:         server.URL + "/base/bas_fixture?table=tbl_archive&view=vew_grid",
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	})
+	if err != nil {
+		t.Fatalf("Inspect returned error: %v", err)
+	}
+	if gotTableID != "tbl_archive" {
+		t.Fatalf("clientvars tableID = %q, want tbl_archive", gotTableID)
+	}
+	target := payload["target"].(map[string]any)
+	if target["tableId"] != "tbl_archive" {
+		t.Fatalf("target = %+v, want the requested table reported", target)
+	}
+}
+
+// With no ?table=, nothing is requested, so the parameter goes out empty and the
+// server picks the base's default table.
+func TestInspectHTTPSendsEmptyTableIDWhenNoTableWasRequested(t *testing.T) {
+	cookiesPath := writeCookieFixture(t)
+	sawTableIDParam := false
+	gotTableID := "unset"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/space/api/v1/bitable/bas_fixture/clientvars" {
+			http.NotFound(w, r)
+			return
+		}
+		_, sawTableIDParam = r.URL.Query()["tableID"]
+		gotTableID = r.URL.Query().Get("tableID")
+		writeJSONResponse(t, w, map[string]any{"code": 0, "data": bitableClientVarsFixture(t)})
+	}))
+	defer server.Close()
+
+	if _, err := Inspect(InspectConfig{
+		URL:         server.URL + "/base/bas_fixture",
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	}); err != nil {
+		t.Fatalf("Inspect returned error: %v", err)
+	}
+	if !sawTableIDParam || gotTableID != "" {
+		t.Fatalf("tableID present=%t value=%q, want the parameter sent empty", sawTableIDParam, gotTableID)
 	}
 }
 
@@ -654,7 +765,13 @@ func TestInspectHTTPFetchesDocxEmbeddedBitableClientVars(t *testing.T) {
 	}
 }
 
-func TestCommandsRefuseTableNotDescribedByFetchedMetadata(t *testing.T) {
+// The guard covers one thing: the fetched metadata describing a table other
+// than the one the caller asked for. The fetch is now scoped to the requested
+// table, so a table the server honours is accepted -- including a non-default
+// one, which v3.30.0 refused. A mismatch still has to be refused, because field
+// names would be validated against the table that came back while the write
+// targeted the requested one.
+func TestCommandsRefuseOnlyWhenMetadataDescribesAnotherTable(t *testing.T) {
 	file := writeFixtureFile(t, "ceph_logo.jpeg", []byte{0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00})
 	input := writeFixtureJSON(t, "record.json", map[string]any{"Title": "New issue"})
 
@@ -662,32 +779,48 @@ func TestCommandsRefuseTableNotDescribedByFetchedMetadata(t *testing.T) {
 		name        string
 		url         string
 		clientVars  func(*testing.T) map[string]any
+		wantTableID string
 		wantRefused bool
 		wantInError []string
 	}{
 		{
-			name:       "table matching fetched metadata is accepted",
-			url:        "https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid",
-			clientVars: bitableClientVarsFixture,
+			name:        "table matching fetched metadata is accepted",
+			url:         "https://tenant.example/base/bas_fixture?table=tbl_main&view=vew_grid",
+			clientVars:  bitableClientVarsFixture,
+			wantTableID: "tbl_main",
 		},
 		{
-			name:       "no table parameter uses the metadata table",
-			url:        "https://tenant.example/base/bas_fixture?view=vew_grid",
-			clientVars: bitableClientVarsFixture,
+			name:        "no table parameter uses the metadata table",
+			url:         "https://tenant.example/base/bas_fixture?view=vew_grid",
+			clientVars:  bitableClientVarsFixture,
+			wantTableID: "tbl_main",
+		},
+		{
+			// The scoped fetch came back describing tbl_archive, so operating
+			// on it is coherent: fields, records, and the write all name it.
+			name: "non-default table the server described is accepted",
+			url:  "https://tenant.example/base/bas_fixture?table=tbl_archive&view=vew_grid",
+			clientVars: func(t *testing.T) map[string]any {
+				return bitableClientVarsFixtureDescribing(t, "tbl_archive")
+			},
+			wantTableID: "tbl_archive",
 		},
 		{
 			name:        "table absent from the base is refused",
 			url:         "https://tenant.example/base/bas_fixture?table=tbl_ghost&view=vew_grid",
 			clientVars:  bitableClientVarsFixture,
 			wantRefused: true,
-			wantInError: []string{"tbl_ghost", "tbl_main", "table mismatch"},
+			wantInError: []string{"tbl_ghost", "tbl_main", "table mismatch", "not one of this base's tables"},
 		},
 		{
-			name:        "second table in the base is refused because it is not described",
+			// tbl_archive exists, but the payload describes tbl_main, so the
+			// server did not honour the scope. Still refused, and the message
+			// says so rather than blaming the caller's URL.
+			name:        "table the server did not honour is refused",
 			url:         "https://tenant.example/base/bas_fixture?table=tbl_archive&view=vew_grid",
 			clientVars:  bitableClientVarsFixtureWithSecondTable,
 			wantRefused: true,
-			wantInError: []string{"tbl_archive", "tbl_main", "exists in this base"},
+			wantInError: []string{"tbl_archive", "tbl_main", "table mismatch", "did not honour the requested scope"},
 		},
 	}
 
@@ -728,8 +861,8 @@ func TestCommandsRefuseTableNotDescribedByFetchedMetadata(t *testing.T) {
 						t.Fatalf("%s payload = %+v, want ok", label, payload)
 					}
 					target := payload["target"].(map[string]any)
-					if target["tableId"] != "tbl_main" {
-						t.Fatalf("%s target = %+v, want tableId tbl_main", label, target)
+					if target["tableId"] != testCase.wantTableID {
+						t.Fatalf("%s target = %+v, want tableId %s", label, target, testCase.wantTableID)
 					}
 					continue
 				}
@@ -766,11 +899,17 @@ func TestRecordCreateApplyRefusesMismatchedTableBeforeAnyRequest(t *testing.T) {
 	}
 }
 
-func TestInspectHTTPKeepsDocxDiscoveredTableThatMetadataDoesNotDescribe(t *testing.T) {
-	// An embedded docx bitable populates Source.TableID from block discovery,
-	// not from a user query string. The clientvars default table can legitimately
-	// differ, so the mismatch guard must not fire here.
+// An embedded docx bitable populates Source.TableID from block discovery, not
+// from a user query string. Scoping the fetch to that discovered table is what
+// makes the path coherent: before, the metadata came from the base's default
+// table while a write would have targeted the embedded one.
+//
+// Source.tableIDFromQuery still separates the two provenances, so the guard
+// stays off here: a discovered table is not a caller assertion, and the
+// embedded block can legitimately name a table the base does not default to.
+func TestInspectHTTPScopesDocxDiscoveredTableAndDoesNotRefuseIt(t *testing.T) {
 	cookiesPath := writeCookieFixture(t)
+	var gotTableID string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/space/api/docx/pages/client_vars":
@@ -790,6 +929,59 @@ func TestInspectHTTPKeepsDocxDiscoveredTableThatMetadataDoesNotDescribe(t *testi
 				},
 			}})
 		case "/space/api/v1/bitable/bas_fixture/clientvars":
+			gotTableID = r.URL.Query().Get("tableID")
+			// Answer the way the live server does: describe the table the
+			// request scoped to.
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": bitableClientVarsFixtureDescribing(t, gotTableID)})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	payload, err := Inspect(InspectConfig{
+		URL:         server.URL + "/docx/dox_fixture",
+		CookiesPath: cookiesPath,
+		SpaceAPI:    server.URL,
+	})
+	if err != nil {
+		t.Fatalf("Inspect returned error: %v", err)
+	}
+	if gotTableID != "tbl_embedded" {
+		t.Fatalf("clientvars tableID = %q, want the docx-discovered tbl_embedded", gotTableID)
+	}
+	if payload["ok"] != true || payload["sourceKind"] != "docx_embedded_bitable" {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+// The guard is off for a docx-discovered table, so a server that answers with a
+// different table than the embedded block named is served rather than refused.
+// This records that gap deliberately: a write here would validate field names
+// against the table that came back and POST the embedded table id. Scoping is
+// what keeps it from happening in practice, and tableIDFromQuery is what keeps
+// the refusal limited to a caller's own assertion.
+func TestInspectHTTPDoesNotRefuseDocxDiscoveredTableTheServerDidNotDescribe(t *testing.T) {
+	cookiesPath := writeCookieFixture(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/space/api/docx/pages/client_vars":
+			writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{
+				"block_map": map[string]any{
+					"dox_fixture": map[string]any{
+						"data": map[string]any{"type": "page", "children": []any{"blk_bitable"}},
+					},
+					"blk_bitable": map[string]any{
+						"data": map[string]any{
+							"type":       "bitable",
+							"base_token": "bas_fixture",
+							"table_id":   "tbl_embedded",
+						},
+					},
+				},
+			}})
+		case "/space/api/v1/bitable/bas_fixture/clientvars":
+			// Ignore the scope and answer with the base's default table.
 			writeJSONResponse(t, w, map[string]any{"code": 0, "data": bitableClientVarsFixture(t)})
 		default:
 			http.NotFound(w, r)
@@ -805,18 +997,44 @@ func TestInspectHTTPKeepsDocxDiscoveredTableThatMetadataDoesNotDescribe(t *testi
 	if err != nil {
 		t.Fatalf("Inspect returned error: %v", err)
 	}
-	if payload["ok"] != true || payload["sourceKind"] != "docx_embedded_bitable" {
+	if payload["sourceKind"] != "docx_embedded_bitable" {
 		t.Fatalf("payload = %+v", payload)
 	}
 }
 
+// bitableClientVarsFixtureWithSecondTable is a two-table base whose payload
+// still describes tbl_main, the first table. It stands for a server that
+// answered with a table other than the one the request scoped to.
 func bitableClientVarsFixtureWithSecondTable(t *testing.T) map[string]any {
+	t.Helper()
+	return bitableClientVarsFixtureDescribing(t, "tbl_main")
+}
+
+// bitableClientVarsFixtureDescribing is a two-table base -- tbl_main then
+// tbl_archive -- whose payload describes describedTableID. Naming tbl_archive
+// makes the described table differ from the positional first table, which is
+// what distinguishes reading data.table.meta.id from guessing base.tables[0].
+func bitableClientVarsFixtureDescribing(t *testing.T, describedTableID string) map[string]any {
 	t.Helper()
 	data := bitableClientVarsFixture(t)
 	schema := decodeFixtureSchema(t, data)
 	base := schema["base"].(map[string]any)
 	base["tables"] = []any{"tbl_main", "tbl_archive"}
 	base["tableInfos"].(map[string]any)["tbl_archive"] = map[string]any{"name": "Archive"}
+	table := schema["data"].(map[string]any)["table"].(map[string]any)
+	table["meta"].(map[string]any)["id"] = describedTableID
+	data["oldSchema"].(map[string]any)["gzipSchema"] = gzipBase64JSON(t, schema)
+	return data
+}
+
+// bitableClientVarsFixtureWithoutDescribedTableID drops data.table.meta.id so
+// the positional fallback is the only thing left to resolve the table.
+func bitableClientVarsFixtureWithoutDescribedTableID(t *testing.T) map[string]any {
+	t.Helper()
+	data := bitableClientVarsFixtureDescribing(t, "tbl_archive")
+	schema := decodeFixtureSchema(t, data)
+	table := schema["data"].(map[string]any)["table"].(map[string]any)
+	delete(table["meta"].(map[string]any), "id")
 	data["oldSchema"].(map[string]any)["gzipSchema"] = gzipBase64JSON(t, schema)
 	return data
 }
@@ -834,8 +1052,9 @@ func bitableClientVarsFixture(t *testing.T) map[string]any {
 		},
 		"data": map[string]any{
 			"table": map[string]any{
-				"id":    "tbl_main",
-				"meta":  map[string]any{"rev": float64(7)},
+				// The real payload names the described table at
+				// data.table.meta.id, alongside rev. There is no data.table.id.
+				"meta":  map[string]any{"id": "tbl_main", "rev": float64(7)},
 				"views": []any{"vew_grid"},
 				"viewMap": map[string]any{
 					"vew_grid": map[string]any{

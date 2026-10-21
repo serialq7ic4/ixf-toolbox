@@ -102,7 +102,7 @@ func TestLeafCommandHelpExitsZeroAndPrintsToStdout(t *testing.T) {
 	}{
 		{
 			args:     []string{"docs", "read", "--help"},
-			expected: []string{"usage: ixf docs read", "--out-dir", "--print-manifest", "--expand-sheets", "--cookies"},
+			expected: []string{"usage: ixf docs read", "--out-dir", "--print-manifest", "--expand-sheets", "--cookies", "--ignore-copy-restriction"},
 		},
 		{
 			args:     []string{"docs", "structure", "--help"},

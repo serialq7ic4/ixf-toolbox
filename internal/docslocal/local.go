@@ -46,6 +46,11 @@ type ReadOptions struct {
 	DownloadImages bool
 	OutputRoot     string
 	ExpandSheets   bool
+	// IgnoreCopyRestriction reads an uploaded file whose owner disabled copying.
+	// Off by default: such a file is refused, since rendering its text locally is
+	// the copy the owner turned off. Setting it is the caller's own decision, and
+	// the result is marked so the text does not travel without that context.
+	IgnoreCopyRestriction bool
 }
 
 func InspectSource(source string) (map[string]any, error) {
@@ -134,10 +139,11 @@ type remoteReadSession struct {
 	// It is needed because the media paths other than docx default to the document's
 	// own origin rather than to DefaultSpaceAPI, so they have to distinguish an
 	// explicit choice from an absent one. See apiHostFor.
-	spaceAPIRequested string
-	downloadImages    bool
-	outputRoot        string
-	expandSheets      bool
+	spaceAPIRequested     string
+	downloadImages        bool
+	outputRoot            string
+	expandSheets          bool
+	ignoreCopyRestriction bool
 }
 
 // apiHostFor reports the host a /space/api/... request should address.
@@ -203,14 +209,15 @@ func newRemoteReadSession(options ReadOptions) (*remoteReadSession, error) {
 		})
 	}
 	return &remoteReadSession{
-		client:            &http.Client{Timeout: 30 * time.Second},
-		cookies:           cookies,
-		csrfToken:         csrfToken,
-		spaceAPI:          spaceAPI,
-		spaceAPIRequested: options.SpaceAPI,
-		downloadImages:    options.DownloadImages,
-		outputRoot:        options.OutputRoot,
-		expandSheets:      options.ExpandSheets,
+		client:                &http.Client{Timeout: 30 * time.Second},
+		cookies:               cookies,
+		csrfToken:             csrfToken,
+		spaceAPI:              spaceAPI,
+		spaceAPIRequested:     options.SpaceAPI,
+		downloadImages:        options.DownloadImages,
+		outputRoot:            options.OutputRoot,
+		expandSheets:          options.ExpandSheets,
+		ignoreCopyRestriction: options.IgnoreCopyRestriction,
 	}, nil
 }
 
@@ -230,6 +237,9 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 	}
 	if kind == "sheet" {
 		return session.readDirectSheet(source, origin, parsed)
+	}
+	if kind == "file" {
+		return session.readBoxFile(source, origin, parsed.Path)
 	}
 	if kind == "bitable" {
 		return session.readDirectBitable(source, origin, parsed.Path)
@@ -339,6 +349,9 @@ func remoteKindFromPath(path string) string {
 	}
 	if strings.Contains(path, "/okr/user/") {
 		return "okr"
+	}
+	if tokenAfter(path, "/file/") != "" {
+		return "file"
 	}
 	return "remote"
 }

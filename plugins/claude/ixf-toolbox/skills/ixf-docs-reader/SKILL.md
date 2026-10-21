@@ -97,6 +97,26 @@ reading anything. It is read-only and has no `--apply`.
   direct children, not every kind in the subtree. A readable bitable nested
   deeper appears only when `--max-depth` reaches it.
 
+## Uploaded File Boundary
+
+A direct `/file/<token>` link is an uploaded file (PDF, slides, spreadsheet), not a
+document built from blocks. `ixf docs read` reads it through the text layer the
+server extracts for preview; the original file is never fetched.
+
+- Permission is checked first. Without view and preview rights the read is refused.
+- If the owner disabled copying, the read is refused by default with an error
+  naming `--ignore-copy-restriction`. Do not add that flag on your own: it reads a
+  file whose owner chose to stop copying, so pass it only when the user has asked
+  to read that specific file anyway. The result then carries a notice saying so.
+- A permission check that fails or returns an unknown answer is a refusal.
+- A file with no server-generated text layer, such as an image-only scan, is
+  reported as such rather than returning an empty page.
+- Layout is reconstructed from positioned glyphs, so reading order is reliable but
+  a two-column slide renders each row as one line, and decorative glyphs can
+  survive. Diagonal watermarks and running headers are removed.
+- A `box` node inside a wiki listing is still reported `readable:false`; only a
+  direct `/file/` link takes this path.
+
 ## Safety
 
 Do not print cookie values, CSRF tokens, private API payloads, full private URLs, document IDs, or generated private content unless needed for the user's requested analysis.

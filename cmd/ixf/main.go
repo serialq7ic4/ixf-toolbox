@@ -1021,11 +1021,12 @@ func runDocsRead(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 2
 	}
 	results, err := docslocal.ReadSourcesWithOptions(parsed.sources, docslocal.ReadOptions{
-		CookiesPath:    parsed.cookiesPath,
-		SpaceAPI:       parsed.spaceAPI,
-		DownloadImages: parsed.downloadImages,
-		OutputRoot:     parsed.outDir,
-		ExpandSheets:   parsed.expandSheets,
+		CookiesPath:           parsed.cookiesPath,
+		SpaceAPI:              parsed.spaceAPI,
+		DownloadImages:        parsed.downloadImages,
+		OutputRoot:            parsed.outDir,
+		ExpandSheets:          parsed.expandSheets,
+		IgnoreCopyRestriction: parsed.ignoreCopyRestriction,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
@@ -1485,6 +1486,7 @@ func printDocsReadHelp(w io.Writer) {
 		{"--cleanup", "Remove generated artifacts after reading; requires --out-dir."},
 		{"--expand-sheets", "Expand embedded sheet blocks into local TSV/Markdown artifacts when available."},
 		{"--download-images", "Download referenced images into the output directory."},
+		{"--ignore-copy-restriction", "Read an uploaded file whose owner disabled copying; refused without it."},
 		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
 		{"--space-api URL", "Override the i讯飞 Space API base URL."},
 	})
@@ -2021,6 +2023,9 @@ type docsReadArgs struct {
 	spaceAPI       string
 	downloadImages bool
 	expandSheets   bool
+	// ignoreCopyRestriction is off unless the caller passes the flag, so a
+	// copy-restricted file is refused by default.
+	ignoreCopyRestriction bool
 }
 
 type docsStructureArgs struct {
@@ -2133,6 +2138,8 @@ func parseDocsReadArgs(args []string) (docsReadArgs, error) {
 			parsed.expandSheets = true
 		case "--download-images":
 			parsed.downloadImages = true
+		case "--ignore-copy-restriction":
+			parsed.ignoreCopyRestriction = true
 		case "--cookies":
 			i++
 			if i >= len(args) {

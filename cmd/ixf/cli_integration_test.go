@@ -3039,3 +3039,57 @@ func TestCLISheetsReadWithoutSpaceAPISucceeds(t *testing.T) {
 		t.Fatal("no request reached the origin; the override check refused the read")
 	}
 }
+
+// The copy-restriction flag must reach the read through the real argument parser.
+//
+// Library tests set ReadOptions.IgnoreCopyRestriction directly and so cannot see a
+// parser that drops the flag. That is the layer a regression in this tool once
+// hid in, so this runs docs read itself, with and without the flag.
+func TestCLIDocsReadHonoursIgnoreCopyRestriction(t *testing.T) {
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCLICookieFixture(t, cookiesPath)
+	fetchedLayer := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/space/api/suite/permission/document/actions/state/":
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{
+				"actions": map[string]any{"view": 1, "preview": 1, "copy": 102},
+			}})
+		case r.URL.Path == "/space/api/box/file/info/":
+			writeTestJSON(t, w, map[string]any{"code": 0, "data": map[string]any{
+				"name": "Plan.pdf", "type": "pdf", "data_version": "7001",
+				"preview_meta": map[string]any{"data": map[string]any{
+					"22": map[string]any{"status": 0, "extra": `{"has_txt_all":true}`},
+				}},
+			}})
+		case strings.HasPrefix(r.URL.Path, "/space/api/box/stream/download/preview_sub/"):
+			fetchedLayer = true
+			writeTestJSON(t, w, map[string]any{"link": []any{}, "page": map[string]any{
+				"0": []any{map[string]any{"t": "Goals", "r": []any{10.0, 200.0, 20.0, 4.0}}},
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	source := server.URL + "/file/boxcnFixtureToken"
+
+	// Without the flag: refused, and the text layer is never requested.
+	_, stderr, code := runCLITest(t, "docs", "read", source, "--cookies", cookiesPath, "--space-api", server.URL)
+	if code != 2 || !strings.Contains(stderr, "--ignore-copy-restriction") {
+		t.Fatalf("without the flag: code=%d stderr=%q, want a refusal naming the flag", code, stderr)
+	}
+	if fetchedLayer {
+		t.Fatal("the text layer was fetched without the flag")
+	}
+
+	// With the flag: read, and marked.
+	stdout, stderr, code := runCLITest(t, "docs", "read", source, "--cookies", cookiesPath,
+		"--space-api", server.URL, "--ignore-copy-restriction")
+	if code != 0 || stderr != "" {
+		t.Fatalf("with the flag: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "Goals") || !strings.Contains(stdout, "Read with --ignore-copy-restriction") {
+		t.Fatalf("with the flag: stdout = %q, want the text and the notice", stdout)
+	}
+}

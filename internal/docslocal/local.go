@@ -242,7 +242,7 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 		return session.readBoxFile(source, origin, parsed.Path)
 	}
 	if kind == "bitable" {
-		return session.readDirectBitable(source, origin, parsed.Path)
+		return session.readDirectBitable(source, origin, parsed)
 	}
 	token := tokenAfter(parsed.Path, "/docx/")
 	if token == "" && kind == "wiki" {

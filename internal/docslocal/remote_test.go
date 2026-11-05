@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1530,5 +1531,128 @@ func TestReadSourcesWithOptionsAcceptsASpaceAPIEqualToTheOrigin(t *testing.T) {
 	}
 	if results[0].Kind != "bitable" {
 		t.Fatalf("kind = %q, want bitable", results[0].Kind)
+	}
+}
+
+// twoTableBitableServer fakes a base with two tables and honours ?tableID=, as the
+// live server does: it describes the requested table, or the first one when none
+// is named, and names the described table at data.table.meta.id.
+//
+// The existing fixture puts the id at data.table.id, a shape the server does not
+// send. Code reading that field always fell back to the first table, and the
+// fixture made that look correct.
+func twoTableBitableServer(t *testing.T, requested *[]string) *httptest.Server {
+	t.Helper()
+	tables := map[string]struct{ name, cell string }{
+		"tbl_first":  {name: "Clusters", cell: "cluster-a"},
+		"tbl_second": {name: "Servers", cell: "server-b"},
+	}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/space/api/v1/bitable/bas_two/clientvars" {
+			http.NotFound(w, r)
+			return
+		}
+		asked := r.URL.Query().Get("tableID")
+		*requested = append(*requested, asked)
+		described := asked
+		if _, ok := tables[described]; !ok {
+			// An unknown or absent table: the server falls back to the first.
+			described = "tbl_first"
+		}
+		table := tables[described]
+		schema := map[string]any{
+			"base": map[string]any{
+				"name":   "Two Tables",
+				"tables": []any{"tbl_first", "tbl_second"},
+				"tableInfos": map[string]any{
+					"tbl_first":  map[string]any{"name": "Clusters"},
+					"tbl_second": map[string]any{"name": "Servers"},
+				},
+			},
+			"data": map[string]any{
+				"table": map[string]any{
+					"meta":  map[string]any{"id": described, "name": table.name},
+					"views": []any{"vew_grid"},
+					"viewMap": map[string]any{"vew_grid": map[string]any{
+						"id": "vew_grid", "name": "Grid", "type": float64(1),
+						"property": map[string]any{"fields": []any{"fld_name"}, "records": []any{"rec_1"}},
+					}},
+					"fieldMap": map[string]any{"fld_name": map[string]any{"id": "fld_name", "name": "Name", "type": float64(1)}},
+				},
+				"recordMap": map[string]any{"rec_1": map[string]any{"fld_name": map[string]any{"value": table.cell}}},
+			},
+		}
+		writeJSONResponse(t, w, map[string]any{"code": 0, "data": map[string]any{
+			"oldSchema": map[string]any{"gzipSchema": gzipJSON(t, schema)},
+		}})
+	}))
+}
+
+func readTwoTableBitable(t *testing.T, query string) ([]Result, []string, error) {
+	t.Helper()
+	var requested []string
+	server := twoTableBitableServer(t, &requested)
+	t.Cleanup(server.Close)
+	cookiesPath := filepath.Join(t.TempDir(), "cookies.json")
+	writeCookieFixture(t, cookiesPath)
+	results, err := ReadSourcesWithOptions([]string{server.URL + "/base/bas_two" + query}, ReadOptions{
+		CookiesPath: cookiesPath, SpaceAPI: server.URL,
+	})
+	return results, requested, err
+}
+
+// A ?table= naming the second table reads the second table, and says so.
+//
+// This used to return the first table's rows while the meta line named the first
+// table, so the caller got plausible data from a table they had not asked for.
+func TestReadSourcesWithOptionsReadsTheRequestedBitableTable(t *testing.T) {
+	results, requested, err := readTwoTableBitable(t, "?table=tbl_second")
+	if err != nil {
+		t.Fatalf("read returned error: %v", err)
+	}
+	if len(requested) != 1 || requested[0] != "tbl_second" {
+		t.Fatalf("clientvars tableID = %v, want the requested table sent", requested)
+	}
+	content := results[0].Content
+	if !strings.Contains(content, `table_id=tbl_second table_name="Servers"`) {
+		t.Fatalf("meta line does not name the requested table:\n%s", content)
+	}
+	if !strings.Contains(content, "server-b") || strings.Contains(content, "cluster-a") {
+		t.Fatalf("rows are not the requested table's:\n%s", content)
+	}
+}
+
+// Without ?table= the server's default is read and no table is requested.
+func TestReadSourcesWithOptionsReadsTheDefaultBitableTableWithoutAParameter(t *testing.T) {
+	results, requested, err := readTwoTableBitable(t, "")
+	if err != nil {
+		t.Fatalf("read returned error: %v", err)
+	}
+	if len(requested) != 1 || requested[0] != "" {
+		t.Fatalf("clientvars tableID = %v, want it empty when none was asked for", requested)
+	}
+	if !strings.Contains(results[0].Content, `table_id=tbl_first table_name="Clusters"`) {
+		t.Fatalf("default read does not name the first table:\n%s", results[0].Content)
+	}
+}
+
+// A table the base does not have is refused, not answered with the default table.
+func TestReadSourcesWithOptionsRefusesABitableTableTheBaseLacks(t *testing.T) {
+	_, _, err := readTwoTableBitable(t, "?table=tbl_ghost")
+	if err == nil || !strings.Contains(err.Error(), "not one of this base's tables") {
+		t.Fatalf("err = %v, want a refusal naming the missing table", err)
+	}
+}
+
+// The parameter keys match internal/bitable's, so one URL means one table to both.
+func TestRequestedBitableTableIDAcceptsTheKeysBitableAccepts(t *testing.T) {
+	for _, query := range []string{"table=tbl_x", "table_id=tbl_x", "tableId=tbl_x"} {
+		values, _ := url.ParseQuery(query)
+		if got := requestedBitableTableID(values); got != "tbl_x" {
+			t.Fatalf("requestedBitableTableID(%q) = %q, want tbl_x", query, got)
+		}
+	}
+	if got := requestedBitableTableID(url.Values{}); got != "" {
+		t.Fatalf("an absent parameter read as %q, want empty", got)
 	}
 }

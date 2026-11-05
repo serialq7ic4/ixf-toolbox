@@ -97,6 +97,15 @@ reading anything. It is read-only and has no `--apply`.
   direct children, not every kind in the subtree. A readable bitable nested
   deeper appears only when `--max-depth` reaches it.
 
+## Bitable Table Selection
+
+A direct `/base/<token>` link reads the table named by its `?table=` parameter,
+which the browser adds when a tab other than the first is open. Without it, the
+base's first table is read. The output's `table_id` and `table_name` name the table
+actually read. A `?table=` naming a table the base does not have is refused rather
+than answered with the first table. A wiki-hosted bitable addresses the base, not a
+table, so it always reads the first table.
+
 ## Uploaded File Boundary
 
 A direct `/file/<token>` link is an uploaded file (PDF, slides, spreadsheet), not a

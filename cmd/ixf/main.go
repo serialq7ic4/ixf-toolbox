@@ -373,9 +373,9 @@ func runSheetsRead(args []string, stdout io.Writer, stderr io.Writer) int {
 	source := ""
 	cookiesPath := defaultCookies
 	// Left empty when --space-api is absent, for the same reason as docs read: a
-	// direct sheet is read through docslocal, which addresses the document's own
-	// origin and refuses an override naming a different host. Seeding the default
-	// here would make every sheets read look like such an override.
+	// direct sheet is read through docslocal, which defaults that read to the
+	// document's own origin. Seeding a fixed host here would make every sheets read
+	// look like an explicit override and send it to that host instead.
 	spaceAPI := ""
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -1486,12 +1486,8 @@ func printDocsReadHelp(w io.Writer) {
 		{"--expand-sheets", "Expand embedded sheet blocks into local TSV/Markdown artifacts when available."},
 		{"--download-images", "Download referenced images into the output directory."},
 		{"--cookies PATH", "Read exported desktop session cookies from PATH."},
-		{"--space-api URL", "Override the Space API base URL; applies to a docx source only."},
+		{"--space-api URL", "Override the i讯飞 Space API base URL."},
 	})
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "--space-api applies to a docx source. A sheet, bitable, or mindnote source is read")
-	fmt.Fprintln(w, "from the document's own origin, so an override naming a different host is refused")
-	fmt.Fprintln(w, "rather than accepted and ignored.")
 }
 
 func printDocsStructureHelp(w io.Writer) {
@@ -2114,8 +2110,9 @@ func parseDocsReadArgs(args []string) (docsReadArgs, error) {
 	// spaceAPI stays empty when the caller does not pass --space-api, so the read
 	// session can tell an explicit choice from an absent one. It applies
 	// docslocal.DefaultSpaceAPI itself for the docx path, so this is the same host
-	// either way; filling it in here would make every read look like an override and
-	// get refused on the paths that address the document's own origin.
+	// either way; filling it in here would make every read look like an explicit
+	// override and send the paths that default to the document's own origin to that
+	// fixed host instead.
 	parsed := docsReadArgs{
 		cookiesPath: defaultCookies,
 	}
@@ -2209,9 +2206,13 @@ func parseDocsStructureArgs(args []string) (docsStructureArgs, error) {
 }
 
 func parseDocsTreeArgs(args []string) (docsTreeArgs, error) {
+	// spaceAPI stays empty when --space-api is absent, as in parseDocsReadArgs. The
+	// wiki tree API request is addressed relative to the wiki it walks, so the read
+	// session defaults it to the document's own origin. Seeding a fixed host here
+	// would look like an explicit override and send every no-flag walk there instead
+	// of to the tenant the wiki lives on.
 	parsed := docsTreeArgs{
 		cookiesPath: defaultCookies,
-		spaceAPI:    docslocal.DefaultSpaceAPI,
 	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]

@@ -30,8 +30,13 @@ type cachedImage struct {
 }
 
 type imageAssetWriter struct {
-	session               *remoteReadSession
-	origin                string
+	session *remoteReadSession
+	// origin is the document's own host and is what the Origin header carries.
+	origin string
+	// apiHost is where the download request is sent, which --space-api can override.
+	// It is kept separate from origin so the override reroutes the request without
+	// rewriting the headers that identify the document.
+	apiHost               string
 	referer               string
 	documentToken         string
 	outputRoot            string
@@ -52,6 +57,7 @@ func newImageAssetWriter(
 	return &imageAssetWriter{
 		session:       session,
 		origin:        strings.TrimRight(origin, "/"),
+		apiHost:       session.apiHostFor(origin),
 		referer:       referer,
 		documentToken: documentToken,
 		outputRoot:    expandUser(outputRoot),
@@ -81,7 +87,7 @@ func (writer *imageAssetWriter) resolve(reference docx.ImageReference) docx.Imag
 		return writer.failure(reference, ordinal, altText, "io_error")
 	}
 
-	downloadURL := writer.origin + "/space/api/box/stream/download/all/" +
+	downloadURL := writer.apiHost + "/space/api/box/stream/download/all/" +
 		url.PathEscape(reference.Token) + "/?mount_node_token=" +
 		url.QueryEscape(writer.documentToken) + "&mount_point=docx_image"
 	request, err := http.NewRequest(http.MethodGet, downloadURL, nil)

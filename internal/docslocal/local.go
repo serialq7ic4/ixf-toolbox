@@ -131,34 +131,35 @@ type remoteReadSession struct {
 	// pass one. spaceAPI cannot answer that question because it carries
 	// DefaultSpaceAPI once the option is absent.
 	//
-	// It is needed because only the docx path sends its request to spaceAPI. Every
-	// other media type here addresses the URL's own origin, so an override that
-	// differs from the origin has no effect on them, and silently reading the wrong
-	// host is worse than refusing.
+	// It is needed because the media paths other than docx default to the document's
+	// own origin rather than to DefaultSpaceAPI, so they have to distinguish an
+	// explicit choice from an absent one. See apiHostFor.
 	spaceAPIRequested string
 	downloadImages    bool
 	outputRoot        string
 	expandSheets      bool
 }
 
-// requireSpaceAPIUnused rejects an override that this media path cannot apply.
+// apiHostFor reports the host a /space/api/... request should address.
 //
-// The caller asked for a host and would otherwise be served a different one with no
-// indication, which is the failure that is hard to notice: the read succeeds against
-// the origin and looks like it honoured the flag.
+// An explicit --space-api wins. The endpoints these paths call answer on both the
+// tenant origin and the Space API host (bitable clientvars and docx client_vars were
+// probed on each and returned code=0), so they are interchangeable and honouring the
+// caller's host carries no risk of reading a different document.
 //
-// An override equal to the origin is accepted, since the request goes there anyway.
-// That is the shape every test uses, pointing both the document URL and the override
-// at one httptest server.
-func (session *remoteReadSession) requireSpaceAPIUnused(origin string, mediaKind string) error {
-	requested := strings.TrimRight(strings.TrimSpace(session.spaceAPIRequested), "/")
-	if requested == "" || requested == strings.TrimRight(origin, "/") {
-		return nil
+// Absent an override the document's own origin is used, not DefaultSpaceAPI. These
+// reads are addressed relative to the document, so defaulting to one fixed internal
+// host would send every no-flag read of a differently hosted tenant to the wrong
+// place. This mirrors internal/bitable, which defaults its session host to the
+// source's own BaseURL.
+//
+// Only API endpoints are rerouted. A fetch of the document's own HTML page keeps its
+// URL, since the Space API host does not serve document pages.
+func (session *remoteReadSession) apiHostFor(origin string) string {
+	if requested := strings.TrimRight(strings.TrimSpace(session.spaceAPIRequested), "/"); requested != "" {
+		return requested
 	}
-	return fmt.Errorf(
-		"--space-api %s cannot be applied to a %s source: that read addresses the document's own origin %s, "+
-			"and only a docx source is fetched from the Space API host. Drop --space-api to read it from %s",
-		requested, mediaKind, origin, origin)
+	return strings.TrimRight(origin, "/")
 }
 
 type cookieObject struct {
@@ -220,24 +221,17 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 	}
 	origin := originForURL(parsed)
 	kind := remoteKindFromPath(parsed.Path)
-	// Each of these addresses origin rather than spaceAPI, so an override naming a
-	// different host would be accepted and then ignored.
+	// These paths send their API requests to session.apiHostFor(origin), so an
+	// override is applied rather than ignored. readMindnote is the exception: it
+	// parses the document's own HTML page and issues no API request, so there is no
+	// request for an override to redirect.
 	if kind == "mindnote" {
-		if err := session.requireSpaceAPIUnused(origin, "mindnote"); err != nil {
-			return Result{}, err
-		}
 		return session.readMindnote(source, origin, parsed.Path)
 	}
 	if kind == "sheet" {
-		if err := session.requireSpaceAPIUnused(origin, "sheet"); err != nil {
-			return Result{}, err
-		}
 		return session.readDirectSheet(source, origin, parsed)
 	}
 	if kind == "bitable" {
-		if err := session.requireSpaceAPIUnused(origin, "bitable"); err != nil {
-			return Result{}, err
-		}
 		return session.readDirectBitable(source, origin, parsed.Path)
 	}
 	token := tokenAfter(parsed.Path, "/docx/")
@@ -246,14 +240,21 @@ func (session *remoteReadSession) readRemote(source string, assetGroup string) (
 		if err != nil {
 			return Result{}, err
 		}
+		// A wiki node backed by a native sheet is checked before the bitable branch.
+		// isBitableWikiHTML only looks for the words "wiki_suite_type" and "bitable"
+		// anywhere in the page, and a sheet page contains both (its scripts mention
+		// bitable feature flags), so it answers true here too. The obj_token's sht
+		// prefix is the signal that actually distinguishes the two.
+		// Checked before the bitable branch: a sheet page also contains the strings
+		// isBitableWikiHTML looks for, so a sheet node would otherwise be routed to the
+		// bitable reader. The sht prefix on the object token is what actually separates
+		// them. No override check is needed — the sheet fetch goes through
+		// fetchSheetClientVars, which honours --space-api like every other API call.
+		if workbookToken := wikiSheetWorkbookToken(html); workbookToken != "" {
+			return session.readWikiSheet(source, origin, workbookToken)
+		}
 		var bitableErr error
 		if isBitableWikiHTML(html) {
-			// Also an origin-addressed read, so the same override check applies. It is
-			// made here rather than before the fetch because only the HTML says whether
-			// this wiki node is a bitable or a docx, and a docx does honour the override.
-			if err := session.requireSpaceAPIUnused(origin, "wiki-hosted bitable"); err != nil {
-				return Result{}, err
-			}
 			if result, err := session.readBitableWiki(source, origin, html); err == nil {
 				return result, nil
 			} else {

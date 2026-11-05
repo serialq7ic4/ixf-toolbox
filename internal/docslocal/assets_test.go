@@ -174,6 +174,63 @@ func TestImageAssetWriterRemovesStaleGeneratedFilesBeforeDownload(t *testing.T) 
 	}
 }
 
+// An override sends the download to the named host, with headers still naming the
+// document.
+//
+// The document origin and the override are two different servers, so a download that
+// ignored the override would hit the first one and fail the assertion.
+func TestImageAssetWriterDownloadsFromTheOverrideHost(t *testing.T) {
+	var gotOrigin, gotReferer string
+	overrideRequests := 0
+	override := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		overrideRequests++
+		gotOrigin = r.Header.Get("Origin")
+		gotReferer = r.Header.Get("Referer")
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(pngBytes)
+	}))
+	defer override.Close()
+
+	documentRequests := 0
+	document := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		documentRequests++
+		http.NotFound(w, r)
+	}))
+	defer document.Close()
+
+	writer := newImageAssetWriter(
+		&remoteReadSession{
+			client:            http.DefaultClient,
+			csrfToken:         "fixture-csrf",
+			cookies:           []http.Cookie{{Name: "session", Value: "fixture-session"}},
+			spaceAPIRequested: override.URL,
+		},
+		document.URL,
+		document.URL+"/docx/dox-fixture-document",
+		"dox-fixture-document",
+		t.TempDir(),
+		"docx_1",
+	)
+
+	resolution := writer.resolve(imageReferenceFixture("boxr-fixture-token"))
+
+	if resolution.Warning != "" {
+		t.Fatalf("warning = %q, want the download to succeed against the override", resolution.Warning)
+	}
+	if overrideRequests != 1 {
+		t.Fatalf("override requests = %d, want 1; the override host was not used", overrideRequests)
+	}
+	if documentRequests != 0 {
+		t.Fatalf("document-origin requests = %d, want 0; the override was ignored", documentRequests)
+	}
+	if gotOrigin != document.URL {
+		t.Fatalf("Origin header = %q, want the document origin %q", gotOrigin, document.URL)
+	}
+	if want := document.URL + "/docx/dox-fixture-document"; gotReferer != want {
+		t.Fatalf("Referer header = %q, want %q", gotReferer, want)
+	}
+}
+
 func imageWriterFixture(origin string, outputRoot string) *imageAssetWriter {
 	return newImageAssetWriter(
 		&remoteReadSession{

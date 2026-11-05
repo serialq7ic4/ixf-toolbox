@@ -76,7 +76,9 @@ func (session *remoteReadSession) readBitableBase(source string, origin string, 
 }
 
 func (session *remoteReadSession) bitableClientVars(origin string, baseToken string, referer string) (map[string]any, error) {
-	requestURL := origin + "/space/api/v1/bitable/" + url.PathEscape(baseToken) + "/clientvars" +
+	// The URL goes to the resolved API host so --space-api is honoured; Origin and
+	// Referer stay tied to the document, matching internal/bitable.
+	requestURL := session.apiHostFor(origin) + "/space/api/v1/bitable/" + url.PathEscape(baseToken) + "/clientvars" +
 		"?tableID=&viewID=&recordLimit=2000&ondemandLimit=200" +
 		"&needBase=true&viewLazyLoad=true&ondemandVer=2" +
 		"&openType=0&noMissCS=true&optimizationFlag=1"

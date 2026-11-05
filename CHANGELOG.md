@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 3.31.0 - 2026-11-05
+
+- `ixf docs read` reads a direct `/file/<token>` link: an uploaded PDF, slide deck, or spreadsheet. It reads the text layer the server already extracts for preview, and never fetches the original file. These links used to fail at the router, which had no `/file/` case.
+- **Permission is checked before anything is fetched.** View and preview are required and no flag overrides them. When the owner has disabled copying, the read is refused by default, because rendering the text into a local file is the copy the owner turned off. `--ignore-copy-restriction` reads it anyway at the caller's explicit choice, and the result then says so in its content as well as its warnings. A failed or unreadable permission answer is a refusal.
+- The text layer is a hit-testing overlay for page images rather than prose, so it is reconstructed: reading order follows the PDF's bottom-left origin, a diagonal watermark fused into the glyphs it crosses is cut away, watermark tiles are recognized by their uniform size, Kangxi radical code points are folded to the ideographs they resemble, and spaces are added only at column gutters. The viewer's own name-and-ID watermark is drawn client-side and never appears in the output.
+- **The output is uneven on slide decks.** Text-led pages read well. Multi-column slides interleave their columns row by row, tables interleave their cells, diagrams come out as scattered labels, and large decorative titles break into one character per line. Treat a slide-heavy read as searchable and good for the gist, not as a faithful transcription.
+- `ixf docs read` reads a wiki node backed by a native sheet. It used to fail with `client_vars failed`, because a `/wiki/` URL never reached the sheet branch and the wiki tree exposes only the workbook token. The sheet id is now resolved from the workbook. The first sheet by index is read, a workbook with more than one sheet reports how many in its header and in a warning, and `ixf docs tree` now marks these nodes readable.
+- **Behaviour change.** `--space-api` is honored on every `docs read` path instead of being refused for sheet, bitable, and mindnote sources. 3.30.1 refused an override naming a host other than the document's origin, because the correct host per endpoint was unknown. A live probe then showed both hosts serve these endpoints, so the override now applies everywhere. The `Origin` and `Referer` headers still name the document. Mindnote is the one source where the override is accepted but has no effect: it reads the document's own page and makes no API request to redirect.
+- The no-flag default of `ixf docs tree` no longer seeds the internal Space API host. That default became load-bearing once the tree request honored the override, and it was caught before release by a test that runs the command with the flag absent.
+
 ## 3.30.3 - 2026-10-13
 
 - Fixed `ixf sheets read` refusing every read, the same regression 3.30.2 fixed for `ixf docs read`. A direct sheet is read through `docslocal.ReadSourcesWithOptions`, so it inherits the override check added in 3.30.1, and its own argument parser also seeded `spaceAPI` with `DefaultSpaceAPI` — making every invocation look like an override of a host the sheet path cannot use. The two commands have separate parsers and only `docs read` was traced when fixing 3.30.2.

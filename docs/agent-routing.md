@@ -103,6 +103,18 @@ guaranteed complete inventory. The default listing covers one level, so it shows
 the kinds present among the direct children rather than every kind in the
 subtree; a bitable nested deeper appears only under `--max-depth`.
 
+## Uploaded File Boundary
+
+A direct `/file/<token>` link is an uploaded file rather than a block document.
+`ixf docs read` reads its server-extracted preview text layer, never the original
+file. It checks view, preview, and copy permission before fetching anything. A
+file whose owner disabled copying is refused unless `--ignore-copy-restriction` is
+passed; an agent should pass it only when the user has explicitly asked to read
+that file, because it overrides a choice the owner made. Unknown or failed
+permission answers are refusals. Layout is reconstructed from positioned glyphs:
+reading order holds, watermarks and running headers are dropped, and two-column
+slides render each row as one line.
+
 ## Docs Publish Boundary
 
 When the user asks to publish or整理内容到 i讯飞文档, create the Markdown source

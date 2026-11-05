@@ -896,9 +896,11 @@ func repoRoot(t *testing.T) string {
 // does not.
 func TestBitableClientVarsQueryStaysIdenticalAcrossPackages(t *testing.T) {
 	// The fragments are matched as they appear in source, where both copies build the
-	// query from three concatenated literals rather than one string.
+	// query from concatenated pieces. The table id is the one dynamic piece: each copy
+	// passes its own variable, so the assertion stops at the call that wraps it.
 	fragments := []string{
-		`"?tableID=&viewID=&recordLimit=2000&ondemandLimit=200" +`,
+		`"?tableID=" + url.QueryEscape(strings.TrimSpace(`,
+		`"&viewID=&recordLimit=2000&ondemandLimit=200" +`,
 		`"&needBase=true&viewLazyLoad=true&ondemandVer=2" +`,
 		`"&openType=0&noMissCS=true&optimizationFlag=1"`,
 	}
@@ -917,17 +919,18 @@ func TestBitableClientVarsQueryStaysIdenticalAcrossPackages(t *testing.T) {
 		}
 	}
 
-	// The empty tableID is called out separately because it is the fragment with a
-	// known defect behind it: it pins the fetch to the table the server picks, which
-	// is what made a ?table= request validate against one table and write to another.
-	// A future change to scope the fetch has to touch both copies, and this is the
-	// assertion that fails if only one is changed.
+	// The unscoped form is asserted absent from both copies. It pinned the fetch to
+	// whichever table the server picked: internal/bitable then validated a ?table=
+	// write against the first table, and docs read returned the first table's rows
+	// under any ?table= while labelling them as that table. Both copies now scope the
+	// fetch, and this is the assertion that fails if either reverts on its own.
 	for _, relative := range []string{
 		"internal/docslocal/bitable.go",
 		"internal/bitable/bitable.go",
 	} {
-		if !strings.Contains(readRepoFile(t, relative), "?tableID=&viewID=") {
-			t.Fatalf("%s changed the unscoped tableID parameter; the other copy needs the same change", relative)
+		if strings.Contains(readRepoFile(t, relative), `"?tableID=&viewID=`) {
+			t.Fatalf("%s builds the clientvars query with an unscoped tableID again; "+
+				"a ?table= request would read the base's first table", relative)
 		}
 	}
 }

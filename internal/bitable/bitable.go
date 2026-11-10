@@ -67,8 +67,9 @@ type Metadata struct {
 	Fields    []Field
 	Records   []Record
 	// describedTableID is the table whose views, fields, and records this
-	// payload actually carries. Tables lists every table in the base, but the
-	// clientvars request is not table-scoped, so only one table is described.
+	// payload actually carries. Tables lists every table in the base, but one
+	// clientvars response describes exactly one of them: the tableID the request
+	// asked for, or the base's first table when the request left it empty.
 	describedTableID string
 }
 
@@ -169,9 +170,10 @@ func ParseSource(rawURL string) (Source, error) {
 }
 
 // resolveSourceMetadata is the single prologue shared by every bitable command.
-// It parses the source, fetches the metadata, and refuses any requested table
-// that the fetched metadata does not describe. Every read, dry-run, and apply
-// path runs through here before any write is planned or sent.
+// It parses the source, fetches the metadata scoped to the requested table, and
+// refuses a request the server answered with a different table than the one
+// asked for. Every read, dry-run, and apply path runs through here before any
+// write is planned or sent.
 func resolveSourceMetadata(rawURL string, injected map[string]any, cookiesPath string, spaceAPI string) (Source, Metadata, error) {
 	source, err := ParseSource(rawURL)
 	if err != nil {
@@ -191,11 +193,21 @@ func resolveSourceMetadata(rawURL string, injected map[string]any, cookiesPath s
 	return source, meta, nil
 }
 
-// validateRequestedTable refuses a caller-requested table that the fetched
-// metadata does not describe. The clientvars request is not table-scoped, so
-// the fields and records always belong to the base's default table. Writing to
-// a different table would validate field names against one table and POST
-// table-scoped field IDs to another.
+// validateRequestedTable refuses a request the server answered with a table
+// other than the one asked for.
+//
+// clientVars now sends the requested tableID, and the server honours it
+// (verified live against a base with 17 tables), so a table that exists in the
+// base comes back described and this returns nil. What scoping cannot rule out
+// is the server answering with some other table regardless -- the likely reply
+// to a table id that is not in this base, where an unscoped default is all the
+// server can return. Accepting that silently is the dangerous outcome: field
+// names would be validated against the table that came back while the write
+// POSTed the requested table id, sending one table's field IDs to another.
+//
+// Only a caller-requested table can reach here. A table discovered from an
+// embedding docx block is not a user assertion about which table to use, and
+// the embedded block id and the base's own default can legitimately differ.
 func validateRequestedTable(source Source, meta Metadata) error {
 	requested := strings.TrimSpace(source.TableID)
 	if requested == "" || !source.tableIDFromQuery {
@@ -205,15 +217,16 @@ func validateRequestedTable(source Source, meta Metadata) error {
 	if requested == described {
 		return nil
 	}
-	detail := ""
+	detail := fmt.Sprintf(" Table %q is not one of this base's tables, so the server answered with %s instead.",
+		requested, describedTableLabel(meta))
 	if containsTableID(meta.Tables, requested) {
-		detail = fmt.Sprintf(" table %q exists in this base, but the metadata request is not table-scoped, so only %s was fetched.",
-			requested, describedTableLabel(meta))
+		detail = fmt.Sprintf(" Table %q does exist in this base, so the server did not honour the requested scope; this is unexpected and worth reporting.",
+			requested)
 	}
 	return fmt.Errorf(
 		"bitable table mismatch: --url requested table %q but the fetched metadata describes %s; "+
 			"field names would be validated against %s while the write would target %q, so this request is refused.%s"+
-			" Remove the table parameter from --url to operate on %s",
+			" Correct the table parameter in --url, or remove it to operate on %s",
 		requested, describedTableLabel(meta), describedTableLabel(meta), requested, detail, describedTableLabel(meta))
 }
 
@@ -424,8 +437,17 @@ func newSession(cookiesPath string, defaultSpaceAPI string, spaceAPI string) (*s
 }
 
 func (session *session) clientVars(source Source) (map[string]any, error) {
+	// tableID scopes the response: the server returns that table's views,
+	// fields, and records, and names it at data.table.meta.id. Sending it keeps
+	// the metadata, the guard, and the write all describing one table. Left
+	// empty, the server describes the base's first table.
+	//
+	// viewID stays empty on purpose. Probed live: the response is byte-identical
+	// for every viewID value, because view filtering lives in each view's
+	// property.filterInfo and is applied client-side. Do not re-probe it.
 	requestURL := session.spaceAPI + "/space/api/v1/bitable/" + url.PathEscape(source.BaseToken) + "/clientvars" +
-		"?tableID=&viewID=&recordLimit=2000&ondemandLimit=200" +
+		"?tableID=" + url.QueryEscape(strings.TrimSpace(source.TableID)) +
+		"&viewID=&recordLimit=2000&ondemandLimit=200" +
 		"&needBase=true&viewLazyLoad=true&ondemandVer=2" +
 		"&openType=0&noMissCS=true&optimizationFlag=1"
 	request, err := http.NewRequest(http.MethodGet, requestURL, nil)
@@ -773,9 +795,14 @@ func ParseClientVars(data map[string]any, baseToken string) (Metadata, error) {
 		BaseToken: strings.TrimSpace(baseToken),
 		Title:     firstNonEmptyString(base["name"], baseToken),
 		TableRev:  intValue(asMap(tableData["meta"])["rev"]),
-		// The payload carries exactly one table's schema. Prefer its own id and
-		// fall back to the base's first table when the id is absent.
-		describedTableID: firstNonEmptyString(tableData["id"], tableIDs[0]),
+		// The payload carries exactly one table's schema, and names it at
+		// data.table.meta.id -- the same object that carries rev. There is no
+		// data.table.id in the real response, so reading that key always fell
+		// through to the positional guess below. Verified live: with tableID
+		// empty, meta.id is the base's first table; with tableID set, meta.id is
+		// the requested table. The positional fallback stays for a payload that
+		// omits meta.id.
+		describedTableID: firstNonEmptyString(asMap(tableData["meta"])["id"], tableIDs[0]),
 	}
 	for _, tableID := range tableIDs {
 		tableInfo := asMap(asMap(base["tableInfos"])[tableID])
@@ -807,7 +834,7 @@ func ParseClientVars(data map[string]any, baseToken string) (Metadata, error) {
 		meta.Views = append(meta.Views, View{
 			ID:      firstNonEmptyString(view["id"], viewID),
 			Name:    firstNonEmptyString(view["name"], viewID),
-			TableID: tableIDs[0],
+			TableID: meta.describedTableID,
 			Type:    intValue(view["type"]),
 		})
 	}
@@ -850,7 +877,7 @@ func ParseClientVars(data map[string]any, baseToken string) (Metadata, error) {
 		meta.Views = append(meta.Views, View{
 			ID:      selectedViewID,
 			Name:    firstNonEmptyString(selectedView["name"], selectedViewID),
-			TableID: tableIDs[0],
+			TableID: meta.describedTableID,
 			Type:    intValue(selectedView["type"]),
 		})
 	}
@@ -888,7 +915,7 @@ func inspectPayload(source Source, meta Metadata, verb string) map[string]any {
 		"ok":            true,
 		"operation":     bitableMetadataOperation(verb),
 		"sourceKind":    source.Kind,
-		"target":        map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": firstTableID(meta), "viewId": firstViewID(meta)},
+		"target":        map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": describedTableID(meta), "viewId": firstViewID(meta)},
 		"title":         meta.Title,
 		"tables":        tables,
 		"views":         views,
@@ -904,7 +931,7 @@ func attachDryRunPayload(source Source, meta Metadata, field Field, record Recor
 		"dryRun":           true,
 		"operation":        "bitable_attach",
 		"sourceKind":       source.Kind,
-		"target":           map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": firstTableID(meta), "viewId": firstViewID(meta)},
+		"target":           map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": describedTableID(meta), "viewId": firstViewID(meta)},
 		"recordMatchCount": 1,
 		"record":           map[string]any{"id": record.ID},
 		"field": map[string]any{
@@ -930,7 +957,7 @@ func attachApplyPayload(source Source, meta Metadata, field Field, recordID stri
 		"applied":           true,
 		"operation":         "bitable_attach",
 		"sourceKind":        source.Kind,
-		"target":            map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": firstTableID(meta), "viewId": firstViewID(meta)},
+		"target":            map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": describedTableID(meta), "viewId": firstViewID(meta)},
 		"fieldName":         field.Name,
 		"recordId":          recordID,
 		"uploadedFileCount": uploadedFileCount,
@@ -965,7 +992,7 @@ func recordCreateDryRunPayload(source Source, meta Metadata, fields []map[string
 		"dryRun":                 true,
 		"operation":              "bitable_record_create",
 		"sourceKind":             source.Kind,
-		"target":                 map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": firstTableID(meta), "viewId": firstViewID(meta)},
+		"target":                 map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": describedTableID(meta), "viewId": firstViewID(meta)},
 		"fieldCount":             len(fields),
 		"fields":                 fields,
 		"plannedAttachmentCount": len(attachments),
@@ -983,7 +1010,7 @@ func recordCreateApplyPayload(source Source, meta Metadata, fields []map[string]
 		"applied":            true,
 		"operation":          "bitable_record_create",
 		"sourceKind":         source.Kind,
-		"target":             map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": firstTableID(meta), "viewId": firstViewID(meta)},
+		"target":             map[string]any{"baseTokenPrefix": tokenPrefix(meta.BaseToken), "tableId": describedTableID(meta), "viewId": firstViewID(meta)},
 		"fieldCount":         len(fields),
 		"fields":             fields,
 		"recordId":           recordID,

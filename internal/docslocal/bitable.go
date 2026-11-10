@@ -26,23 +26,39 @@ func (session *remoteReadSession) readBitableWiki(source string, origin string, 
 	if baseToken == "" {
 		return Result{}, fmt.Errorf("unable to locate bitable base token from wiki HTML")
 	}
-	return session.readBitableBase(source, origin, baseToken, "wiki_bitable")
+	// A wiki node addresses the base, not a table, so no table is requested and the
+	// server describes its first one.
+	return session.readBitableBase(source, origin, baseToken, "", "wiki_bitable")
 }
 
-func (session *remoteReadSession) readDirectBitable(source string, origin string, path string) (Result, error) {
-	baseToken := tokenAfter(path, "/base/")
+func (session *remoteReadSession) readDirectBitable(source string, origin string, parsed *url.URL) (Result, error) {
+	baseToken := tokenAfter(parsed.Path, "/base/")
 	if baseToken == "" {
 		return Result{}, fmt.Errorf("direct bitable URL missing base token")
 	}
-	return session.readBitableBase(source, origin, baseToken, "bitable")
+	return session.readBitableBase(source, origin, baseToken, requestedBitableTableID(parsed.Query()), "bitable")
 }
 
-func (session *remoteReadSession) readBitableBase(source string, origin string, baseToken string, kind string) (Result, error) {
-	clientVarsData, err := session.bitableClientVars(origin, baseToken, source)
+// requestedBitableTableID reads the table a /base/ URL names, if any.
+//
+// The keys are the ones internal/bitable's ParseSource accepts, so a URL means the
+// same table to both commands. The browser puts ?table= in the address bar when a
+// tab other than the first is open.
+func requestedBitableTableID(query url.Values) string {
+	for _, key := range []string{"table", "table_id", "tableId"} {
+		if value := strings.TrimSpace(query.Get(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func (session *remoteReadSession) readBitableBase(source string, origin string, baseToken string, tableID string, kind string) (Result, error) {
+	clientVarsData, err := session.bitableClientVars(origin, baseToken, tableID, source)
 	if err != nil {
 		return Result{}, err
 	}
-	title, lines, counts, err := renderBitableAsTSV(clientVarsData, baseToken)
+	title, lines, counts, err := renderBitableAsTSV(clientVarsData, baseToken, tableID)
 	if err != nil {
 		return Result{}, err
 	}
@@ -75,11 +91,16 @@ func (session *remoteReadSession) readBitableBase(source string, origin string, 
 	}, nil
 }
 
-func (session *remoteReadSession) bitableClientVars(origin string, baseToken string, referer string) (map[string]any, error) {
+func (session *remoteReadSession) bitableClientVars(origin string, baseToken string, tableID string, referer string) (map[string]any, error) {
 	// The URL goes to the resolved API host so --space-api is honoured; Origin and
 	// Referer stay tied to the document, matching internal/bitable.
+	//
+	// tableID scopes the response to that table, exactly as in internal/bitable, and
+	// viewID stays empty for the same reason it does there: view filtering is applied
+	// client-side, so the server answers identically for every viewID.
 	requestURL := session.apiHostFor(origin) + "/space/api/v1/bitable/" + url.PathEscape(baseToken) + "/clientvars" +
-		"?tableID=&viewID=&recordLimit=2000&ondemandLimit=200" +
+		"?tableID=" + url.QueryEscape(strings.TrimSpace(tableID)) +
+		"&viewID=&recordLimit=2000&ondemandLimit=200" +
 		"&needBase=true&viewLazyLoad=true&ondemandVer=2" +
 		"&openType=0&noMissCS=true&optimizationFlag=1"
 	payload, err := session.getJSON(requestURL, origin, referer)
@@ -92,7 +113,14 @@ func (session *remoteReadSession) bitableClientVars(origin string, baseToken str
 	return asMap(payload["data"]), nil
 }
 
-func renderBitableAsTSV(clientVarsData map[string]any, baseToken string) (string, []string, map[string]int, error) {
+// renderBitableAsTSV renders the table the response describes as a TSV block.
+//
+// requestedTableID is the table the caller asked for, empty when none was. The
+// response describes one table only -- its views, fields, and records all belong
+// to it -- and names it at data.table.meta.id. That id, not the first entry of
+// base.tables, is what the output must report, because the request may have
+// scoped the response to any table in the base.
+func renderBitableAsTSV(clientVarsData map[string]any, baseToken string, requestedTableID string) (string, []string, map[string]int, error) {
 	oldSchema, err := decodeGzipJSON(stringValue(asMap(clientVarsData["oldSchema"])["gzipSchema"]))
 	if err != nil {
 		return "", nil, nil, err
@@ -104,7 +132,13 @@ func renderBitableAsTSV(clientVarsData map[string]any, baseToken string) (string
 	if len(tableIDs) == 0 {
 		return "", nil, nil, fmt.Errorf("unable to locate bitable table")
 	}
-	tableID := tableIDs[0]
+	// meta.id names the described table. The positional fallback covers a payload
+	// without it; reading tableIDs[0] unconditionally was the defect, since it
+	// labelled every scoped read as the base's first table.
+	tableID := firstNonEmptyString(asMap(tableData["meta"])["id"], tableIDs[0])
+	if err := checkDescribedBitableTable(requestedTableID, tableID, tableIDs); err != nil {
+		return "", nil, nil, err
+	}
 	tableInfo := asMap(asMap(base["tableInfos"])[tableID])
 	tableName := strings.TrimSpace(stringValue(tableInfo["name"]))
 	if tableName == "" {
@@ -372,4 +406,26 @@ func floatValue(value any) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// checkDescribedBitableTable refuses a read that would return a table other than
+// the one requested.
+//
+// Reading the base's default table under a ?table= that named another one is a
+// silent wrong answer: the caller gets plausible rows and no sign they belong to a
+// different table. It is refused with the same distinction internal/bitable draws,
+// between a table the base does not have and one the server did not honour.
+func checkDescribedBitableTable(requested string, described string, baseTables []string) error {
+	requested = strings.TrimSpace(requested)
+	if requested == "" || requested == described {
+		return nil
+	}
+	for _, table := range baseTables {
+		if table == requested {
+			return fmt.Errorf("bitable table %q exists in this base but the server described %q instead; "+
+				"this is unexpected and worth reporting", requested, described)
+		}
+	}
+	return fmt.Errorf("bitable table %q is not one of this base's tables; "+
+		"correct the table parameter in the URL, or remove it to read %q", requested, described)
 }

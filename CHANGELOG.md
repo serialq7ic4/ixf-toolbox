@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 3.31.1 - 2026-11-10
+
+- Fixed `ixf docs read` returning the wrong table for a multi-table bitable. A `/base/<token>?table=<id>` link returned the base's first table, and labelled it as the first table, whatever table was asked for: plausible rows with no sign they came from a different table. It now reads the table named in the URL and reports it in `table_id` and `table_name`.
+- Fixed `ixf bitable inspect`, `attach`, and `record create` refusing every table but the first. 3.30.0 refused a `?table=` that did not match the fetched metadata, on the belief that the server could not scope a fetch to one table. A live probe showed it can, so that refusal fired on every real non-first table and left only the first table of a multi-table base usable. The fetch is now scoped to the requested table.
+- Both had the same two causes, in both copies of the request: the table parameter was sent empty, so the server always described its default table, and the table was then taken from the base's table list by position rather than from the field where the server names the table it described.
+- **Behaviour change.** A `?table=` naming a table the base does not have is refused by `docs read`, instead of returning the first table's rows. The write commands refuse it as before. The refusal names the table and says how to fix the link.
+- A wiki-hosted bitable addresses the base rather than a table, so it still reads the first table.
+
 ## 3.31.0 - 2026-11-05
 
 - `ixf docs read` reads a direct `/file/<token>` link: an uploaded PDF, slide deck, or spreadsheet. It reads the text layer the server already extracts for preview, and never fetches the original file. These links used to fail at the router, which had no `/file/` case.

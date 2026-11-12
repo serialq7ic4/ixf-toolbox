@@ -38,6 +38,10 @@ Use `ixf deps install`, not bootstrap, for Mermaid dependencies. Never invoke de
 5. If approved, send with:
    `ixf messenger send --to "<target>" --mode person|conversation --message "<text>" --apply --json`
 6. Treat `targetVerified:true`, `sent:true`, `localEchoMatched:true`, and `verifiedPresent:true` as the success condition. The command performs fresh-session verification before reporting success.
+7. On failure, read `outcome` before doing anything else. It is reported even when the command exits with an error, and it decides whether a retry is safe:
+   - `not_sent` (`retrySafe:true`): the send button was never pressed. It is safe to send again.
+   - `possibly_delivered` (`retrySafe:false`): the message was submitted, and only the confirmation failed, typically `send local echo: context deadline exceeded`. Do **not** send again: the message has very likely arrived and a retry delivers it twice. Tell the user it was submitted but unconfirmed, and offer to check the conversation with `ixf-messenger-reader` instead.
+   - `delivered`: confirmed in a fresh session.
 
 ## Safety
 

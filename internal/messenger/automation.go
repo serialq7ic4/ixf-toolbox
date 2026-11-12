@@ -60,18 +60,38 @@ func (automator ChromedpAutomator) Read(ctx context.Context, request BrowserRead
 }
 
 func (automator ChromedpAutomator) Send(ctx context.Context, request BrowserSendRequest) (BrowserSendResult, error) {
-	result, err := automator.sendOnce(ctx, request, request.Headless)
+	return sendWithFallback(request, func(headless bool) (BrowserSendResult, error) {
+		return automator.sendOnce(ctx, request, headless)
+	})
+}
+
+// sendWithFallback runs one send attempt, and a visible-browser retry only when
+// that is safe. It is separate from the browser so the retry policy -- the part
+// that decides whether a message can be delivered twice -- is testable.
+func sendWithFallback(request BrowserSendRequest, attempt func(headless bool) (BrowserSendResult, error)) (BrowserSendResult, error) {
+	result, err := attempt(request.Headless)
 	if err == nil {
 		return result, nil
 	}
-	if request.Headless && request.AllowVisibleFallback {
-		fallback, fallbackErr := automator.sendOnce(ctx, request, false)
+	// The visible-browser fallback is a retry, so it is only safe when the
+	// headless attempt never pressed send. It used to run after any failure,
+	// including one where the message had already been submitted and only the
+	// confirmation timed out -- which delivered the message a second time.
+	if request.Headless && request.AllowVisibleFallback && !result.Sent {
+		fallback, fallbackErr := attempt(false)
+		fallback.FallbackUsed = true
 		if fallbackErr == nil {
-			fallback.FallbackUsed = true
 			return fallback, nil
 		}
+		// Report the attempt that got further: if the fallback pressed send, that
+		// is what the caller must know.
+		if fallback.Sent {
+			return fallback, fallbackErr
+		}
 	}
-	return BrowserSendResult{}, err
+	// The partial result is returned, not discarded. It is what tells the caller
+	// whether the message was submitted.
+	return result, err
 }
 
 func (automator ChromedpAutomator) openOnce(parent context.Context, request BrowserOpenRequest, headless bool) (BrowserOpenResult, error) {
@@ -258,70 +278,134 @@ func (automator ChromedpAutomator) sendOnce(parent context.Context, request Brow
 		timeout = 90 * time.Second
 	}
 
-	sendCtx, cancelSend, err := newMessengerBrowserContext(parent, request.BrowserPath, request.UserDataDir, timeout, headless)
+	// result records how far the send got. It is returned on every exit, error or
+	// not, because the one fact a caller cannot afford to lose is whether the send
+	// button was pressed. Before it is pressed a failure is safe to retry; after,
+	// the message has very likely reached the recipient even if confirming it then
+	// failed, and a retry would deliver it twice.
+	result := BrowserSendResult{Headless: headless, Stage: SendStageNotStarted}
+
+	// The browser lives for the pre-send budget plus the confirmation budget. The
+	// pre-send steps are then capped at their own share below, so a slow search can
+	// use up its budget without eating into the echo wait. With one shared deadline,
+	// a search that took most of it left the echo seconds, and a message that had
+	// arrived timed out as unconfirmed.
+	sendCtx, cancelSend, err := newMessengerBrowserContext(parent, request.BrowserPath, request.UserDataDir, timeout+confirmTimeout(timeout), headless)
 	if err != nil {
-		return BrowserSendResult{}, err
+		return result, err
 	}
 	defer cancelSend()
 
 	sendActions, err := messengerStartupActions(request.CookiePath, request.URL, timeout)
 	if err != nil {
-		return BrowserSendResult{}, err
+		return result, err
 	}
 	sendVerification := targetVerification{}
-	localEchoMatched := false
-	if err := chromedp.Run(sendCtx, sendActions); err != nil {
-		return BrowserSendResult{}, fmt.Errorf("send startup: %w", err)
+	// Allocate the browser on sendCtx before any shorter deadline is derived. The
+	// first chromedp.Run on a context launches Chrome with exec.CommandContext on
+	// whatever context that Run was given, so running it first under preSendCtx
+	// tied Chrome's lifetime to the pre-send deadline: Chrome was killed when that
+	// expired, and the separate confirmation budget never applied. chromedp's own
+	// documentation warns against a timeout on the first Run for this reason.
+	if err := chromedp.Run(sendCtx); err != nil {
+		return result, fmt.Errorf("send startup: %w", err)
 	}
-	if err := chromedp.Run(sendCtx, openTargetAction(request.Target, request.Mode)); err != nil {
-		return BrowserSendResult{}, fmt.Errorf("send open target: %w", err)
+	preSendCtx, cancelPreSend := context.WithTimeout(sendCtx, timeout)
+	defer cancelPreSend()
+	if err := chromedp.Run(preSendCtx, sendActions); err != nil {
+		return result, fmt.Errorf("send startup: %w", err)
 	}
-	if err := chromedp.Run(sendCtx, waitForTargetVerificationAction(request.Target, timeout, &sendVerification)); err != nil {
-		return BrowserSendResult{}, fmt.Errorf("send verify target: %w", err)
+	if err := chromedp.Run(preSendCtx, openTargetAction(request.Target, request.Mode)); err != nil {
+		return result, fmt.Errorf("send open target: %w", err)
 	}
-	if err := chromedp.Run(sendCtx, sendMessageAction(request.Message)); err != nil {
-		return BrowserSendResult{}, fmt.Errorf("send message: %w", err)
+	if err := chromedp.Run(preSendCtx, waitForTargetVerificationAction(request.Target, timeout, &sendVerification)); err != nil {
+		return result, fmt.Errorf("send verify target: %w", err)
 	}
-	if err := chromedp.Run(sendCtx, waitForSelfMessageAction(request.Message, timeout, &localEchoMatched)); err != nil {
-		return BrowserSendResult{}, fmt.Errorf("send local echo: %w", err)
+	result.TargetVerified = sendVerification.Verified
+	result.OpenedTitle = sendVerification.Title
+	if result.OpenedTitle == "" {
+		result.OpenedTitle = request.Target
+	}
+	result.Stage = SendStageTargetVerified
+
+	// From here the send button may have been pressed. sendMessageAction reports
+	// whether it got as far as pressing it, so a failure inside it can still be
+	// classified: an error before the press is retryable, one after is not.
+	// Snapshot the ids of the messages already in the chat. The echo must be a
+	// message that was not there before the submit: a prefix match alone can be
+	// satisfied by an older message with the same opening lines, which would
+	// report a send that never landed as delivered.
+	existingIDs := []string{}
+	if err := chromedp.Run(preSendCtx, messageItemIDsAction(&existingIDs)); err != nil {
+		return result, fmt.Errorf("send snapshot: %w", err)
 	}
 
-	verifyCtx, cancelVerify, err := newMessengerBrowserContext(parent, request.BrowserPath, request.VerifyUserDataDir, timeout, headless)
+	pressed := false
+	if err := chromedp.Run(preSendCtx, sendMessageAction(request.Message, &pressed)); err != nil {
+		if pressed {
+			result.Sent = true
+			result.Stage = SendStageSubmitted
+		}
+		return result, fmt.Errorf("send message: %w", err)
+	}
+	result.Sent = true
+	result.Stage = SendStageSubmitted
+
+	localEchoMatched := false
+	if err := runWithTimeout(sendCtx, confirmTimeout(timeout), waitForSelfMessageAction(request.Message, existingIDs, confirmTimeout(timeout), &localEchoMatched)); err != nil {
+		return result, fmt.Errorf("send local echo: %w", err)
+	}
+	result.LocalEchoMatched = localEchoMatched
+	result.Stage = SendStageEchoed
+
+	verifyCtx, cancelVerify, err := newMessengerBrowserContext(parent, request.BrowserPath, request.VerifyUserDataDir, timeout+confirmTimeout(timeout), headless)
 	if err != nil {
-		return BrowserSendResult{}, err
+		return result, err
 	}
 	defer cancelVerify()
 
 	verifyActions, err := messengerStartupActions(request.CookiePath, request.URL, timeout)
 	if err != nil {
-		return BrowserSendResult{}, err
+		return result, err
 	}
 	verifyMatched := false
 	if err := chromedp.Run(verifyCtx, verifyActions); err != nil {
-		return BrowserSendResult{}, fmt.Errorf("verify startup: %w", err)
+		return result, fmt.Errorf("verify startup: %w", err)
 	}
 	if err := chromedp.Run(verifyCtx, openVerificationTargetAction(request.Target, request.Mode)); err != nil {
-		return BrowserSendResult{}, fmt.Errorf("verify open target: %w", err)
+		return result, fmt.Errorf("verify open target: %w", err)
 	}
 	if err := chromedp.Run(verifyCtx, waitForTargetVerificationAction(request.Target, timeout, &targetVerification{})); err != nil {
-		return BrowserSendResult{}, fmt.Errorf("verify target: %w", err)
+		return result, fmt.Errorf("verify target: %w", err)
 	}
-	if err := chromedp.Run(verifyCtx, waitForSelfMessageAction(request.Message, timeout, &verifyMatched)); err != nil {
-		return BrowserSendResult{}, fmt.Errorf("verify message presence: %w", err)
+	// The fresh session has no pre-submit snapshot of its own, so it is anchored to
+	// the same baseline: the message it finds must be one the send session had not
+	// seen before submitting. Message ids are global, so they compare across
+	// sessions.
+	if err := chromedp.Run(verifyCtx, waitForSelfMessageAction(request.Message, existingIDs, confirmTimeout(timeout), &verifyMatched)); err != nil {
+		return result, fmt.Errorf("verify message presence: %w", err)
 	}
+	result.VerifiedPresent = verifyMatched
+	result.Stage = SendStageVerified
+	return result, nil
+}
 
-	opened := sendVerification.Title
-	if opened == "" {
-		opened = request.Target
+// confirmTimeout bounds one confirmation wait. A third of the overall budget, at
+// least 20 seconds: the echo normally lands within a few seconds, and the floor
+// keeps a short --timeout-ms from leaving it no time at all.
+func confirmTimeout(overall time.Duration) time.Duration {
+	if third := overall / 3; third > 20*time.Second {
+		return third
 	}
-	return BrowserSendResult{
-		OpenedTitle:      opened,
-		TargetVerified:   sendVerification.Verified,
-		Sent:             true,
-		LocalEchoMatched: localEchoMatched,
-		VerifiedPresent:  verifyMatched,
-		Headless:         headless,
-	}, nil
+	return 20 * time.Second
+}
+
+// runWithTimeout runs an action under its own deadline, derived from ctx so it
+// still stops if the browser is torn down.
+func runWithTimeout(ctx context.Context, timeout time.Duration, action chromedp.Action) error {
+	stepCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return chromedp.Run(stepCtx, action)
 }
 
 func newMessengerBrowserContext(parent context.Context, browserPath string, userDataDir string, timeout time.Duration, headless bool) (context.Context, func(), error) {
@@ -642,12 +726,16 @@ func openGlobalSearch(ctx context.Context, query string) error {
 	}
 	state := searchState{}
 	for attempt := 0; attempt < 4; attempt++ {
+		// The search editor mounts a moment after the panel opens. Text inserted
+		// before it exists is dropped, which is how a search ran on an empty box.
+		// The wait is soft: if the editor never matches this selector, the existing
+		// click-by-position fallback in clickSearchEditorAction still gets its turn
+		// rather than the whole search failing here.
+		_ = runWithTimeout(ctx, 10*time.Second, waitForSelectorPresentAction(searchEditorSelector, 10*time.Second))
 		if err := chromedp.Run(ctx,
 			clickSearchEditorAction(),
 			chromedp.Sleep(200*time.Millisecond),
-			chromedp.KeyEvent(kb.Meta+"a"),
-			chromedp.Sleep(100*time.Millisecond),
-			chromedp.KeyEvent(kb.Backspace),
+			clearFocusedEditorAction(),
 			chromedp.Sleep(100*time.Millisecond),
 			insertTextAction(query),
 			chromedp.Sleep(1500*time.Millisecond),
@@ -658,7 +746,10 @@ func openGlobalSearch(ctx context.Context, query string) error {
 		if state.QueryPresent {
 			return chromedp.Run(ctx, chromedp.Sleep(3*time.Second))
 		}
-		if err := chromedp.Run(ctx, chromedp.KeyEvent(kb.Meta+"k"), chromedp.Sleep(1*time.Second)); err != nil {
+		// Reopen the panel by clicking its trigger. The Cmd+K hotkey is not
+		// delivered as a shortcut to a headless browser: it arrives as a plain "k"
+		// typed into the box, which then poisons the next query.
+		if err := chromedp.Run(ctx, clickSearchTriggerOrHotkeyAction(), chromedp.Sleep(1*time.Second)); err != nil {
 			return err
 		}
 	}
@@ -743,13 +834,45 @@ func looksLikeAccountID(target string) bool {
 	return hasLetter && hasDigit
 }
 
+// clickSearchTriggerOrHotkeyAction opens the search panel.
+//
+// The trigger is clicked rather than Cmd+K pressed: headless Chrome does not
+// treat Cmd as a modifier, so Cmd+K types a literal "k". The hotkey is kept only
+// as a last resort when there is no trigger to click, and is sent with the
+// modifier set explicitly so it has a chance of being recognised.
 func clickSearchTriggerOrHotkeyAction() chromedp.Action {
 	return chromedp.ActionFunc(func(ctx context.Context) error {
 		if err := chromedp.Run(ctx, chromedp.Click(searchTriggerSelector, chromedp.ByQuery)); err == nil {
 			return nil
 		}
-		return chromedp.Run(ctx, chromedp.KeyEvent(kb.Meta+"k"))
+		return chromedp.Run(ctx, chromedp.KeyEvent("k", chromedp.KeyModifiers(cdpinput.ModifierMeta)))
 	})
+}
+
+// clearFocusedEditorAction empties the focused rich-text editor.
+//
+// Cmd+A then Backspace is what a person would do, and it is what this used to
+// send, but headless Chrome does not apply Cmd as a modifier: the select-all
+// never happens and the Backspace removes one character. That left a previous
+// query or draft in the box. The editing commands below act on the focused
+// element directly and behave the same headless and headed.
+func clearFocusedEditorAction() chromedp.Action {
+	return chromedp.Evaluate(`(function() {
+		const el = document.activeElement;
+		if (!el) return false;
+		document.execCommand('selectAll', false, null);
+		document.execCommand('delete', false, null);
+		return true;
+	})()`, nil)
+}
+
+// waitForSelectorPresentAction waits until selector matches at least one element.
+func waitForSelectorPresentAction(selector string, timeout time.Duration) chromedp.Action {
+	present := false
+	return chromedp.PollFunction(`(selector) => !!document.querySelector(selector)`, &present,
+		chromedp.WithPollingArgs(selector),
+		chromedp.WithPollingTimeout(timeout),
+	)
 }
 
 func clickSearchEditorAction() chromedp.Action {
@@ -1022,20 +1145,28 @@ func readPanelTextAction(maxChars int, result *string) chromedp.Action {
 	})(`+jsArgs(rightPanelSelector)+`, `+fmt.Sprint(maxChars)+`)`, result)
 }
 
-func sendMessageAction(message string) chromedp.Action {
+// sendMessageAction types the message and submits it, reporting through pressed
+// whether it got as far as submitting.
+//
+// pressed is set immediately before the submitting click or keystroke is
+// dispatched, not after it returns. A dispatch that errors may still have reached
+// the page, so the safe reading of an error with pressed set is "possibly sent",
+// never "not sent".
+func sendMessageAction(message string, pressed *bool) chromedp.Action {
 	return chromedp.ActionFunc(func(ctx context.Context) error {
-		clicked := false
 		if err := chromedp.Run(ctx,
 			chromedp.Click(chatEditorSelector, chromedp.ByQuery),
 			chromedp.Sleep(200*time.Millisecond),
-			chromedp.KeyEvent(kb.Meta+"a"),
-			chromedp.Sleep(100*time.Millisecond),
-			chromedp.KeyEvent(kb.Backspace),
+			clearFocusedEditorAction(),
 			chromedp.Sleep(200*time.Millisecond),
 			insertTextAction(message),
 			chromedp.Sleep(500*time.Millisecond),
-			clickSendButtonAction(&clicked),
 		); err != nil {
+			return err
+		}
+		clicked := false
+		*pressed = true
+		if err := chromedp.Run(ctx, clickSendButtonAction(&clicked)); err != nil {
 			return err
 		}
 		if clicked {
@@ -1063,8 +1194,26 @@ func clickSendButtonAction(clicked *bool) chromedp.Action {
 	})(`+jsArgs(sendWrapperSelector, sendButtonSelector)+`)`, clicked)
 }
 
-func waitForSelfMessageAction(message string, timeout time.Duration, matched *bool) chromedp.Action {
-	return chromedp.PollFunction(`(messageSelector, expected) => {
+// waitForSelfMessageAction waits for a new own message matching message to appear.
+//
+// The page side flattens each message the way the chat renders it: blank lines
+// dropped and runs of whitespace collapsed. The expected text used to be passed
+// raw, so any message with a blank line or a double space could never match the
+// flattened page text. The wait then polled until it timed out on a message that
+// was sitting in the chat, which reads as "send failed". Both sides now go
+// through the same flattening.
+//
+// The match is on the message's opening lines rather than the whole body, because
+// a long message is rendered with URLs turned into links and whitespace reflowed,
+// and a full-text match makes every one of those differences a false failure.
+//
+// A prefix is not unique: a templated report repeats its opening lines. So the
+// matched item must also be absent from excludeIDs, the ids present before the
+// submit. Without that, an older message sharing the opening could confirm a
+// send that never landed, and the caller would be told it was delivered.
+func waitForSelfMessageAction(message string, excludeIDs []string, timeout time.Duration, matched *bool) chromedp.Action {
+	return chromedp.PollFunction(`(messageSelector, expected, excludeIDs) => {
+		const seen = new Set(excludeIDs || []);
 		const collapseLines = (value) => String(value || '')
 			.replace(/\u200b/g, '\n')
 			.replace(/\u00a0/g, ' ')
@@ -1076,14 +1225,47 @@ func waitForSelfMessageAction(message string, timeout time.Duration, matched *bo
 		for (const item of items.slice(Math.max(0, items.length - 30)).reverse()) {
 			const className = item.getAttribute('class') || '';
 			if (!className.includes('message-self')) continue;
+			// An item without an id cannot be proven new, so it cannot confirm.
+			const id = item.getAttribute('id') || '';
+			if (!id || seen.has(id)) continue;
 			const text = collapseLines(item.innerText || item.textContent || '');
 			if (expected && text.includes(expected)) return true;
 		}
 		return false;
 	}`, matched,
-		chromedp.WithPollingArgs(messageItemSelector, message),
+		chromedp.WithPollingArgs(messageItemSelector, echoMatchKey(message), excludeIDs),
 		chromedp.WithPollingTimeout(timeout),
 	)
+}
+
+// messageItemIDsAction collects the ids of the message items currently rendered.
+func messageItemIDsAction(ids *[]string) chromedp.Action {
+	return chromedp.Evaluate(`(function(selector) {
+		return Array.from(document.querySelectorAll(selector))
+			.map((item) => item.getAttribute('id') || '')
+			.filter(Boolean);
+	})(`+jsArgs(messageItemSelector)+`)`, ids)
+}
+
+// echoMatchLines is how many leading lines of a message identify its echo.
+const echoMatchLines = 2
+
+// echoMatchRunes caps the identifying text, so a single very long first line
+// is not matched in full either.
+const echoMatchRunes = 120
+
+// echoMatchKey is the text an echo is matched on: the message flattened as the
+// page flattens it, cut to its opening lines.
+func echoMatchKey(message string) string {
+	lines := strings.Split(CollapseLines(message), "\n")
+	if len(lines) > echoMatchLines {
+		lines = lines[:echoMatchLines]
+	}
+	key := strings.Join(lines, "\n")
+	if runes := []rune(key); len(runes) > echoMatchRunes {
+		key = strings.TrimSpace(string(runes[:echoMatchRunes]))
+	}
+	return key
 }
 
 func filterConversationCards(cards []conversationCard, scope string, limit int) []conversationCard {

@@ -3,6 +3,7 @@ package messenger
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -649,4 +650,170 @@ func mustRead(t *testing.T, path string) []byte {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return content
+}
+
+// sendFixture prepares a profile, browser, and cookies that pass the send plan.
+func sendFixture(t *testing.T) Config {
+	t.Helper()
+	source := filepath.Join(t.TempDir(), "profile_explorer")
+	browser := filepath.Join(t.TempDir(), "chrome")
+	cookies := filepath.Join(t.TempDir(), "cookies.json")
+	mustMkdir(t, filepath.Join(source, "Default"))
+	mustWrite(t, filepath.Join(source, "Default", "Preferences"), []byte("prefs"))
+	mustWrite(t, browser, []byte("browser"))
+	mustWrite(t, cookies, []byte(`[{"name":"_csrf_token","value":"secret-csrf"}]`))
+	return Config{GOOS: "darwin", ProfileDir: source, BrowserPath: browser, CookiesPath: cookies}
+}
+
+func applySend(t *testing.T, automator *recordingAutomator) (map[string]any, error) {
+	t.Helper()
+	return SendMessage(context.Background(), SendConfig{
+		Config: sendFixture(t), Target: "jwwu14", Mode: "person",
+		Message: "secret message", Apply: true, TimeoutMS: 1500,
+	}, automator)
+}
+
+// A failure after the send button was pressed must say the message is probably
+// delivered and that retrying is not safe.
+//
+// This is the reported failure: the confirmation timed out after submitting, the
+// command printed one error line, and the caller could not tell whether a retry
+// would send the message twice.
+func TestSendMessageReportsPossiblyDeliveredWhenConfirmationFailsAfterSubmit(t *testing.T) {
+	automator := &recordingAutomator{
+		sendResult: BrowserSendResult{TargetVerified: true, Sent: true, Stage: SendStageSubmitted, OpenedTitle: "吴某某"},
+		sendErr:    fmt.Errorf("send local echo: context deadline exceeded"),
+	}
+	payload, err := applySend(t, automator)
+	if err == nil {
+		t.Fatal("SendMessage succeeded, want the confirmation failure surfaced")
+	}
+	if payload == nil {
+		t.Fatal("payload is nil on failure; the outcome is lost, which is the defect")
+	}
+	if payload["outcome"] != "possibly_delivered" || payload["retrySafe"] != false {
+		t.Fatalf("outcome = %v retrySafe = %v, want possibly_delivered and not retry-safe", payload["outcome"], payload["retrySafe"])
+	}
+	if payload["sent"] != true || payload["stage"] != SendStageSubmitted {
+		t.Fatalf("sent = %v stage = %v, want the submit recorded", payload["sent"], payload["stage"])
+	}
+	if next, _ := payload["nextStep"].(string); !strings.Contains(next, "twice") {
+		t.Fatalf("nextStep = %q, want it to warn against a duplicate send", next)
+	}
+}
+
+// A failure before the send button was pressed is safe to retry, and says so.
+func TestSendMessageReportsNotSentWhenItFailsBeforeSubmit(t *testing.T) {
+	for name, result := range map[string]BrowserSendResult{
+		"target never found":     {Stage: SendStageNotStarted},
+		"failed after verifying": {TargetVerified: true, Stage: SendStageTargetVerified},
+	} {
+		t.Run(name, func(t *testing.T) {
+			automator := &recordingAutomator{sendResult: result, sendErr: fmt.Errorf("send open target: unable to open personal recipient")}
+			payload, err := applySend(t, automator)
+			if err == nil || payload == nil {
+				t.Fatalf("err = %v payload = %v, want an error with a payload", err, payload)
+			}
+			if payload["outcome"] != "not_sent" || payload["retrySafe"] != true || payload["sent"] != false {
+				t.Fatalf("outcome = %v retrySafe = %v sent = %v, want not_sent, retry-safe, unsent",
+					payload["outcome"], payload["retrySafe"], payload["sent"])
+			}
+		})
+	}
+}
+
+// A fully confirmed send reports delivered.
+func TestSendMessageReportsDeliveredOnFullConfirmation(t *testing.T) {
+	automator := &recordingAutomator{sendResult: BrowserSendResult{
+		TargetVerified: true, Sent: true, LocalEchoMatched: true, VerifiedPresent: true, Stage: SendStageVerified,
+	}}
+	payload, err := applySend(t, automator)
+	if err != nil {
+		t.Fatalf("SendMessage returned error: %v", err)
+	}
+	if payload["outcome"] != "delivered" || payload["stage"] != SendStageVerified {
+		t.Fatalf("outcome = %v stage = %v, want delivered and verified", payload["outcome"], payload["stage"])
+	}
+}
+
+// The outcome payload must not leak the message body, which the error path now
+// returns where it used to return nothing.
+func TestSendMessageFailurePayloadDoesNotLeakTheMessage(t *testing.T) {
+	automator := &recordingAutomator{
+		sendResult: BrowserSendResult{Sent: true, Stage: SendStageSubmitted},
+		sendErr:    fmt.Errorf("send local echo: context deadline exceeded"),
+	}
+	payload, _ := applySend(t, automator)
+	if dump := fmtSprint(payload); strings.Contains(dump, "secret message") || strings.Contains(dump, "secret-csrf") {
+		t.Fatalf("failure payload leaked secret data: %s", dump)
+	}
+}
+
+// The echo is matched on the message as the page flattens it, cut to its opening
+// lines. A raw multi-line message never matched the flattened page text.
+func TestEchoMatchKeyFlattensAndTruncates(t *testing.T) {
+	cases := map[string]string{
+		"single line":                      "single line",
+		"line one\n\nline two\nline three": "line one\nline two",
+		"  spaced   out  \n\n\n  second  ": "spaced out\nsecond",
+		"a b​c":                            "a b\nc",
+	}
+	for input, want := range cases {
+		if got := echoMatchKey(input); got != want {
+			t.Fatalf("echoMatchKey(%q) = %q, want %q", input, got, want)
+		}
+	}
+	long := strings.Repeat("长", 300)
+	if got := echoMatchKey(long); len([]rune(got)) != echoMatchRunes {
+		t.Fatalf("a long first line kept %d runes, want %d", len([]rune(got)), echoMatchRunes)
+	}
+}
+
+// The visible-browser fallback is a retry. It must not run once the headless
+// attempt has pressed send, or a message whose confirmation merely timed out is
+// delivered a second time.
+func TestSendWithFallbackNeverRetriesAfterSubmit(t *testing.T) {
+	attempts := 0
+	result, err := sendWithFallback(
+		BrowserSendRequest{Headless: true, AllowVisibleFallback: true},
+		func(headless bool) (BrowserSendResult, error) {
+			attempts++
+			return BrowserSendResult{Sent: true, Stage: SendStageSubmitted}, fmt.Errorf("send local echo: timeout")
+		})
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1: a retry after submitting sends the message twice", attempts)
+	}
+	if err == nil || !result.Sent || result.Stage != SendStageSubmitted {
+		t.Fatalf("result = %+v err = %v, want the submitted attempt reported with its error", result, err)
+	}
+}
+
+// Before anything is submitted, the fallback may run, and its outcome is reported.
+func TestSendWithFallbackRetriesWhenNothingWasSubmitted(t *testing.T) {
+	attempts := 0
+	result, err := sendWithFallback(
+		BrowserSendRequest{Headless: true, AllowVisibleFallback: true},
+		func(headless bool) (BrowserSendResult, error) {
+			attempts++
+			if headless {
+				return BrowserSendResult{Stage: SendStageNotStarted}, fmt.Errorf("send startup: no browser")
+			}
+			return BrowserSendResult{Sent: true, VerifiedPresent: true, Stage: SendStageVerified}, nil
+		})
+	if attempts != 2 || err != nil || !result.FallbackUsed || !result.Sent {
+		t.Fatalf("attempts = %d result = %+v err = %v, want the fallback to run and succeed", attempts, result, err)
+	}
+}
+
+// A failed attempt's partial result is returned, not replaced by an empty one.
+// An empty result reads as "never sent" whatever actually happened.
+func TestSendWithFallbackReturnsThePartialResultOnFailure(t *testing.T) {
+	result, err := sendWithFallback(
+		BrowserSendRequest{Headless: true},
+		func(bool) (BrowserSendResult, error) {
+			return BrowserSendResult{TargetVerified: true, Sent: true, Stage: SendStageSubmitted}, fmt.Errorf("send local echo: timeout")
+		})
+	if err == nil || !result.Sent || !result.TargetVerified {
+		t.Fatalf("result = %+v err = %v, want the partial result kept", result, err)
+	}
 }

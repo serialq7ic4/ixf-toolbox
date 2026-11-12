@@ -206,7 +206,21 @@ type BrowserSendResult struct {
 	VerifiedPresent  bool   `json:"verifiedPresent"`
 	Headless         bool   `json:"headless"`
 	FallbackUsed     bool   `json:"fallbackUsed,omitempty"`
+	// Stage is the furthest step reached. It is set on error as well as success,
+	// because whether the send button was pressed decides whether a retry is safe.
+	Stage string `json:"stage"`
 }
+
+// Send stages, in order. Anything at or past SendStageSubmitted means the send
+// button was pressed: the message has very likely been delivered, whatever
+// happened afterwards, and must not be sent again without checking.
+const (
+	SendStageNotStarted     = "not_started"
+	SendStageTargetVerified = "target_verified"
+	SendStageSubmitted      = "submitted"
+	SendStageEchoed         = "echoed"
+	SendStageVerified       = "verified"
+)
 
 func SupportedOS(goos string) bool {
 	return goos == "darwin" || goos == "windows"
@@ -572,8 +586,13 @@ func SendMessage(ctx context.Context, config SendConfig, automator Automator) (m
 		AllowVisibleFallback: config.AllowVisibleFallback,
 		TimeoutMS:            timeoutMS,
 	})
+	// The outcome is recorded whether or not Send failed. A failure used to return
+	// no payload at all, so "never sent" and "sent, but confirming it timed out"
+	// printed the same single error line, and a caller could not tell whether
+	// retrying would deliver the message twice.
+	recordSendOutcome(payload, result, err)
 	if err != nil {
-		return nil, err
+		return payload, err
 	}
 	payload["browserLaunch"] = true
 	payload["openedTitle"] = result.OpenedTitle
@@ -998,4 +1017,39 @@ func expandUserWithHome(path string, home string) string {
 		return filepath.Join(home, path[2:])
 	}
 	return path
+}
+
+// recordSendOutcome writes how far a send got, and what that means for a retry,
+// into the payload. It runs on success and failure alike.
+func recordSendOutcome(payload map[string]any, result BrowserSendResult, err error) {
+	stage := result.Stage
+	if stage == "" {
+		stage = SendStageNotStarted
+	}
+	payload["stage"] = stage
+	payload["targetVerified"] = result.TargetVerified
+	payload["sent"] = result.Sent
+	payload["localEchoMatched"] = result.LocalEchoMatched
+	payload["verifiedPresent"] = result.VerifiedPresent
+	if result.OpenedTitle != "" {
+		payload["openedTitle"] = result.OpenedTitle
+	}
+	if err == nil {
+		payload["outcome"] = "delivered"
+		payload["retrySafe"] = false
+		return
+	}
+	payload["error"] = err.Error()
+	if result.Sent {
+		// The send button was pressed. Delivery is likely; only the confirmation
+		// failed. Retrying would most likely send it twice.
+		payload["outcome"] = "possibly_delivered"
+		payload["retrySafe"] = false
+		payload["nextStep"] = "The message was submitted but its delivery was not confirmed. " +
+			"Check the conversation before sending again; a retry would most likely deliver it twice."
+		return
+	}
+	payload["outcome"] = "not_sent"
+	payload["retrySafe"] = true
+	payload["nextStep"] = "The message was not submitted, so it is safe to retry."
 }

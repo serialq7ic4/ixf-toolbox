@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 3.31.2 - 2026-11-12
+
+- **Behaviour change.** `ixf messenger send` reports whether a failed send was submitted. A send whose confirmation timed out used to print only `ERROR send local echo: context deadline exceeded`, with no way to tell "never sent" from "sent, but not confirmed", so a caller could not know whether retrying would deliver the message twice. The output now carries `outcome`, `retrySafe`, and `stage` on failure as well as success: `not_sent` is safe to retry, `possibly_delivered` was submitted and must not be resent, `delivered` was confirmed in a fresh session. A failed send now also prints its JSON payload, where it used to print nothing on stdout.
+- Fixed `--allow-visible-fallback` sending a message twice. The visible-browser retry ran after any failure, including one after the message was submitted, so a send whose confirmation timed out was delivered again. It now retries only when nothing was submitted.
+- Fixed long or multi-line messages never confirming. The echo check compared the raw message with the page's rendering, which merges blank lines and reflows whitespace, so a multi-line message could never match and every such send timed out after being delivered. The check now matches on the message's opening lines, flattened the same way the page flattens them, and requires the match to be a message that was not in the chat before sending, so an earlier message with the same opening cannot confirm it.
+- The confirmation now has its own time budget instead of sharing one deadline with startup, search, and typing.
+- Fixed person lookup failing in headless mode. Headless Chrome does not treat Cmd as a modifier: Cmd+A selected nothing and Cmd+K typed a literal "k" into the search box. The editor is now cleared and the search panel reopened without relying on it.
+
 ## 3.31.1 - 2026-11-10
 
 - Fixed `ixf docs read` returning the wrong table for a multi-table bitable. A `/base/<token>?table=<id>` link returned the base's first table, and labelled it as the first table, whatever table was asked for: plausible rows with no sign they came from a different table. It now reads the table named in the URL and reports it in `table_id` and `table_name`.

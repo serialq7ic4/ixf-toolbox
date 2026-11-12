@@ -1972,6 +1972,20 @@ func runMessengerSend(args []string, stdout io.Writer, stderr io.Writer) int {
 	}, messenger.ChromedpAutomator{})
 	if err != nil {
 		fmt.Fprintf(stderr, "ERROR %s\n", err)
+		// A failed send still reports how far it got. Without this a caller saw
+		// only the error line and could not tell "never sent" from "sent, but the
+		// confirmation timed out" -- the one distinction that decides whether a
+		// retry delivers the message twice.
+		if outcome, ok := payload["outcome"].(string); ok {
+			if *asJSON {
+				writeJSON(stdout, payload)
+			} else {
+				fmt.Fprintf(stderr, "OUTCOME %s\n", outcome)
+				if next, ok := payload["nextStep"].(string); ok && next != "" {
+					fmt.Fprintf(stderr, "NEXT %s\n", next)
+				}
+			}
+		}
 		return 2
 	}
 	if *asJSON {
@@ -1985,6 +1999,9 @@ func runMessengerSend(args []string, stdout io.Writer, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "will_send %t\n", payload["willSend"])
 	fmt.Fprintf(stdout, "sent %t\n", payload["sent"])
 	fmt.Fprintf(stdout, "verified_present %t\n", payload["verifiedPresent"])
+	if outcome, ok := payload["outcome"].(string); ok {
+		fmt.Fprintf(stdout, "outcome %s\n", outcome)
+	}
 	return 0
 }
 

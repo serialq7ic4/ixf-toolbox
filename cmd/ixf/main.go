@@ -315,25 +315,42 @@ func runCookies(args []string, stdout io.Writer, stderr io.Writer) int {
 		LocalState:      *localState,
 	})
 	if err != nil {
-		errorPayload := map[string]any{
-			"ok": false,
-			"error": map[string]any{
-				"type":      "cookie",
-				"subtype":   "cookie_export_failed",
-				"message":   err.Error(),
-				"hint":      "Confirm the desktop client is logged in and retry `ixf cookies export`.",
-				"retryable": false,
-			},
-		}
+		errorPayload := cookieExportErrorPayload(err)
 		if *asJSON {
 			writeJSON(stdout, errorPayload)
 		} else {
 			fmt.Fprintf(stderr, "ERROR %s\n", err)
+			errorDetails, _ := errorPayload["error"].(map[string]any)
+			if hint, _ := errorDetails["hint"].(string); hint != "" {
+				fmt.Fprintf(stderr, "HINT %s\n", hint)
+			}
 		}
 		return 6
 	}
 	writeJSON(stdout, payload)
 	return 0
+}
+
+func cookieExportErrorPayload(err error) map[string]any {
+	errorDetails := map[string]any{
+		"type":      "cookie",
+		"subtype":   "cookie_export_failed",
+		"message":   err.Error(),
+		"hint":      "Inspect the reported cookie provider error and retry `ixf cookies export`.",
+		"retryable": false,
+	}
+	var sourceErr *ixfcookies.ExportError
+	if errors.As(err, &sourceErr) {
+		errorDetails["subtype"] = "cookie_source_unusable"
+		errorDetails["reason"] = sourceErr.Reason
+		errorDetails["hint"] = "Cookie source failure does not establish whether the desktop client process is running. Open the target document in the desktop client to refresh its web session, then retry `ixf cookies export --provider auto --json`."
+		errorDetails["retryable"] = true
+		errorDetails["candidates"] = sourceErr.Candidates
+	}
+	return map[string]any{
+		"ok":    false,
+		"error": errorDetails,
+	}
 }
 
 func runSheets(args []string, stdout io.Writer, stderr io.Writer) int {

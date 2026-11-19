@@ -30,6 +30,22 @@ correct domain skill.
 6. Run `ixf doctor --json` when the installed routing or local auth state is unclear; `ixf doctor --json` exposes `agentRouting` for machine-readable verification.
 7. For docs publish readiness, inspect `cookies.ok`, `capabilities.docsPublish`, and `docs.defaultBaseURL`; do not treat top-level `doctor.ok=false` alone as an auth failure.
 
+## Authentication Diagnosis
+
+When the cookie file is absent or unusable, run
+`ixf cookies export --provider auto --json`. On failure, use
+`error.subtype`, `error.reason`, `error.candidates`, and `error.hint` as the
+diagnosis. Candidate summaries contain source type and rejection reason but no
+cookie values.
+
+Do not infer desktop process state or login state from a missing `_csrf_token`,
+a rejected cookie DB, or a process-name search. Branded clients can run under a
+bundle or executable name that does not contain LarkShell, i讯飞, or the tenant
+name. Do not use `pgrep` with guessed names as authentication evidence. Follow
+the returned remediation and retry the export. Never alias `swp_csrf_token` to
+`_csrf_token`; downstream docs, sheets, and bitable APIs continue to require the
+verified `_csrf_token`/`X-CSRFToken` contract.
+
 ## Native Plugin And Runtime Boundary
 
 Codex and Claude native plugin commands own skill discovery, updates, disablement,

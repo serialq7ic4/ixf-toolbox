@@ -42,6 +42,10 @@ Resolve the Go `ixf` runtime before running a business command.
 
 Use `ixf deps install`, not bootstrap, for Mermaid dependencies. Never invoke dependency installation silently.
 
+## Authentication Diagnosis
+
+If the local cookie session is missing, run `ixf cookies export --provider auto --json`. On failure, diagnose from `error.subtype`, `error.reason`, `error.candidates`, and `error.hint`. Missing `_csrf_token` does not prove the desktop process is stopped or the user is signed out; do not use `pgrep` or guessed branded executable names to make that claim, and never substitute `swp_csrf_token` for `_csrf_token`.
+
 ## Workflow
 
 1. Run `ixf okr inspect "<okr-url>"` and show the user the current objectives with their indexes and KR counts. Every write targets an objective by 1-based index, and indexes shift as objectives are added, so never choose one without seeing what is there. Use `inspect` rather than `read`: it reports indexes, identifiers, and counts as JSON, while `read` renders Markdown for a human.

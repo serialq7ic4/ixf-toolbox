@@ -33,7 +33,12 @@ Use `ixf deps install`, not bootstrap, for Mermaid dependencies. Never invoke de
 
 1. Accept only OKR links the user is authorized to access.
 2. Export cookies first if the local session is missing:
-   `ixf cookies export --provider auto`
+   `ixf cookies export --provider auto --json`
+   If export fails, diagnose from `error.subtype`, `error.reason`,
+   `error.candidates`, and `error.hint`. Missing `_csrf_token` does not prove
+   the desktop process is stopped or the user is signed out. Do not use
+   `pgrep` or guessed branded executable names to make that claim, and do not
+   substitute `swp_csrf_token`; follow the CLI hint and retry.
 3. Read the OKR page:
    `ixf okr read "<okr-url>"`
 4. Summarize Objective/KR content, mentions, and alignment points.

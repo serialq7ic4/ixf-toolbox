@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
@@ -71,6 +72,39 @@ type browserCookie struct {
 	SameSite string `json:"sameSite,omitempty"`
 }
 
+type macOSCookieCandidate struct {
+	Path       string
+	SourceKind string
+}
+
+type CandidateDiagnostic struct {
+	SourceKind  string `json:"sourceKind"`
+	CookieCount int    `json:"cookieCount"`
+	HasCSRF     bool   `json:"hasCsrf"`
+	CSRFExpired bool   `json:"csrfExpired"`
+	Rejection   string `json:"rejection,omitempty"`
+}
+
+type ExportError struct {
+	Reason     string                `json:"reason"`
+	Candidates []CandidateDiagnostic `json:"candidates"`
+}
+
+func (e *ExportError) Error() string {
+	switch e.Reason {
+	case "cookie_source_not_found":
+		return "no supported desktop cookie source was found"
+	case "required_cookie_missing":
+		return "cookie source does not contain a non-empty _csrf_token"
+	case "read_failed":
+		return "cookie source could not be read"
+	case "decrypt_failed":
+		return "cookie source could not be decrypted"
+	default:
+		return "no supported desktop cookie source produced a usable non-empty _csrf_token"
+	}
+}
+
 func Export(config ExportConfig) (map[string]any, error) {
 	provider := strings.TrimSpace(config.Provider)
 	if provider == "" || provider == "auto" {
@@ -94,34 +128,92 @@ func Export(config ExportConfig) (map[string]any, error) {
 }
 
 func exportMacOS(config ExportConfig) (map[string]any, error) {
-	dbPath, err := resolveMacOSCookieDB(config)
+	candidates, err := resolveMacOSCookieCandidates(config)
 	if err != nil {
-		return nil, err
+		return nil, &ExportError{Reason: "cookie_source_not_found", Candidates: []CandidateDiagnostic{}}
 	}
 	hostLike := valueOrDefault(config.HostLike, DefaultHostLike)
-	rows, err := readMacOSRows(dbPath, hostLike)
-	if err != nil {
-		return nil, err
-	}
-	needsDecrypt := false
-	for _, row := range rows {
-		if row.Value == "" && len(row.EncryptedValue) > 0 {
-			needsDecrypt = true
-			break
-		}
-	}
 	var key []byte
-	if needsDecrypt {
-		service := valueOrDefault(config.KeychainService, DefaultKeychainService)
-		key, err = macOSKeyFromKeychain(service, config.KeychainAccount)
-		if err != nil {
-			return nil, err
+	var keyErr error
+	diagnostics := make([]CandidateDiagnostic, 0, len(candidates))
+	for _, candidate := range candidates {
+		rows, readErr := readMacOSRows(candidate.Path, hostLike)
+		if readErr != nil {
+			diagnostics = append(diagnostics, CandidateDiagnostic{
+				SourceKind: candidate.SourceKind,
+				Rejection:  "read_failed",
+			})
+			continue
 		}
+		needsDecrypt := false
+		for _, row := range rows {
+			if row.Value == "" && len(row.EncryptedValue) > 0 {
+				needsDecrypt = true
+				break
+			}
+		}
+		if needsDecrypt && key == nil && keyErr == nil {
+			service := valueOrDefault(config.KeychainService, DefaultKeychainService)
+			key, keyErr = macOSKeyFromKeychain(service, config.KeychainAccount)
+		}
+		if needsDecrypt && keyErr != nil {
+			diagnostics = append(diagnostics, CandidateDiagnostic{
+				SourceKind:  candidate.SourceKind,
+				CookieCount: len(rows),
+				Rejection:   "decrypt_failed",
+			})
+			continue
+		}
+		cookies, decryptErr := macOSBrowserCookies(rows, key)
+		if decryptErr != nil {
+			diagnostics = append(diagnostics, CandidateDiagnostic{
+				SourceKind:  candidate.SourceKind,
+				CookieCount: len(rows),
+				Rejection:   "decrypt_failed",
+			})
+			continue
+		}
+		hasCSRF, csrfExpired := csrfStatus(cookies, time.Now())
+		diagnostic := CandidateDiagnostic{
+			SourceKind:  candidate.SourceKind,
+			CookieCount: len(cookies),
+			HasCSRF:     hasCSRF,
+			CSRFExpired: csrfExpired,
+		}
+		if !hasCSRF {
+			diagnostic.Rejection = "required_cookie_missing"
+			diagnostics = append(diagnostics, diagnostic)
+			continue
+		}
+		payload, writeErr := writeExport("macos-larkshell", config.Output, cookies)
+		if writeErr != nil {
+			return nil, writeErr
+		}
+		payload["sourceKind"] = candidate.SourceKind
+		payload["candidateCount"] = len(candidates)
+		payload["csrfExpired"] = csrfExpired
+		diagnostics = append(diagnostics, diagnostic)
+		payload["candidates"] = diagnostics
+		if csrfExpired {
+			payload["warnings"] = []string{
+				"selected _csrf_token is expired according to Chromium metadata; the remaining session cookies may still be accepted",
+			}
+		}
+		return payload, nil
 	}
+	reason := "no_usable_cookie_source"
+	if len(candidates) == 1 && candidates[0].SourceKind == "explicit" && len(diagnostics) == 1 {
+		reason = diagnostics[0].Rejection
+	}
+	return nil, &ExportError{Reason: reason, Candidates: diagnostics}
+}
+
+func macOSBrowserCookies(rows []cookieRow, key []byte) ([]browserCookie, error) {
 	cookies := make([]browserCookie, 0, len(rows))
 	for _, row := range rows {
 		value := row.Value
 		if value == "" && len(row.EncryptedValue) > 0 {
+			var err error
 			value, err = decryptMacOSCookieValue(row.Host, row.EncryptedValue, key)
 			if err != nil {
 				return nil, err
@@ -143,7 +235,22 @@ func exportMacOS(config ExportConfig) (map[string]any, error) {
 		}
 		cookies = append(cookies, cookie)
 	}
-	return writeExport("macos-larkshell", config.Output, cookies)
+	return cookies, nil
+}
+
+func csrfStatus(cookies []browserCookie, now time.Time) (bool, bool) {
+	hasCSRF := false
+	allExpired := true
+	for _, cookie := range cookies {
+		if cookie.Name != "_csrf_token" || cookie.Value == "" {
+			continue
+		}
+		hasCSRF = true
+		if cookie.Expires == 0 || cookie.Expires > now.Unix() {
+			allExpired = false
+		}
+	}
+	return hasCSRF, hasCSRF && allExpired
 }
 
 func exportWindows(config ExportConfig) (map[string]any, error) {
@@ -188,29 +295,53 @@ func exportWindows(config ExportConfig) (map[string]any, error) {
 }
 
 func resolveMacOSCookieDB(config ExportConfig) (string, error) {
-	if strings.TrimSpace(config.CookiesDB) != "" {
-		return expandUser(config.CookiesDB), nil
-	}
-	appSupport := expandUser(valueOrDefault(config.AppSupport, DefaultAppSupport))
-	pattern := filepath.Join(appSupport, "aha", "users", "*", "profile_explorer", "Cookies")
-	candidates, err := filepath.Glob(pattern)
+	candidates, err := resolveMacOSCookieCandidates(config)
 	if err != nil {
 		return "", err
 	}
-	sort.Slice(candidates, func(i, j int) bool {
-		left, leftErr := os.Stat(candidates[i])
-		right, rightErr := os.Stat(candidates[j])
-		if leftErr != nil || rightErr != nil {
-			return candidates[i] < candidates[j]
+	return candidates[0].Path, nil
+}
+
+func resolveMacOSCookieCandidates(config ExportConfig) ([]macOSCookieCandidate, error) {
+	if strings.TrimSpace(config.CookiesDB) != "" {
+		return []macOSCookieCandidate{{
+			Path:       expandUser(config.CookiesDB),
+			SourceKind: "explicit",
+		}}, nil
+	}
+	appSupport := expandUser(valueOrDefault(config.AppSupport, DefaultAppSupport))
+	patterns := []struct {
+		pattern    string
+		sourceKind string
+	}{
+		{filepath.Join(appSupport, "aha", "users", "*", "profile_explorer", "Cookies"), "profile_explorer"},
+		{filepath.Join(appSupport, "aha", "users", "*", "profile_explorer", "Default", "Cookies"), "profile_explorer_default"},
+		{filepath.Join(appSupport, "aha", "users", "*", "PartitionsV2", "openplatform_web_container_*", "Cookies"), "openplatform_web_container"},
+	}
+	var result []macOSCookieCandidate
+	for _, item := range patterns {
+		paths, err := filepath.Glob(item.pattern)
+		if err != nil {
+			return nil, err
 		}
-		return left.ModTime().After(right.ModTime())
-	})
-	for _, candidate := range candidates {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate, nil
+		sort.Slice(paths, func(i, j int) bool {
+			left, leftErr := os.Stat(paths[i])
+			right, rightErr := os.Stat(paths[j])
+			if leftErr != nil || rightErr != nil || left.ModTime().Equal(right.ModTime()) {
+				return paths[i] < paths[j]
+			}
+			return left.ModTime().After(right.ModTime())
+		})
+		for _, path := range paths {
+			if info, err := os.Stat(path); err == nil && !info.IsDir() {
+				result = append(result, macOSCookieCandidate{Path: path, SourceKind: item.sourceKind})
+			}
 		}
 	}
-	return "", fmt.Errorf("no profile_explorer/Cookies found under %s", appSupport)
+	if len(result) == 0 {
+		return nil, fmt.Errorf("no supported Cookies database found under %s", appSupport)
+	}
+	return result, nil
 }
 
 func resolveWindowsCookieDB(config ExportConfig) (string, error) {

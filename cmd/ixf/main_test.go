@@ -17,6 +17,7 @@ import (
 
 	"github.com/serialq7ic4/ixf-toolbox/internal/agentinstall"
 	ixfbitable "github.com/serialq7ic4/ixf-toolbox/internal/bitable"
+	ixfcookies "github.com/serialq7ic4/ixf-toolbox/internal/cookies"
 	"github.com/serialq7ic4/ixf-toolbox/internal/dependencies"
 	"github.com/serialq7ic4/ixf-toolbox/internal/docspublish"
 	ixfupdate "github.com/serialq7ic4/ixf-toolbox/internal/update"
@@ -64,6 +65,152 @@ func TestRootHelpListsCommands(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "setup") {
 		t.Fatalf("root help still lists removed setup command: %s", stdout.String())
+	}
+}
+
+func TestCookiesExportJSONReportsSourceFailureWithoutProcessInference(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{
+		"cookies", "export",
+		"--provider", "macos-larkshell",
+		"--app-support", t.TempDir(),
+		"--output", filepath.Join(t.TempDir(), "cookies.json"),
+		"--json",
+	}, &stdout, &stderr)
+
+	if code != 6 {
+		t.Fatalf("exit code = %d, want 6; stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty JSON error channel", stderr.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode JSON: %v\n%s", err, stdout.String())
+	}
+	errorPayload, ok := payload["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("error payload = %#v", payload["error"])
+	}
+	if errorPayload["subtype"] != "cookie_source_unusable" || errorPayload["reason"] != "cookie_source_not_found" || errorPayload["retryable"] != false {
+		t.Fatalf("error payload = %+v", errorPayload)
+	}
+	hint, _ := errorPayload["hint"].(string)
+	if !strings.Contains(hint, "does not establish whether the desktop client process is running") {
+		t.Fatalf("hint does not prevent process inference: %q", hint)
+	}
+	if !strings.Contains(hint, "supported live-profile cookie database") || strings.Contains(hint, "Open the target document") {
+		t.Fatalf("source-not-found hint is not reason-specific: %q", hint)
+	}
+	if strings.Contains(strings.ToLower(hint), "confirm the desktop client is logged in") {
+		t.Fatalf("hint retained unsupported login conclusion: %q", hint)
+	}
+}
+
+func TestCookiesExportTextReportsActionableSourceFailure(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{
+		"cookies", "export",
+		"--provider", "macos-larkshell",
+		"--app-support", t.TempDir(),
+		"--output", filepath.Join(t.TempDir(), "cookies.json"),
+	}, &stdout, &stderr)
+
+	if code != 6 {
+		t.Fatalf("exit code = %d, want 6; stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty text success channel", stdout.String())
+	}
+	for _, expected := range []string{
+		"ERROR no supported desktop cookie source was found",
+		"HINT Cookie source failure does not establish whether the desktop client process is running.",
+		"No supported live-profile cookie database was found",
+	} {
+		if !strings.Contains(stderr.String(), expected) {
+			t.Fatalf("stderr missing %q:\n%s", expected, stderr.String())
+		}
+	}
+	if strings.Contains(strings.ToLower(stderr.String()), "confirm the desktop client is logged in") {
+		t.Fatalf("stderr retained unsupported login conclusion: %s", stderr.String())
+	}
+}
+
+func TestCookiesExportExplicitMissingCSRFPreservesExactSourceIntent(t *testing.T) {
+	err := &ixfcookies.ExportError{
+		Reason: "required_cookie_missing",
+		Candidates: []ixfcookies.CandidateDiagnostic{
+			{SourceKind: "explicit", CookieCount: 12, Rejection: "required_cookie_missing"},
+		},
+	}
+	payload := cookieExportErrorPayload(err)
+	errorPayload := payload["error"].(map[string]any)
+	if errorPayload["retryable"] != true {
+		t.Fatalf("retryable = %#v, want true", errorPayload["retryable"])
+	}
+	hint, _ := errorPayload["hint"].(string)
+	for _, expected := range []string{
+		"explicit cookie database",
+		"same --cookies-db value",
+		"does not establish whether the desktop client process is running",
+	} {
+		if !strings.Contains(hint, expected) {
+			t.Fatalf("hint missing %q: %s", expected, hint)
+		}
+	}
+	if strings.Contains(hint, "--provider auto") {
+		t.Fatalf("explicit source hint recommends automatic fallback: %s", hint)
+	}
+}
+
+func TestCookiesExportDecryptFailureDoesNotRecommendSessionRefresh(t *testing.T) {
+	err := &ixfcookies.ExportError{
+		Reason: "no_usable_cookie_source",
+		Candidates: []ixfcookies.CandidateDiagnostic{
+			{SourceKind: "profile_explorer", CookieCount: 12, Rejection: "decrypt_failed"},
+		},
+	}
+	errorPayload := cookieExportErrorPayload(err)["error"].(map[string]any)
+	if errorPayload["retryable"] != false {
+		t.Fatalf("retryable = %#v, want false", errorPayload["retryable"])
+	}
+	hint, _ := errorPayload["hint"].(string)
+	if !strings.Contains(hint, "Keychain access") || strings.Contains(hint, "Open the target document") {
+		t.Fatalf("decrypt failure hint is not reason-specific: %s", hint)
+	}
+}
+
+func TestCookiesExportTypedErrorPayloadIncludesSafeCandidateDiagnostics(t *testing.T) {
+	err := &ixfcookies.ExportError{
+		Reason: "no_usable_cookie_source",
+		Candidates: []ixfcookies.CandidateDiagnostic{
+			{SourceKind: "profile_explorer", CookieCount: 19, Rejection: "required_cookie_missing"},
+			{SourceKind: "openplatform_web_container", CookieCount: 14, HasCSRF: true, CSRFExpired: true, Rejection: "decrypt_failed"},
+		},
+	}
+	payload := cookieExportErrorPayload(err)
+	serialized, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		t.Fatalf("marshal error payload: %v", marshalErr)
+	}
+	text := string(serialized)
+	for _, expected := range []string{
+		`"subtype":"cookie_source_unusable"`,
+		`"reason":"no_usable_cookie_source"`,
+		`"sourceKind":"profile_explorer"`,
+		`"rejection":"required_cookie_missing"`,
+		`"csrfExpired":true`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("payload missing %q: %s", expected, text)
+		}
+	}
+	for _, forbidden := range []string{"cookie-value-secret", "Confirm the desktop client is logged in"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("payload contains forbidden text %q: %s", forbidden, text)
+		}
 	}
 }
 

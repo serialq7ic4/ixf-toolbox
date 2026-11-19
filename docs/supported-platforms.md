@@ -4,10 +4,26 @@
 
 | Platform | Status | Notes |
 |---|---|---|
-| macOS | Tier 1 | `ixf cookies export --provider auto` reads the local Chromium profile and decrypts cookies with Keychain. `ixf messenger doctor` discovers `profile_explorer` under the LarkShell app support directory and requires cloned profile isolation before Chrome/Chromium browser automation. |
+| macOS | Tier 1 | `ixf cookies export --provider auto` checks the supported live desktop cookie locations under `profile_explorer`, `profile_explorer/Default`, and `PartitionsV2/openplatform_web_container_*`, then selects a source with `_csrf_token` and decrypts it with Keychain. It does not scan Playwright clone profiles. `ixf messenger doctor` discovers `profile_explorer` under the LarkShell app support directory and requires cloned profile isolation before Chrome/Chromium browser automation. |
 | Windows | CI-tested / experimental | `ixf cookies export --provider windows-larkshell` reads the local Chromium profile and decrypts cookies with Windows DPAPI. Messenger profile discovery uses the LarkShell Chromium profile under `%APPDATA%`; Messenger automation still uses a cloned profile and needs more live desktop validation. |
 
 Linux desktop-session export and Messenger automation are not supported because i讯飞 does not ship a Linux desktop client. Pure parsing and dry-run document/OKR components may still work, but authenticated remote operations require a supported cookie source.
+
+## Authentication Diagnosis
+
+Run `ixf cookies export --provider auto --json` when the exported session is
+missing. On macOS, one candidate DB can be unreadable, undecryptable, or missing
+`_csrf_token` while another supported live-profile DB remains usable. The JSON
+error reports only safe source kinds and rejection reasons; it never reports
+cookie values.
+
+A cookie export failure does not establish whether the desktop application is
+running or whether the user is signed in. Branded builds can use bundle and
+executable names unrelated to LarkShell, so process-name searches are not an
+authentication check. Follow the CLI's structured `error.hint`, open the target
+document in the desktop client when a Web-session refresh is requested, and
+retry. `swp_csrf_token` is not treated as `_csrf_token` without a separately
+verified API contract.
 
 ## Plugin Bootstrap Paths
 

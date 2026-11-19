@@ -93,12 +93,15 @@ func TestCookiesExportJSONReportsSourceFailureWithoutProcessInference(t *testing
 	if !ok {
 		t.Fatalf("error payload = %#v", payload["error"])
 	}
-	if errorPayload["subtype"] != "cookie_source_unusable" || errorPayload["reason"] != "cookie_source_not_found" || errorPayload["retryable"] != true {
+	if errorPayload["subtype"] != "cookie_source_unusable" || errorPayload["reason"] != "cookie_source_not_found" || errorPayload["retryable"] != false {
 		t.Fatalf("error payload = %+v", errorPayload)
 	}
 	hint, _ := errorPayload["hint"].(string)
 	if !strings.Contains(hint, "does not establish whether the desktop client process is running") {
 		t.Fatalf("hint does not prevent process inference: %q", hint)
+	}
+	if !strings.Contains(hint, "supported live-profile cookie database") || strings.Contains(hint, "Open the target document") {
+		t.Fatalf("source-not-found hint is not reason-specific: %q", hint)
 	}
 	if strings.Contains(strings.ToLower(hint), "confirm the desktop client is logged in") {
 		t.Fatalf("hint retained unsupported login conclusion: %q", hint)
@@ -124,7 +127,7 @@ func TestCookiesExportTextReportsActionableSourceFailure(t *testing.T) {
 	for _, expected := range []string{
 		"ERROR no supported desktop cookie source was found",
 		"HINT Cookie source failure does not establish whether the desktop client process is running.",
-		"Open the target document in the desktop client",
+		"No supported live-profile cookie database was found",
 	} {
 		if !strings.Contains(stderr.String(), expected) {
 			t.Fatalf("stderr missing %q:\n%s", expected, stderr.String())
@@ -132,6 +135,50 @@ func TestCookiesExportTextReportsActionableSourceFailure(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(stderr.String()), "confirm the desktop client is logged in") {
 		t.Fatalf("stderr retained unsupported login conclusion: %s", stderr.String())
+	}
+}
+
+func TestCookiesExportExplicitMissingCSRFPreservesExactSourceIntent(t *testing.T) {
+	err := &ixfcookies.ExportError{
+		Reason: "required_cookie_missing",
+		Candidates: []ixfcookies.CandidateDiagnostic{
+			{SourceKind: "explicit", CookieCount: 12, Rejection: "required_cookie_missing"},
+		},
+	}
+	payload := cookieExportErrorPayload(err)
+	errorPayload := payload["error"].(map[string]any)
+	if errorPayload["retryable"] != true {
+		t.Fatalf("retryable = %#v, want true", errorPayload["retryable"])
+	}
+	hint, _ := errorPayload["hint"].(string)
+	for _, expected := range []string{
+		"explicit cookie database",
+		"same --cookies-db value",
+		"does not establish whether the desktop client process is running",
+	} {
+		if !strings.Contains(hint, expected) {
+			t.Fatalf("hint missing %q: %s", expected, hint)
+		}
+	}
+	if strings.Contains(hint, "--provider auto") {
+		t.Fatalf("explicit source hint recommends automatic fallback: %s", hint)
+	}
+}
+
+func TestCookiesExportDecryptFailureDoesNotRecommendSessionRefresh(t *testing.T) {
+	err := &ixfcookies.ExportError{
+		Reason: "no_usable_cookie_source",
+		Candidates: []ixfcookies.CandidateDiagnostic{
+			{SourceKind: "profile_explorer", CookieCount: 12, Rejection: "decrypt_failed"},
+		},
+	}
+	errorPayload := cookieExportErrorPayload(err)["error"].(map[string]any)
+	if errorPayload["retryable"] != false {
+		t.Fatalf("retryable = %#v, want false", errorPayload["retryable"])
+	}
+	hint, _ := errorPayload["hint"].(string)
+	if !strings.Contains(hint, "Keychain access") || strings.Contains(hint, "Open the target document") {
+		t.Fatalf("decrypt failure hint is not reason-specific: %s", hint)
 	}
 }
 

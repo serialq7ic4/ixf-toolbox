@@ -222,6 +222,17 @@ func TestExportMacOSFallsBackToUsablePartitionAndReportsStaleCSRF(t *testing.T) 
 	if payload["sourceKind"] != "openplatform_web_container" || payload["candidateCount"] != 3 || payload["csrfExpired"] != true {
 		t.Fatalf("payload = %+v", payload)
 	}
+	candidateDiagnostics, ok := payload["candidates"].([]CandidateDiagnostic)
+	if !ok || len(candidateDiagnostics) != 3 {
+		t.Fatalf("candidate diagnostics = %#v, want three evaluated candidates", payload["candidates"])
+	}
+	if candidateDiagnostics[0].Rejection != "required_cookie_missing" ||
+		candidateDiagnostics[1].Rejection != "decrypt_failed" ||
+		candidateDiagnostics[2].SourceKind != "openplatform_web_container" ||
+		candidateDiagnostics[2].Rejection != "" ||
+		!candidateDiagnostics[2].HasCSRF {
+		t.Fatalf("candidate diagnostics = %+v", candidateDiagnostics)
+	}
 	warnings, ok := payload["warnings"].([]string)
 	if !ok || len(warnings) != 1 || !strings.Contains(warnings[0], "expired") {
 		t.Fatalf("warnings = %#v, want one stale CSRF warning", payload["warnings"])

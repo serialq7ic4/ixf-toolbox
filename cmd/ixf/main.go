@@ -341,16 +341,60 @@ func cookieExportErrorPayload(err error) map[string]any {
 	}
 	var sourceErr *ixfcookies.ExportError
 	if errors.As(err, &sourceErr) {
+		hint, retryable := cookieSourceRemediation(sourceErr)
 		errorDetails["subtype"] = "cookie_source_unusable"
 		errorDetails["reason"] = sourceErr.Reason
-		errorDetails["hint"] = "Cookie source failure does not establish whether the desktop client process is running. Open the target document in the desktop client to refresh its web session, then retry `ixf cookies export --provider auto --json`."
-		errorDetails["retryable"] = true
+		errorDetails["hint"] = hint
+		errorDetails["retryable"] = retryable
 		errorDetails["candidates"] = sourceErr.Candidates
 	}
 	return map[string]any{
 		"ok":    false,
 		"error": errorDetails,
 	}
+}
+
+func cookieSourceRemediation(sourceErr *ixfcookies.ExportError) (string, bool) {
+	const boundary = "Cookie source failure does not establish whether the desktop client process is running. "
+	explicit := len(sourceErr.Candidates) == 1 && sourceErr.Candidates[0].SourceKind == "explicit"
+	switch sourceErr.Reason {
+	case "cookie_source_not_found":
+		return boundary + "No supported live-profile cookie database was found. Check that the desktop profile exists and is readable, then retry the same command.", false
+	case "required_cookie_missing":
+		if explicit {
+			return boundary + "The explicit cookie database lacks a usable _csrf_token. Refresh that exact desktop web session, then rerun with the same --cookies-db value; automatic fallback is not used.", true
+		}
+		return boundary + "Open the target document in the desktop client to refresh its web session, then retry `ixf cookies export --provider auto --json`.", true
+	case "read_failed":
+		if explicit {
+			return boundary + "The explicit cookie database could not be read. Check that exact file and its permissions, then rerun with the same --cookies-db value; automatic fallback is not used.", false
+		}
+		return boundary + "A supported live-profile cookie database could not be read. Check the desktop profile files and permissions before retrying.", false
+	case "decrypt_failed":
+		if explicit {
+			return boundary + "The explicit cookie database could not be decrypted. Check Keychain access for that source, then rerun with the same --cookies-db value; automatic fallback is not used.", false
+		}
+		return boundary + "A supported cookie source could not be decrypted. Check macOS Keychain access before retrying.", false
+	case "no_usable_cookie_source":
+		if candidateHasRejection(sourceErr.Candidates, "required_cookie_missing") {
+			return boundary + "No evaluated source had a usable session. Open the target document in the desktop client to refresh its web session, then retry `ixf cookies export --provider auto --json`.", true
+		}
+		if candidateHasRejection(sourceErr.Candidates, "decrypt_failed") {
+			return boundary + "The supported cookie sources could not be decrypted. Check macOS Keychain access before retrying.", false
+		}
+		return boundary + "The supported live-profile cookie databases could not be read. Check the desktop profile files and permissions before retrying.", false
+	default:
+		return boundary + "Inspect the candidate rejection reasons and retry after repairing the reported source.", false
+	}
+}
+
+func candidateHasRejection(candidates []ixfcookies.CandidateDiagnostic, rejection string) bool {
+	for _, candidate := range candidates {
+		if candidate.Rejection == rejection {
+			return true
+		}
+	}
+	return false
 }
 
 func runSheets(args []string, stdout io.Writer, stderr io.Writer) int {

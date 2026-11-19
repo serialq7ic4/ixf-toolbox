@@ -192,6 +192,8 @@ func exportMacOS(config ExportConfig) (map[string]any, error) {
 		payload["sourceKind"] = candidate.SourceKind
 		payload["candidateCount"] = len(candidates)
 		payload["csrfExpired"] = csrfExpired
+		diagnostics = append(diagnostics, diagnostic)
+		payload["candidates"] = diagnostics
 		if csrfExpired {
 			payload["warnings"] = []string{
 				"selected _csrf_token is expired according to Chromium metadata; the remaining session cookies may still be accepted",

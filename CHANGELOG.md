@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.31.3 - 2026-11-19
+
+- Fixed `ixf cookies export --provider auto` selecting only `profile_explorer/Cookies` on macOS. Current i讯飞 desktop sessions can keep the docs Web session under `profile_explorer/Default` or `PartitionsV2/openplatform_web_container_*`; the exporter now checks those supported live-profile sources, excludes Playwright clones, skips unreadable or undecryptable candidates, and selects the first source with a non-empty `_csrf_token`. An explicit `--cookies-db` remains exact and never falls back to another login.
+- Cookie export success and failure now include secret-safe candidate diagnostics. Agents can distinguish a missing source, unreadable database, decryption failure, and missing `_csrf_token` without seeing cookie values or private paths. A token whose Chromium expiry metadata is stale remains usable with a warning because the server can still accept the combined session.
+- Authentication guidance no longer treats cookie export failure or a guessed process-name search as proof that the branded desktop client is stopped or signed out. Remediation is specific to the rejection reason and preserves explicit-source intent.
+
 ## 3.31.2 - 2026-11-12
 
 - **Behaviour change.** `ixf messenger send` reports whether a failed send was submitted. A send whose confirmation timed out used to print only `ERROR send local echo: context deadline exceeded`, with no way to tell "never sent" from "sent, but not confirmed", so a caller could not know whether retrying would deliver the message twice. The output now carries `outcome`, `retrySafe`, and `stage` on failure as well as success: `not_sent` is safe to retry, `possibly_delivered` was submitted and must not be resent, `delivered` was confirmed in a fresh session. A failed send now also prints its JSON payload, where it used to print nothing on stdout.

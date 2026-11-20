@@ -713,8 +713,11 @@ func validateLiveDefault(raw json.RawMessage, fieldType string, choices []Choice
 	if err := validateDefaultType(raw, fieldType); err != nil {
 		return err
 	}
-	if !choiceFieldType(fieldType) || len(choices) == 0 {
+	if !choiceFieldType(fieldType) {
 		return nil
+	}
+	if len(choices) == 0 {
+		return errors.New("does not uniquely match a live choice")
 	}
 	var value any
 	if err := decodeStrictJSON(raw, &value); err != nil {
@@ -730,13 +733,13 @@ func validateLiveDefault(raw json.RawMessage, fieldType string, choices []Choice
 		}
 	}
 	for _, candidate := range values {
-		matches := 0
-		for _, choice := range choices {
+		matches := make(map[int]struct{}, 1)
+		for index, choice := range choices {
 			if candidate == choice.Label || candidate == choice.Value {
-				matches++
+				matches[index] = struct{}{}
 			}
 		}
-		if matches != 1 {
+		if len(matches) != 1 {
 			return errors.New("does not uniquely match a live choice")
 		}
 	}

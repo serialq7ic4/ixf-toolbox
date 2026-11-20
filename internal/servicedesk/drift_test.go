@@ -472,6 +472,74 @@ func TestResolveOverlayValidatesTableDefaultRows(t *testing.T) {
 	}
 }
 
+func TestResolveOverlayValidatesTableChoiceDefaults(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		candidate string
+		choices   []Choice
+		wantError bool
+	}{
+		"label accepted": {
+			candidate: "Disk",
+			choices:   []Choice{{Label: "Disk", Value: "disk"}},
+		},
+		"backend value accepted": {
+			candidate: "disk",
+			choices:   []Choice{{Label: "Disk", Value: "disk"}},
+		},
+		"label equals value accepted once": {
+			candidate: "disk",
+			choices:   []Choice{{Label: "disk", Value: "disk"}},
+		},
+		"unknown rejected with empty choices": {
+			candidate: "disk",
+			wantError: true,
+		},
+		"duplicate labels are ambiguous": {
+			candidate: "Disk",
+			choices: []Choice{
+				{Label: "Disk", Value: "disk-1"},
+				{Label: "Disk", Value: "disk-2"},
+			},
+			wantError: true,
+		},
+		"duplicate values are ambiguous": {
+			candidate: "disk",
+			choices: []Choice{
+				{Label: "Disk one", Value: "disk"},
+				{Label: "Disk two", Value: "disk"},
+			},
+			wantError: true,
+		},
+	}
+
+	for name, test := range tests {
+		name, test := name, test
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			overlay := decodeFixtureOverlay(t)
+			devices := overlay.Fields["devices"]
+			devices.Default = mustJSONValue(t, []any{map[string]any{
+				"hostName": "host-1",
+				"part":     test.candidate,
+			}})
+			overlay.Fields["devices"] = devices
+
+			template := overlayValidationTemplate()
+			template.Fields[0].TableColumns[1].Type = "select"
+			template.Fields[0].TableColumns[1].Choices = test.choices
+			_, err := ResolveOverlay(overlay, template)
+			if test.wantError && (err == nil || !strings.Contains(err.Error(), "does not uniquely match a live choice")) {
+				t.Fatalf("ResolveOverlay() error = %v, want unique live choice error", err)
+			}
+			if !test.wantError && err != nil {
+				t.Fatalf("ResolveOverlay(valid table choice default) error = %v", err)
+			}
+		})
+	}
+}
+
 func TestDriftOutputIsDeterministicAndPrivate(t *testing.T) {
 	t.Parallel()
 

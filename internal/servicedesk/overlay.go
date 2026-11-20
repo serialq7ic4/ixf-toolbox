@@ -195,24 +195,24 @@ type baselineWire struct {
 }
 
 type baselineFieldWire struct {
-	StableID      string          `json:"stableId"`
-	Name          *string         `json:"name"`
-	Type          *string         `json:"type"`
-	Required      *bool           `json:"required"`
-	ChoiceHash    string          `json:"choiceHash"`
-	DefaultHash   string          `json:"defaultHash"`
-	ConditionHash string          `json:"conditionHash"`
-	Columns       json.RawMessage `json:"columns"`
+	StableID      string                `json:"stableId"`
+	Name          *string               `json:"name"`
+	Type          *string               `json:"type"`
+	Required      *bool                 `json:"required"`
+	ChoiceHash    string                `json:"choiceHash"`
+	DefaultHash   optionalValue[string] `json:"defaultHash"`
+	ConditionHash optionalValue[string] `json:"conditionHash"`
+	Columns       json.RawMessage       `json:"columns"`
 }
 
 type baselineColumnWire struct {
-	Key           string  `json:"key"`
-	Name          *string `json:"name"`
-	Type          *string `json:"type"`
-	Required      *bool   `json:"required"`
-	ChoiceHash    string  `json:"choiceHash"`
-	DefaultHash   string  `json:"defaultHash"`
-	ConditionHash string  `json:"conditionHash"`
+	Key           string                `json:"key"`
+	Name          *string               `json:"name"`
+	Type          *string               `json:"type"`
+	Required      *bool                 `json:"required"`
+	ChoiceHash    string                `json:"choiceHash"`
+	DefaultHash   optionalValue[string] `json:"defaultHash"`
+	ConditionHash optionalValue[string] `json:"conditionHash"`
 }
 
 type overlayFieldWire struct {
@@ -361,14 +361,22 @@ func baselineFromWire(wire baselineWire) (Baseline, error) {
 		if field.Name == nil || field.Type == nil || field.Required == nil {
 			return Baseline{}, fmt.Errorf("ServiceDesk overlay baseline field %d is missing a required property", index)
 		}
+		defaultHash, err := fingerprintHashFromWire(field.DefaultHash, "defaultHash", index, -1)
+		if err != nil {
+			return Baseline{}, err
+		}
+		conditionHash, err := fingerprintHashFromWire(field.ConditionHash, "conditionHash", index, -1)
+		if err != nil {
+			return Baseline{}, err
+		}
 		converted := BaselineField{
 			StableID:      field.StableID,
 			Name:          *field.Name,
 			Type:          *field.Type,
 			Required:      *field.Required,
 			ChoiceHash:    field.ChoiceHash,
-			DefaultHash:   field.DefaultHash,
-			ConditionHash: field.ConditionHash,
+			DefaultHash:   defaultHash,
+			ConditionHash: conditionHash,
 		}
 		if field.Columns != nil {
 			converted.columnsPresent = true
@@ -384,20 +392,44 @@ func baselineFromWire(wire baselineWire) (Baseline, error) {
 				if column.Name == nil || column.Type == nil || column.Required == nil {
 					return Baseline{}, fmt.Errorf("ServiceDesk overlay baseline field %d column %d is missing a required property", index, columnIndex)
 				}
+				defaultHash, err := fingerprintHashFromWire(column.DefaultHash, "defaultHash", index, columnIndex)
+				if err != nil {
+					return Baseline{}, err
+				}
+				conditionHash, err := fingerprintHashFromWire(column.ConditionHash, "conditionHash", index, columnIndex)
+				if err != nil {
+					return Baseline{}, err
+				}
 				converted.Columns = append(converted.Columns, BaselineColumn{
 					Key:           column.Key,
 					Name:          *column.Name,
 					Type:          *column.Type,
 					Required:      *column.Required,
 					ChoiceHash:    column.ChoiceHash,
-					DefaultHash:   column.DefaultHash,
-					ConditionHash: column.ConditionHash,
+					DefaultHash:   defaultHash,
+					ConditionHash: conditionHash,
 				})
 			}
 		}
 		baseline.Fields = append(baseline.Fields, converted)
 	}
 	return baseline, nil
+}
+
+func fingerprintHashFromWire(value optionalValue[string], name string, fieldIndex, columnIndex int) (string, error) {
+	if !value.Present {
+		return "", nil
+	}
+	if err := validateOptionalFingerprintHash(value.Value, name, fieldIndex, columnIndex); err != nil || value.Value == "" {
+		if err != nil {
+			return "", err
+		}
+		if columnIndex >= 0 {
+			return "", fmt.Errorf("ServiceDesk overlay baseline field %d column %d has invalid %s", fieldIndex, columnIndex, name)
+		}
+		return "", fmt.Errorf("ServiceDesk overlay baseline field %d has invalid %s", fieldIndex, name)
+	}
+	return value.Value, nil
 }
 
 func decodeStrictJSON(data []byte, target any) error {

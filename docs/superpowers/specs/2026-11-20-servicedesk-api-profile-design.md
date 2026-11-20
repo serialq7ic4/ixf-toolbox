@@ -626,7 +626,9 @@ Registry 保存轻量 JSON overlay，不复制完整 lading payload：
 `fields` 必须是 object。overlay field 和 table column 的 `match` 必填，其余属性可选。fingerprint
 的 `name`、`type`、`required` 必填；顶层 `stableId`、列 `key` 和选择类型 `choiceHash` 在实时
 元数据提供时必填；实时默认值存在时 `defaultHash` 必填，实时条件表达式存在时 `conditionHash`
-必填；`columns` 只允许且必须用于 table 类型。`snapshotId` 和 `serviceKey` 是非空 string。
+必填；两个 hash 属性都可以在无对应实时元数据时省略，但一旦出现必须是非空的合法 `sha256:`
+摘要，显式 `null`、空字符串和畸形摘要均拒绝；`columns` 只允许且必须用于 table 类型。
+`snapshotId` 和 `serviceKey` 是非空 string。
 matcher 的值、公共 input 名和 alias 均为去除首尾空白后 1 到 128 个 Unicode 字符；aliases 必须是
 string array 且不得包含重复项。
 
@@ -640,7 +642,10 @@ ServiceDesk payload，也不能覆盖 `target`。CLI 不根据这些内容实现
 
 `fields` object 的 key 是稳定的公共 input 名；`aliases` 是额外可接受的 input 名。公共名和所有
 alias 在顶层作用域必须唯一；每个 table 的 column 公共名和 alias 在该 table 内必须唯一，不同
-table 可以复用列名。`default` 必须符合目标字段的公共 JSON 类型。overlay
+table 可以复用列名。`default` 必须符合目标字段的公共 JSON 类型。对 select、radio、checkbox
+等 choice 类型，实时 choice 集合必须非空；字符串输入必须按大小写敏感的精确匹配命中唯一一个
+live choice 的 label 或 backend value，同一 choice 的 label/value 双重命中只算一次，重复 label
+或 value 造成的多重 choice 命中必须拒绝。overlay
 `required=true` 可以把实时可选字段强化为必填；它不能把服务端必填字段放宽为可选，若对实时
 必填字段声明 `required=false`，在线 validate 直接失败。首版不定义通用 validation DSL；除
 required、类型、枚举、条件和 ServiceDesk 实时约束外，不接受任意自定义校验属性。

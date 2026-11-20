@@ -135,6 +135,69 @@ func TestDecodeOverlayAcceptsDefaultAndConditionFingerprints(t *testing.T) {
 	}
 }
 
+func TestDecodeOverlayFingerprintHashPresence(t *testing.T) {
+	t.Parallel()
+
+	const validHash = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	levels := []string{"field", "column"}
+	attributes := []string{"defaultHash", "conditionHash"}
+	tests := map[string]struct {
+		present bool
+		value   any
+		valid   bool
+	}{
+		"omitted":   {valid: true},
+		"valid":     {present: true, value: validHash, valid: true},
+		"null":      {present: true, value: nil},
+		"empty":     {present: true, value: ""},
+		"malformed": {present: true, value: "sha256:ABC"},
+	}
+
+	for _, level := range levels {
+		level := level
+		for _, attribute := range attributes {
+			attribute := attribute
+			for name, test := range tests {
+				name, test := name, test
+				t.Run(level+"/"+attribute+"/"+name, func(t *testing.T) {
+					t.Parallel()
+					data := overlayWithFingerprintHash(t, level, attribute, test.value, test.present)
+					_, err := DecodeOverlay(data)
+					if test.valid && err != nil {
+						t.Fatalf("DecodeOverlay(valid %s) error = %v", name, err)
+					}
+					if !test.valid && err == nil {
+						t.Fatalf("DecodeOverlay(%s) succeeded, want strict fingerprint hash error", name)
+					}
+				})
+			}
+		}
+	}
+}
+
+func overlayWithFingerprintHash(t *testing.T, level, attribute string, value any, present bool) []byte {
+	t.Helper()
+	var document map[string]any
+	if err := json.Unmarshal(mustReadFixture(t, "profile-4003.json"), &document); err != nil {
+		t.Fatalf("json.Unmarshal(profile fixture) error = %v", err)
+	}
+	baseline := document["baseline"].(map[string]any)
+	field := baseline["fields"].([]any)[0].(map[string]any)
+	target := field
+	if level == "column" {
+		target = field["columns"].([]any)[0].(map[string]any)
+	}
+	delete(target, attribute)
+	if present {
+		target[attribute] = value
+	}
+	data, err := json.Marshal(document)
+	if err != nil {
+		t.Fatalf("json.Marshal(profile fixture) error = %v", err)
+	}
+	return data
+}
+
 func TestOverlayRejectsDuplicatePublicNamesAndAliases(t *testing.T) {
 	t.Parallel()
 

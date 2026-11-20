@@ -75,18 +75,52 @@ func TestResolvedContractIncludesChoicesTablesAndConditions(t *testing.T) {
 		t.Fatalf("fault choices = %#v, want %#v", got, wantChoices)
 	}
 	columns := fields["devices"].Columns
-	if len(columns) != 2 || columns[0].Name != "host_name" || columns[0].DisplayName != "Host name" || columns[0].Type != "input" || !columns[0].Required {
+	if len(columns) != 2 || columns[0].Name != "Host name" || columns[0].DisplayName != "Host name" || columns[0].Type != "input" || !columns[0].Required {
 		t.Fatalf("table columns = %+v", columns)
 	}
-	if columns[1].Name != "component" || columns[1].DisplayName != "Component" {
+	if columns[1].Name != "Component" || columns[1].DisplayName != "Component" {
 		t.Fatalf("second table column = %+v", columns[1])
 	}
 	conditions := fields["details"].Conditions
-	if conditions == nil || conditions.Source != "conditions_expression" || conditions.Operator != "and" || len(conditions.Conditions) != 1 {
+	if conditions == nil || conditions.Source != "" || conditions.Operator != "and" || len(conditions.Conditions) != 1 {
 		t.Fatalf("details conditions = %+v", conditions)
 	}
 	if conditions.Conditions[0].Field != "fault_type" || conditions.Conditions[0].Operator != "==" || conditions.Conditions[0].Value != "disk" {
 		t.Fatalf("details condition = %+v", conditions.Conditions[0])
+	}
+	encoded, err := json.Marshal(contract)
+	if err != nil {
+		t.Fatalf("marshal contract: %v", err)
+	}
+	for _, privateName := range []string{"host_name", `"name":"component"`, "conditions_expression"} {
+		if strings.Contains(string(encoded), privateName) {
+			t.Errorf("public contract contains backend metadata name %q: %s", privateName, encoded)
+		}
+	}
+}
+
+func TestResolvedContractRejectsDuplicateTableColumnDisplayName(t *testing.T) {
+	t.Parallel()
+
+	_, err := inspectSyntheticContract(t, map[string]any{
+		"field_devices": map[string]any{
+			"field_unique_Identifier": "devices",
+			"name":                    "Devices",
+			"type":                    "extend_table",
+			"required":                true,
+			"columns": []any{
+				map[string]any{"key": "first_private_key", "name": "Duplicate", "type": "input", "required": true},
+				map[string]any{"key": "second_private_key", "name": "Duplicate", "type": "input", "required": true},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "duplicate table column display name") {
+		t.Fatalf("Inspect() error = %v, want duplicate table column display name error", err)
+	}
+	for _, privateKey := range []string{"first_private_key", "second_private_key"} {
+		if strings.Contains(err.Error(), privateKey) {
+			t.Fatalf("Inspect() error exposes backend column key %q: %v", privateKey, err)
+		}
 	}
 }
 
@@ -250,6 +284,103 @@ func TestResolvedContractMapsConditionSourcesToPublicNames(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "field_fault_1002") {
 		t.Fatalf("public contract contains backend condition key: %s", encoded)
+	}
+}
+
+func TestResolvedContractRejectsUnknownConditionSourceWithoutDisclosure(t *testing.T) {
+	t.Parallel()
+
+	const privateField = "field_private_credential_lookup_991"
+	_, err := inspectSyntheticContract(t, map[string]any{
+		"field_details": map[string]any{
+			"field_unique_Identifier": "details",
+			"name":                    "Details",
+			"type":                    "textarea",
+			"required":                false,
+			"conditions_expression": map[string]any{
+				"operator": "and",
+				"conditions": []any{
+					map[string]any{"field": privateField, "operator": "==", "value": "enabled"},
+				},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "condition references an unknown field") {
+		t.Fatalf("Inspect() error = %v, want safe unknown condition field error", err)
+	}
+	if strings.Contains(err.Error(), privateField) {
+		t.Fatalf("Inspect() error exposes unknown backend field %q: %v", privateField, err)
+	}
+}
+
+func TestResolvedContractOmitsBackendConditionSourceName(t *testing.T) {
+	t.Parallel()
+
+	contract, err := inspectSyntheticContract(t, map[string]any{
+		"field_enabled": map[string]any{
+			"field_unique_Identifier": "enabled",
+			"name":                    "Enabled",
+			"type":                    "switch",
+			"required":                false,
+		},
+		"field_details": map[string]any{
+			"field_unique_Identifier": "details",
+			"name":                    "Details",
+			"type":                    "textarea",
+			"required":                false,
+			"conditions_expression": map[string]any{
+				"operator": "and",
+				"conditions": []any{
+					map[string]any{"field": "enabled", "operator": "==", "value": true},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+	encoded, err := json.Marshal(contract)
+	if err != nil {
+		t.Fatalf("marshal contract: %v", err)
+	}
+	if strings.Contains(string(encoded), "conditions_expression") {
+		t.Fatalf("public contract exposes backend condition property: %s", encoded)
+	}
+	conditions := contractFieldsByName(contract.InputContract.Fields)["details"].Conditions
+	if conditions == nil || conditions.Source != "" {
+		t.Fatalf("public condition source = %+v, want omitted source", conditions)
+	}
+}
+
+func TestContractHashPreservesLargeConditionIntegers(t *testing.T) {
+	t.Parallel()
+
+	const (
+		lower = "9007199254740992"
+		upper = "9007199254740993"
+	)
+	lowerContract, err := inspectSyntheticContract(t, precisionLading(lower, lower))
+	if err != nil {
+		t.Fatalf("Inspect(lower) error = %v", err)
+	}
+	upperContract, err := inspectSyntheticContract(t, precisionLading(lower, upper))
+	if err != nil {
+		t.Fatalf("Inspect(upper) error = %v", err)
+	}
+	condition := contractFieldsByName(upperContract.InputContract.Fields)["details"].Conditions.Conditions[0]
+	value, ok := condition.Value.(json.Number)
+	if !ok || value.String() != upper {
+		t.Fatalf("large contract condition = %#v, want json.Number(%q)", condition.Value, upper)
+	}
+	if lowerContract.ContractHash == upperContract.ContractHash {
+		t.Fatal("contract hash collapses adjacent large integer condition values")
+	}
+	encoded, err := json.Marshal(upperContract)
+	if err != nil {
+		t.Fatalf("marshal contract: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"value":`+upper) {
+		t.Fatalf("public contract lost large integer precision: %s", encoded)
 	}
 }
 

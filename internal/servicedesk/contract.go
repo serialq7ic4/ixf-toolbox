@@ -107,6 +107,7 @@ func resolveURLInputContract(fields []Field) (InputContract, error) {
 		}
 		publicNames[name] = struct{}{}
 		backendToPublic[field.BackendKey] = name
+		backendToPublic[name] = name
 		resolvedNames[index] = name
 	}
 
@@ -130,7 +131,10 @@ func resolveURLInputContract(fields []Field) (InputContract, error) {
 			Supported:        field.Supported,
 		}
 		if resolved.Conditional {
-			conditions := resolveConditionSources(field.Conditions, backendToPublic)
+			conditions, err := resolveConditionSources(field.Conditions, backendToPublic)
+			if err != nil {
+				return InputContract{}, err
+			}
 			resolved.Conditions = &conditions
 		}
 		if field.Required && !field.Supported {
@@ -146,23 +150,35 @@ func resolveURLInputContract(fields []Field) (InputContract, error) {
 	return contract, nil
 }
 
-func resolveConditionSources(conditions ConditionSet, backendToPublic map[string]string) ConditionSet {
-	conditions.Conditions = resolveConditions(conditions.Conditions, backendToPublic)
-	return conditions
+func resolveConditionSources(conditions ConditionSet, backendToPublic map[string]string) (ConditionSet, error) {
+	resolved, err := resolveConditions(conditions.Conditions, backendToPublic)
+	if err != nil {
+		return ConditionSet{}, err
+	}
+	conditions.Conditions = resolved
+	return conditions, nil
 }
 
-func resolveConditions(conditions []Condition, backendToPublic map[string]string) []Condition {
+func resolveConditions(conditions []Condition, backendToPublic map[string]string) ([]Condition, error) {
 	resolved := make([]Condition, 0, len(conditions))
 	for _, condition := range conditions {
-		if name, ok := backendToPublic[condition.Field]; ok {
+		if condition.Field != "" {
+			name, ok := backendToPublic[condition.Field]
+			if !ok {
+				return nil, fmt.Errorf("ServiceDesk condition references an unknown field")
+			}
 			condition.Field = name
 		}
 		if len(condition.Conditions) > 0 {
-			condition.Conditions = resolveConditions(condition.Conditions, backendToPublic)
+			children, err := resolveConditions(condition.Conditions, backendToPublic)
+			if err != nil {
+				return nil, err
+			}
+			condition.Conditions = children
 		}
 		resolved = append(resolved, condition)
 	}
-	return resolved
+	return resolved, nil
 }
 
 func resolveURLColumns(columns []TableColumn) ([]InputColumn, error) {
@@ -173,22 +189,13 @@ func resolveURLColumns(columns []TableColumn) ([]InputColumn, error) {
 	for _, column := range columns {
 		displayNameCounts[column.Name]++
 	}
-	publicNames := make(map[string]struct{}, len(columns))
 	resolved := make([]InputColumn, 0, len(columns))
 	for _, column := range columns {
-		name := column.BackendKey
-		if name == "" {
-			if displayNameCounts[column.Name] != 1 {
-				return nil, fmt.Errorf("duplicate display name %q without a column key", column.Name)
-			}
-			name = column.Name
+		if displayNameCounts[column.Name] != 1 {
+			return nil, fmt.Errorf("ServiceDesk metadata has duplicate table column display name %q", column.Name)
 		}
-		if _, exists := publicNames[name]; exists {
-			return nil, fmt.Errorf("multiple columns resolve to public name %q", name)
-		}
-		publicNames[name] = struct{}{}
 		resolved = append(resolved, InputColumn{
-			Name:        name,
+			Name:        column.Name,
 			DisplayName: column.Name,
 			Type:        column.Type,
 			Required:    column.Required,

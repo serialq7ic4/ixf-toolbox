@@ -1,6 +1,7 @@
 package servicedesk
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -194,7 +195,7 @@ func normalizeLading(lading Lading) ([]Field, error) {
 	fields := make([]Field, 0, len(keys))
 	for _, key := range keys {
 		var raw rawField
-		if err := json.Unmarshal(lading[key], &raw); err != nil {
+		if err := decodeMetadataJSON(lading[key], &raw); err != nil {
 			return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk lading metadata has an unexpected field shape"}
 		}
 
@@ -209,7 +210,7 @@ func normalizeLading(lading Lading) ([]Field, error) {
 			DisplayOnly: displayOnlyFieldType(raw.Type),
 		}
 		if raw.Default != nil && string(*raw.Default) != "null" {
-			if err := json.Unmarshal(*raw.Default, &field.DefaultValue); err != nil {
+			if err := decodeMetadataJSON(*raw.Default, &field.DefaultValue); err != nil {
 				return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk lading metadata has an invalid default value"}
 			}
 			field.DefaultAvailable = true
@@ -219,12 +220,17 @@ func normalizeLading(lading Lading) ([]Field, error) {
 		}
 		if raw.Conditions != nil {
 			field.Conditions = normalizeConditionSet(*raw.Conditions)
-			field.Conditions.Source = "conditions_expression"
 		}
 		field.TableColumns = normalizeColumns(raw.Columns)
 		fields = append(fields, field)
 	}
 	return fields, nil
+}
+
+func decodeMetadataJSON(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	return decoder.Decode(target)
 }
 
 func normalizeColumns(rawColumns []rawTableColumn) []TableColumn {

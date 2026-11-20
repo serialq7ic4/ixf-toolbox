@@ -115,7 +115,7 @@ func TestNormalizeDefaultsAndDisplayOnlyFields(t *testing.T) {
 	template := loadSyntheticTemplate(t, lading)
 
 	fields := fieldsByStableIDOrName(template.Fields)
-	if !fields["count"].DefaultAvailable || fields["count"].DefaultValue != float64(0) {
+	if !fields["count"].DefaultAvailable || fields["count"].DefaultValue != json.Number("0") {
 		t.Fatalf("number default = %#v", fields["count"])
 	}
 	if !fields["enabled"].DefaultAvailable || fields["enabled"].DefaultValue != false {
@@ -234,6 +234,57 @@ func TestNormalizeMetadataHashCoversBackendKeysAndDefaults(t *testing.T) {
 	}
 	if base.MetadataHash == changedDefault.MetadataHash {
 		t.Fatal("metadata hash does not cover default values")
+	}
+}
+
+func TestNormalizePreservesLargeIntegerPrecision(t *testing.T) {
+	t.Parallel()
+
+	const (
+		lower = "9007199254740992"
+		upper = "9007199254740993"
+	)
+	defaultLower := loadSyntheticTemplate(t, precisionLading(lower, lower))
+	defaultUpper := loadSyntheticTemplate(t, precisionLading(upper, lower))
+	conditionUpper := loadSyntheticTemplate(t, precisionLading(lower, upper))
+
+	defaultValue, ok := fieldsByStableIDOrName(defaultUpper.Fields)["limit"].DefaultValue.(json.Number)
+	if !ok || defaultValue.String() != upper {
+		t.Fatalf("large default = %#v, want json.Number(%q)", defaultValue, upper)
+	}
+	conditionValue, ok := fieldsByStableIDOrName(conditionUpper.Fields)["details"].Conditions.Conditions[0].Value.(json.Number)
+	if !ok || conditionValue.String() != upper {
+		t.Fatalf("large condition value = %#v, want json.Number(%q)", conditionValue, upper)
+	}
+	if defaultLower.MetadataHash == defaultUpper.MetadataHash {
+		t.Fatal("metadata hash collapses adjacent large integer defaults")
+	}
+	if defaultLower.MetadataHash == conditionUpper.MetadataHash {
+		t.Fatal("metadata hash collapses adjacent large integer condition values")
+	}
+}
+
+func precisionLading(defaultValue, conditionValue string) map[string]any {
+	return map[string]any{
+		"field_limit": map[string]any{
+			"field_unique_Identifier": "limit",
+			"name":                    "Limit",
+			"type":                    "number",
+			"required":                false,
+			"default":                 json.Number(defaultValue),
+		},
+		"field_details": map[string]any{
+			"field_unique_Identifier": "details",
+			"name":                    "Details",
+			"type":                    "textarea",
+			"required":                false,
+			"conditions_expression": map[string]any{
+				"operator": "and",
+				"conditions": []any{
+					map[string]any{"field": "limit", "operator": "==", "value": json.Number(conditionValue)},
+				},
+			},
+		},
 	}
 }
 

@@ -3,6 +3,8 @@ package servicedesk
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -146,6 +148,140 @@ func TestCreateDryRunDestructiveDriftBlocksApply(t *testing.T) {
 	if !result.Plan.TemplateDrift || result.Plan.DriftClassification != driftDestructive || !result.Plan.Apply.Blocked || result.Plan.Apply.BlockReason != "destructive_drift" {
 		t.Fatalf("destructive-drift dry-run plan = %+v", result.Plan)
 	}
+}
+
+func TestCreateApplyRepeatsPreflightWritesOnceAndVerifiesReadback(t *testing.T) {
+	t.Parallel()
+	var serviceCalls, ladingCalls, starts, gets atomic.Int32
+	client := newApplyFixtureClient(t, &serviceCalls, &ladingCalls, &starts, &gets, false)
+	result, domainErr := Create(context.Background(), Dependencies{Client: client}, CreateRequest{
+		Target: &EditTarget{BusinessID: 15, ServiceID: 4003},
+		Input:  TicketInput{"title": "Fixture disk repair", "fault_type": "Disk", "devices": []any{map[string]any{"host_name": "server-01", "component": "disk"}}},
+		Apply:  true,
+	})
+	if domainErr != nil {
+		t.Fatalf("Create(apply) error = %v", domainErr)
+	}
+	if !result.Applied || result.Outcome != "applied" || result.Ticket == nil || result.Ticket.InstanceID != "3463015" {
+		t.Fatalf("apply result = %+v", result)
+	}
+	if serviceCalls.Load() != 2 || ladingCalls.Load() != 2 || starts.Load() != 1 || gets.Load() != 1 {
+		t.Fatalf("request counts service=%d lading=%d start=%d get=%d, want 2/2/1/1", serviceCalls.Load(), ladingCalls.Load(), starts.Load(), gets.Load())
+	}
+	if result.Verify == nil || !result.Verify.StateReadable {
+		t.Fatalf("verification = %+v", result.Verify)
+	}
+}
+
+func TestCreateApplyTimeoutReturnsUnknownWithoutRetry(t *testing.T) {
+	t.Parallel()
+	var starts, gets atomic.Int32
+	client := newApplyFixtureClient(t, nil, nil, &starts, &gets, true)
+	result, domainErr := Create(context.Background(), Dependencies{Client: client}, CreateRequest{
+		Target: &EditTarget{BusinessID: 15, ServiceID: 4003},
+		Input:  TicketInput{"title": "Fixture disk repair", "fault_type": "Disk", "devices": []any{map[string]any{"host_name": "server-01", "component": "disk"}}},
+		Apply:  true,
+	})
+	if domainErr == nil || domainErr.Code != "unknown_outcome" || domainErr.Outcome != "unknown" {
+		t.Fatalf("timeout error = %+v, want unknown_outcome", domainErr)
+	}
+	if result.Applied || result.Outcome != "unknown" || starts.Load() != 1 || gets.Load() != 0 {
+		t.Fatalf("timeout result = %+v, starts=%d gets=%d", result, starts.Load(), gets.Load())
+	}
+	if domainErr.Ticket == nil || domainErr.Ticket.Title != "Fixture disk repair" || domainErr.Ticket.DetailURL != "" {
+		t.Fatalf("unknown reconciliation reference = %+v", domainErr.Ticket)
+	}
+}
+
+func TestCreateApplyReadbackFailureRetainsTicketReference(t *testing.T) {
+	t.Parallel()
+	var starts, gets atomic.Int32
+	client := newApplyFixtureClient(t, nil, nil, &starts, &gets, false)
+	client = newApplyFixtureClientWithReadbackFailure(t, &starts, &gets)
+	result, domainErr := Create(context.Background(), Dependencies{Client: client}, CreateRequest{
+		Target: &EditTarget{BusinessID: 15, ServiceID: 4003},
+		Input:  TicketInput{"title": "Fixture disk repair", "fault_type": "Disk", "devices": []any{map[string]any{"host_name": "server-01", "component": "disk"}}},
+		Apply:  true,
+	})
+	if domainErr == nil || domainErr.Code != "readback_failed" || result.Applied || starts.Load() != 1 || gets.Load() != 1 {
+		t.Fatalf("readback result=%+v error=%+v starts=%d gets=%d", result, domainErr, starts.Load(), gets.Load())
+	}
+	if domainErr.Ticket == nil || domainErr.Ticket.InstanceID != "3463015" || domainErr.Ticket.DetailURL == "" {
+		t.Fatalf("readback ticket reference = %+v", domainErr.Ticket)
+	}
+}
+
+func TestDomainErrorsSerializeWithoutCredential(t *testing.T) {
+	t.Parallel()
+	secret := testAPIKey
+	err := &DomainError{Code: "unknown_outcome", Message: "request outcome is unknown", Outcome: "unknown", Ticket: &TicketReference{Title: "safe title", DetailURL: "https://servicedesk.iflytek.com/#/order/order-detail/15?id=3463015"}}
+	encoded, marshalErr := json.Marshal(err)
+	if marshalErr != nil || strings.Contains(string(encoded), secret) || strings.Contains(err.Error(), secret) {
+		t.Fatalf("serialized domain error = %s, marshal error=%v", encoded, marshalErr)
+	}
+}
+
+func newApplyFixtureClient(t *testing.T, serviceCalls, ladingCalls, starts, gets *atomic.Int32, timeoutStart bool) *Client {
+	t.Helper()
+	service := mustReadFixture(t, "service-4003.json")
+	lading := mustReadFixture(t, "lading-4003.json")
+	start := mustReadFixture(t, "start.json")
+	ticket := mustReadFixture(t, "ticket-running.json")
+	return NewClient(Credential{APIKey: testAPIKey}, ClientOptions{HTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/api/service/v3/service/4003/" {
+			if serviceCalls != nil {
+				serviceCalls.Add(1)
+			}
+			return fixtureHTTPResponse(service), nil
+		}
+		if request.URL.Path == "/api/tasktmpl3/v3/lading/" {
+			if ladingCalls != nil {
+				ladingCalls.Add(1)
+			}
+			return fixtureHTTPResponse(lading), nil
+		}
+		if request.URL.Path == "/api/tasktmpl3/v3/start/" {
+			if starts != nil {
+				starts.Add(1)
+			}
+			if timeoutStart {
+				return nil, errors.New("connection reset after request dispatch")
+			}
+			return fixtureHTTPResponse(start), nil
+		}
+		if strings.HasPrefix(request.URL.Path, "/api/taskflow3/v3/taskflow/") {
+			if gets != nil {
+				gets.Add(1)
+			}
+			return fixtureHTTPResponse(ticket), nil
+		}
+		return nil, errors.New("unexpected fixture path")
+	})}})
+}
+
+func newApplyFixtureClientWithReadbackFailure(t *testing.T, starts, gets *atomic.Int32) *Client {
+	t.Helper()
+	service := mustReadFixture(t, "service-4003.json")
+	lading := mustReadFixture(t, "lading-4003.json")
+	start := mustReadFixture(t, "start.json")
+	return NewClient(Credential{APIKey: testAPIKey}, ClientOptions{HTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/api/service/v3/service/4003/":
+			return fixtureHTTPResponse(service), nil
+		case "/api/tasktmpl3/v3/lading/":
+			return fixtureHTTPResponse(lading), nil
+		case "/api/tasktmpl3/v3/start/":
+			starts.Add(1)
+			return fixtureHTTPResponse(start), nil
+		default:
+			gets.Add(1)
+			return fixtureHTTPResponse([]byte(`{"result":false,"data":{"message":"private failure"}}`)), nil
+		}
+	})}})
+}
+
+func fixtureHTTPResponse(body []byte) *http.Response {
+	return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: io.NopCloser(strings.NewReader(string(body))), Header: make(http.Header)}
 }
 
 func newTemplateFixtureClientWithStartCounter(t *testing.T, lading []byte, starts *atomic.Int32) *Client {

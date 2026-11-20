@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -49,6 +50,10 @@ type RegistryLoader struct {
 	HTTPClient *http.Client
 	CacheDir   string
 	Now        func() time.Time
+
+	writeCacheFile   func(string, []byte, os.FileMode) error
+	renameCachePath  func(string, string) error
+	chtimesCachePath func(string, time.Time, time.Time) error
 }
 
 type ProfileSummary struct {
@@ -171,6 +176,9 @@ func (l RegistryLoader) loadCache(now time.Time) (loadedRegistry, RegistryStatus
 		return loadedRegistry{}, RegistryStatus{}, err
 	}
 	indexPath := filepath.Join(cacheDir, "index.json")
+	if err := validateCachePath(cacheDir, indexPath, cacheRegularFile, false); err != nil {
+		return loadedRegistry{}, RegistryStatus{}, fmt.Errorf("validate ServiceDesk cache index: %w", err)
+	}
 	indexBytes, err := os.ReadFile(indexPath)
 	if err != nil {
 		return loadedRegistry{}, RegistryStatus{}, fmt.Errorf("read cached index: %w", err)
@@ -178,6 +186,9 @@ func (l RegistryLoader) loadCache(now time.Time) (loadedRegistry, RegistryStatus
 	registry, err := decodeRegistry(indexBytes)
 	if err != nil {
 		return loadedRegistry{}, RegistryStatus{}, fmt.Errorf("decode cached index: %w", err)
+	}
+	if err := validateCacheLayout(cacheDir, registry.Profiles, false); err != nil {
+		return loadedRegistry{}, RegistryStatus{}, err
 	}
 	loaded := loadedRegistry{
 		Registry: registry,
@@ -200,7 +211,7 @@ func (l RegistryLoader) loadCache(now time.Time) (loadedRegistry, RegistryStatus
 		loaded.Overlays[entry.Name] = overlay
 		loaded.Bytes[entry.Path] = profileBytes
 	}
-	info, err := os.Stat(indexPath)
+	info, err := os.Lstat(indexPath)
 	if err != nil {
 		return loadedRegistry{}, RegistryStatus{}, fmt.Errorf("stat cached index: %w", err)
 	}
@@ -280,6 +291,9 @@ func decodeRegistry(data []byte) (Registry, error) {
 		}
 		registry.Profiles = append(registry.Profiles, RegistryEntry{Name: *entry.Name, Path: *entry.Path, SHA256: *entry.SHA256})
 	}
+	if err := validateRegistryPaths(registry.Profiles); err != nil {
+		return Registry{}, err
+	}
 	return registry, nil
 }
 
@@ -319,6 +333,22 @@ func validateRegistryPath(raw string) error {
 	return nil
 }
 
+func validateRegistryPaths(entries []RegistryEntry) error {
+	paths := make([]string, 0, len(entries)+1)
+	paths = append(paths, "index.json")
+	for _, entry := range entries {
+		paths = append(paths, entry.Path)
+	}
+	sort.Strings(paths)
+	for index := 1; index < len(paths); index++ {
+		previous, current := paths[index-1], paths[index]
+		if current == previous || strings.HasPrefix(current, previous+"/") {
+			return fmt.Errorf("ServiceDesk registry paths %q and %q cannot share a file path prefix", previous, current)
+		}
+	}
+	return nil
+}
+
 func registryProfileURL(raw string) (string, error) {
 	if err := validateRegistryPath(raw); err != nil {
 		return "", err
@@ -335,14 +365,21 @@ func registryProfileURL(raw string) (string, error) {
 }
 
 func (l RegistryLoader) cacheDir() (string, error) {
+	var cacheDir string
 	if l.CacheDir != "" {
-		return l.CacheDir, nil
+		cacheDir = l.CacheDir
+	} else {
+		root, err := os.UserCacheDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve ServiceDesk cache directory: %w", err)
+		}
+		cacheDir = filepath.Join(root, "ixf-toolbox", "servicedesk")
 	}
-	root, err := os.UserCacheDir()
+	absolute, err := filepath.Abs(cacheDir)
 	if err != nil {
 		return "", fmt.Errorf("resolve ServiceDesk cache directory: %w", err)
 	}
-	return filepath.Join(root, "ixf-toolbox", "servicedesk"), nil
+	return absolute, nil
 }
 
 func cachedProfilePath(cacheDir, raw string) (string, error) {
@@ -366,23 +403,179 @@ func (l RegistryLoader) writeCache(loaded loadedRegistry, indexBytes []byte, fet
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
+	if err := validateRegistryPaths(loaded.Registry.Profiles); err != nil {
 		return err
 	}
-	for profilePath, profileBytes := range loaded.Bytes {
-		target, err := cachedProfilePath(cacheDir, profilePath)
+	if err := validateCachePath(cacheDir, cacheDir, cacheDirectory, true); err != nil {
+		return fmt.Errorf("validate ServiceDesk cache directory: %w", err)
+	}
+	if err := validateCacheLayout(cacheDir, loaded.Registry.Profiles, true); err != nil {
+		return err
+	}
+	parent := filepath.Dir(cacheDir)
+	if err := validateCachePath(parent, parent, cacheDirectory, false); err != nil {
+		return fmt.Errorf("validate ServiceDesk cache parent: %w", err)
+	}
+	stage, err := os.MkdirTemp(parent, "."+filepath.Base(cacheDir)+".staging-")
+	if err != nil {
+		return err
+	}
+	stageActive := true
+	defer func() {
+		if stageActive {
+			_ = os.RemoveAll(stage)
+		}
+	}()
+	if err := validateCachePath(stage, stage, cacheDirectory, false); err != nil {
+		return err
+	}
+	writeCacheFile := l.writeCacheFile
+	if writeCacheFile == nil {
+		writeCacheFile = writeRegistryFile
+	}
+	for _, entry := range loaded.Registry.Profiles {
+		profileBytes := loaded.Bytes[entry.Path]
+		target, err := cachedProfilePath(stage, entry.Path)
 		if err != nil {
 			return err
 		}
-		if err := writeRegistryFile(target, profileBytes, 0o600); err != nil {
+		if err := writeCacheFile(target, profileBytes, 0o600); err != nil {
 			return err
 		}
 	}
-	indexPath := filepath.Join(cacheDir, "index.json")
-	if err := writeRegistryFile(indexPath, indexBytes, 0o600); err != nil {
+	indexPath := filepath.Join(stage, "index.json")
+	if err := writeCacheFile(indexPath, indexBytes, 0o600); err != nil {
 		return err
 	}
-	return os.Chtimes(indexPath, fetchedAt, fetchedAt)
+	chtimesCachePath := l.chtimesCachePath
+	if chtimesCachePath == nil {
+		chtimesCachePath = os.Chtimes
+	}
+	if err := chtimesCachePath(indexPath, fetchedAt, fetchedAt); err != nil {
+		return err
+	}
+
+	renameCachePath := l.renameCachePath
+	if renameCachePath == nil {
+		renameCachePath = os.Rename
+	}
+	cacheInfo, err := os.Lstat(cacheDir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	hasOldCache := err == nil
+	if hasOldCache && (cacheInfo.Mode()&os.ModeSymlink != 0 || !cacheInfo.IsDir()) {
+		return errors.New("ServiceDesk cache directory is not a regular directory")
+	}
+	backup := ""
+	if hasOldCache {
+		backup, err = os.MkdirTemp(parent, "."+filepath.Base(cacheDir)+".backup-")
+		if err != nil {
+			return err
+		}
+		if err := os.RemoveAll(backup); err != nil {
+			return err
+		}
+		if err := renameCachePath(cacheDir, backup); err != nil {
+			return fmt.Errorf("stage old ServiceDesk cache: %w", err)
+		}
+	}
+	if err := renameCachePath(stage, cacheDir); err != nil {
+		if hasOldCache {
+			if restoreErr := renameCachePath(backup, cacheDir); restoreErr != nil {
+				return fmt.Errorf("activate ServiceDesk cache: %w; restore old cache: %v", err, restoreErr)
+			}
+		}
+		return fmt.Errorf("activate ServiceDesk cache: %w", err)
+	}
+	stageActive = false
+	if hasOldCache {
+		if err := os.RemoveAll(backup); err != nil {
+			return fmt.Errorf("remove old ServiceDesk cache backup: %w", err)
+		}
+	}
+	return nil
+}
+
+type cachePathKind uint8
+
+const (
+	cacheDirectory cachePathKind = iota
+	cacheRegularFile
+)
+
+func validateCacheLayout(cacheDir string, entries []RegistryEntry, allowMissing bool) error {
+	if err := validateCachePath(cacheDir, cacheDir, cacheDirectory, allowMissing); err != nil {
+		return fmt.Errorf("validate ServiceDesk cache root: %w", err)
+	}
+	indexPath := filepath.Join(cacheDir, "index.json")
+	if err := validateCachePath(cacheDir, indexPath, cacheRegularFile, allowMissing); err != nil {
+		return fmt.Errorf("validate ServiceDesk cache index: %w", err)
+	}
+	for _, entry := range entries {
+		profilePath, err := cachedProfilePath(cacheDir, entry.Path)
+		if err != nil {
+			return err
+		}
+		if err := validateCachePath(cacheDir, profilePath, cacheRegularFile, allowMissing); err != nil {
+			return fmt.Errorf("validate cached profile %q: %w", entry.Name, err)
+		}
+	}
+	return nil
+}
+
+func validateCachePath(cacheRoot, target string, kind cachePathKind, allowMissing bool) error {
+	absoluteRoot, err := filepath.Abs(cacheRoot)
+	if err != nil {
+		return err
+	}
+	absolute, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	relative, err := filepath.Rel(absoluteRoot, absolute)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("path %q escapes cache root %q", target, cacheRoot)
+	}
+	missing := false
+	for current := absolute; ; current = filepath.Dir(current) {
+		info, statErr := os.Lstat(current)
+		if statErr != nil {
+			if !errors.Is(statErr, os.ErrNotExist) {
+				return statErr
+			}
+			missing = true
+		} else {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("path component %q is a symlink", current)
+			}
+			if current == absolute {
+				switch kind {
+				case cacheDirectory:
+					if !info.IsDir() {
+						return fmt.Errorf("path %q is not a directory", current)
+					}
+				case cacheRegularFile:
+					if !info.Mode().IsRegular() {
+						return fmt.Errorf("path %q is not a regular file", current)
+					}
+				}
+			} else if !info.IsDir() {
+				return fmt.Errorf("path component %q is not a directory", current)
+			}
+		}
+		if current == absoluteRoot {
+			break
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+	}
+	if missing && !allowMissing {
+		return os.ErrNotExist
+	}
+	return nil
 }
 
 func writeRegistryFile(target string, data []byte, mode os.FileMode) error {

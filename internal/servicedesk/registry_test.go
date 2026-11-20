@@ -94,6 +94,7 @@ func TestRegistryRejectsUnknownSchemaDuplicateNameAndPathTraversal(t *testing.T)
 	}{
 		{name: "unknown index property", index: []byte(`{"schemaVersion":1,"updatedAt":"2026-11-20T12:00:00Z","profiles":[],"extra":true}`)},
 		{name: "duplicate profile name", index: registryDuplicateIndexJSON(t, profile, goodPath)},
+		{name: "path prefix collision", index: registryPathPrefixCollisionIndexJSON(t, profile)},
 		{name: "invalid updatedAt", index: []byte(`{"schemaVersion":1,"updatedAt":"not-a-time","profiles":[],}`)},
 	}
 	for _, profilePath := range paths {
@@ -244,6 +245,145 @@ func TestRegistryCorruptCacheIsNotUsed(t *testing.T) {
 	}
 }
 
+func TestRegistryCacheTransactionPreservesValidCacheOnStagingFailure(t *testing.T) {
+	oldProfile := mustReadFixture(t, "profile-4003.json")
+	newProfile := bytes.Replace(oldProfile, []byte(`"description": "Fixture profile for server hardware repair"`), []byte(`"description": "Updated profile that must not reach the live cache"`), 1)
+	const profilePath = "profiles/fixture-server-hardware-repair.json"
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name      string
+		configure func(*RegistryLoader)
+	}{
+		{
+			name: "later staged file write",
+			configure: func(loader *RegistryLoader) {
+				writes := 0
+				loader.writeCacheFile = func(path string, data []byte, mode os.FileMode) error {
+					writes++
+					if writes == 2 {
+						return errors.New("injected staged write failure")
+					}
+					return writeRegistryFile(path, data, mode)
+				}
+			},
+		},
+		{
+			name: "activation rename",
+			configure: func(loader *RegistryLoader) {
+				renames := 0
+				loader.renameCachePath = func(oldPath, newPath string) error {
+					renames++
+					if renames == 2 {
+						return errors.New("injected activation rename failure")
+					}
+					return os.Rename(oldPath, newPath)
+				}
+			},
+		},
+		{
+			name: "staged metadata",
+			configure: func(loader *RegistryLoader) {
+				loader.chtimesCachePath = func(string, time.Time, time.Time) error {
+					return errors.New("injected staged metadata failure")
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cacheDir := t.TempDir()
+			oldServer := registryServer(t, registryIndexJSON(t, "fixture-server-hardware-repair", profilePath, oldProfile), map[string][]byte{profilePath: oldProfile})
+			initialLoader := registryLoaderFor(t, oldServer.URL, cacheDir, now)
+			if _, _, err := initialLoader.List(testContext(t)); err != nil {
+				t.Fatalf("populate cache List() error = %v", err)
+			}
+			oldServer.Close()
+
+			newServer := registryServer(t, registryIndexJSON(t, "fixture-server-hardware-repair", profilePath, newProfile), map[string][]byte{profilePath: newProfile})
+			defer newServer.Close()
+			loader := registryLoaderFor(t, newServer.URL, cacheDir, now)
+			test.configure(&loader)
+			_, status, err := loader.List(testContext(t))
+			if err != nil {
+				t.Fatalf("List() error = %v, want fallback to old cache", err)
+			}
+			if status.Source != "cache" || !status.ApplyAllowed() {
+				t.Fatalf("status = %+v, want fresh cache fallback", status)
+			}
+			cached, err := os.ReadFile(filepath.Join(cacheDir, filepath.FromSlash(profilePath)))
+			if err != nil {
+				t.Fatalf("read old cached profile: %v", err)
+			}
+			if !bytes.Equal(cached, oldProfile) {
+				t.Fatal("staging failure destroyed the previously valid cache")
+			}
+		})
+	}
+}
+
+func TestRegistryRejectsSymlinkedCacheComponents(t *testing.T) {
+	profile := mustReadFixture(t, "profile-4003.json")
+	const profilePath = "profiles/fixture-server-hardware-repair.json"
+	index := registryIndexJSON(t, "fixture-server-hardware-repair", profilePath, profile)
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, cacheDir, outside string)
+	}{
+		{
+			name: "cache root symlink",
+			setup: func(t *testing.T, cacheDir, outside string) {
+				if err := os.Symlink(outside, cacheDir); err != nil {
+					t.Fatalf("symlink cache root: %v", err)
+				}
+			},
+		},
+		{
+			name: "profiles directory symlink",
+			setup: func(t *testing.T, cacheDir, outside string) {
+				if err := os.MkdirAll(cacheDir, 0o700); err != nil {
+					t.Fatalf("create cache root: %v", err)
+				}
+				if err := os.Symlink(outside, filepath.Join(cacheDir, "profiles")); err != nil {
+					t.Fatalf("symlink profiles directory: %v", err)
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parent := t.TempDir()
+			cacheDir := filepath.Join(parent, "cache")
+			outside := filepath.Join(parent, "outside")
+			if err := os.MkdirAll(outside, 0o700); err != nil {
+				t.Fatalf("create outside directory: %v", err)
+			}
+			sentinel := filepath.Join(outside, "sentinel.json")
+			original := []byte("must remain untouched")
+			if err := os.WriteFile(sentinel, original, 0o600); err != nil {
+				t.Fatalf("write outside sentinel: %v", err)
+			}
+			test.setup(t, cacheDir, outside)
+
+			server := registryServer(t, index, map[string][]byte{profilePath: profile})
+			defer server.Close()
+			loader := registryLoaderFor(t, server.URL, cacheDir, time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC))
+			if _, _, err := loader.List(testContext(t)); err == nil {
+				t.Fatal("List() error = nil, want symlinked cache rejection")
+			}
+			got, err := os.ReadFile(sentinel)
+			if err != nil {
+				t.Fatalf("read outside sentinel: %v", err)
+			}
+			if !bytes.Equal(got, original) {
+				t.Fatal("symlinked cache path modified outside file")
+			}
+		})
+	}
+}
+
 func registryLoaderFor(t *testing.T, serverURL, cacheDir string, now time.Time) RegistryLoader {
 	t.Helper()
 	base, err := url.Parse(serverURL)
@@ -301,6 +441,12 @@ func registryDuplicateIndexJSON(t *testing.T, profile []byte, profilePath string
 	t.Helper()
 	hash := digest(profile)
 	return []byte(fmt.Sprintf(`{"schemaVersion":1,"updatedAt":"2026-11-20T12:00:00Z","profiles":[{"name":"duplicate","path":%q,"sha256":%q},{"name":"duplicate","path":%q,"sha256":%q}]}`, profilePath, hash, profilePath, hash))
+}
+
+func registryPathPrefixCollisionIndexJSON(t *testing.T, profile []byte) []byte {
+	t.Helper()
+	hash := digest(profile)
+	return []byte(fmt.Sprintf(`{"schemaVersion":1,"updatedAt":"2026-11-20T12:00:00Z","profiles":[{"name":"parent-profile","path":"profiles","sha256":%q},{"name":"child-profile","path":"profiles/child.json","sha256":%q}]}`, hash, hash))
 }
 
 func digest(value []byte) string {

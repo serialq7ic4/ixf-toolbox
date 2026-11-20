@@ -77,6 +77,7 @@ type DomainError struct {
 	Action    string `json:"action,omitempty"`
 	Field     string `json:"field,omitempty"`
 	Column    string `json:"column,omitempty"`
+	RowIndex  *int   `json:"rowIndex,omitempty"`
 	Retryable bool   `json:"retryable"`
 	Outcome   string `json:"outcome,omitempty"`
 }
@@ -125,6 +126,15 @@ func Create(ctx context.Context, deps Dependencies, request CreateRequest) (Crea
 			return result, &DomainError{Code: "profile_invalid", Message: "ServiceDesk profile does not match the live template"}
 		}
 		overlay = &resolved
+		profileContract, err := resolveProfileInputContract(template.Fields, resolved)
+		if err != nil {
+			return result, &DomainError{Code: "profile_invalid", Message: "ServiceDesk profile could not produce a public input contract"}
+		}
+		projectedDrift, err := projectProfileDrift(resolved.Drift, template.Fields, profileContract)
+		if err != nil {
+			return result, &DomainError{Code: "profile_invalid", Message: "ServiceDesk profile drift could not be projected safely"}
+		}
+		overlay.Drift = projectedDrift
 	}
 	if overlay == nil && request.Profile != "" {
 		return result, &DomainError{Code: "profile_invalid", Message: "ServiceDesk profile could not be resolved"}
@@ -210,7 +220,12 @@ func domainFromFieldIssue(issue FieldIssue) *DomainError {
 	if strings.HasPrefix(code, "missing_required") || code == "required_null" {
 		code = "missing_required_field"
 	}
-	return &DomainError{Code: code, Message: issue.Message, Action: "correct the field and run dry-run again", Field: issue.Field, Column: issue.Column}
+	var rowIndex *int
+	if issue.Column != "" {
+		value := issue.RowIndex
+		rowIndex = &value
+	}
+	return &DomainError{Code: code, Message: issue.Message, Action: "correct the field and run dry-run again", Field: issue.Field, Column: issue.Column, RowIndex: rowIndex}
 }
 
 func cloneInputs(inputs map[string]any) map[string]any {

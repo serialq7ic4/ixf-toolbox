@@ -153,7 +153,7 @@ func TestNormalizeTableColumnsToBackendKeys(t *testing.T) {
 			},
 		},
 	}, Aliases: map[string]string{"devices": "devices"}}
-	input := TicketInput{"devices": []any{map[string]any{"host": "server-01", "component": "Disk"}}}
+	input := TicketInput{"devices": []any{map[string]any{"host": "server-01", "part": "Disk"}}}
 	got, issues := NormalizeInput(Template{Fields: []Field{field}}, resolved, input)
 	if len(issues) != 0 {
 		t.Fatalf("NormalizeInput() issues = %#v", issues)
@@ -168,6 +168,40 @@ func TestNormalizeTableColumnsToBackendKeys(t *testing.T) {
 	}
 }
 
+func TestNormalizeProfileRejectsBackendAndUnmappedLiveNames(t *testing.T) {
+	t.Parallel()
+
+	field := Field{BackendKey: "private_fault", StableID: "fault_type", Name: "Fault type", Type: "select", Supported: true, Choices: []Choice{{Label: "Disk", Value: "disk"}}}
+	resolved := &ResolvedOverlay{Fields: map[string]ResolvedField{
+		"faultType": {PublicName: "faultType", Field: field, Overlay: OverlayField{Aliases: []string{"kind"}}},
+	}}
+	for _, key := range []string{"private_fault", "fault_type", "Fault type"} {
+		_, issues := NormalizeInput(Template{Fields: []Field{field}}, resolved, TicketInput{key: "Disk"})
+		if len(issues) != 1 || issues[0].Code != "unknown_field" {
+			t.Fatalf("NormalizeInput(%q) issues = %#v, want public-name-only rejection", key, issues)
+		}
+	}
+	for _, key := range []string{"faultType", "kind"} {
+		got, issues := NormalizeInput(Template{Fields: []Field{field}}, resolved, TicketInput{key: "Disk"})
+		if len(issues) != 0 || got.Inputs["private_fault"] != "disk" {
+			t.Fatalf("NormalizeInput(%q) = %#v, %#v", key, got, issues)
+		}
+	}
+	_, issues := NormalizeInput(Template{Fields: []Field{field}}, resolved, TicketInput{"private_fault": "Disk"})
+	if len(issues) != 1 || issues[0].Field != "faultType" || strings.Contains(issues[0].Field, "private_fault") {
+		t.Fatalf("backend-key error leaked or was not projected: %#v", issues)
+	}
+}
+
+func TestNormalizeRequiredUnsupportedFieldBlocksWhenOmitted(t *testing.T) {
+	t.Parallel()
+	field := Field{BackendKey: "private_script", StableID: "automation", Name: "Automation", Type: "script", Required: true, Supported: false}
+	_, issues := NormalizeInput(Template{Fields: []Field{field}}, nil, TicketInput{})
+	if !hasFieldIssue(issues, "unsupported_field", "automation") {
+		t.Fatalf("issues = %#v, want unsupported required field", issues)
+	}
+}
+
 func TestNormalizeTableRejectsUnknownDuplicateAndMissingRequiredColumns(t *testing.T) {
 	t.Parallel()
 
@@ -176,8 +210,8 @@ func TestNormalizeTableRejectsUnknownDuplicateAndMissingRequiredColumns(t *testi
 		{BackendKey: "part", Name: "Part", Type: "input", Required: true, Supported: true},
 	}}
 	for name, row := range map[string]any{
-		"unknown": map[string]any{"host": "a", "part": "b", "other": "c"},
-		"duplicate": map[string]any{"host": "a", "Host": "b", "part": "c"},
+		"unknown":          map[string]any{"host": "a", "part": "b", "other": "c"},
+		"duplicate":        map[string]any{"host": "a", "Host": "b", "part": "c"},
 		"missing required": map[string]any{"host": "a"},
 	} {
 		name, row := name, row
@@ -236,4 +270,3 @@ func hasFieldIssue(issues []FieldIssue, code, field string) bool {
 	}
 	return false
 }
-

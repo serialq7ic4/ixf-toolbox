@@ -9,11 +9,11 @@ func TestEvaluateConditionsOperators(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		operator  string
-		value     any
-		actual    any
-		want      bool
+		name     string
+		operator string
+		value    any
+		actual   any
+		want     bool
 	}{
 		{name: "equal", operator: "==", value: "ready", actual: "ready", want: true},
 		{name: "not equal", operator: "!=", value: "ready", actual: "blocked", want: true},
@@ -89,10 +89,26 @@ func TestEvaluateConditionsUnsupportedConsequentialConditionBlocks(t *testing.T)
 	}
 }
 
+func TestEvaluateConditionsUsesOverlayPublicNameAndRequiredStrengthening(t *testing.T) {
+	t.Parallel()
+	template := Template{Fields: []Field{
+		{BackendKey: "mode_key", StableID: "mode", Name: "Mode", Type: "input", Supported: true},
+		{BackendKey: "details_key", StableID: "details", Name: "Details", Type: "input", Supported: true, Conditions: ConditionSet{Operator: "and", Conditions: []Condition{{Field: "mode_key", Operator: "==", Value: "active"}}}},
+	}}
+	normalized := NormalizedInput{
+		Inputs:      map[string]any{"mode_key": "active"},
+		required:    map[string]bool{"details_key": true},
+		publicNames: map[string]string{"details_key": "failureDetails"},
+	}
+	result := EvaluateConditions(template, normalized)
+	if !hasFieldIssue(result.Blocking, "missing_required", "failureDetails") {
+		t.Fatalf("result = %+v, want strengthened public required issue", result)
+	}
+}
+
 func boolToInt(value bool) int {
 	if value {
 		return 1
 	}
 	return 0
 }
-

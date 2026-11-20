@@ -116,7 +116,7 @@ func TestCreateDryRunStaleRegistryReportsBlockedApply(t *testing.T) {
 	server.Close()
 	loader.Now = func() time.Time { return now.Add(24 * time.Hour) }
 
-	result, domainErr := Create(context.Background(), Dependencies{Client: client, Registry: loader}, CreateRequest{Profile: "fixture-server-hardware-repair", Input: TicketInput{"title": "repair", "devices": []any{map[string]any{"host_name": "server-01", "component": "disk"}}}})
+	result, domainErr := Create(context.Background(), Dependencies{Client: client, Registry: loader}, CreateRequest{Profile: "fixture-server-hardware-repair", Input: TicketInput{"title": "repair", "devices": []any{map[string]any{"hostName": "server-01", "part": "disk"}}}})
 	if domainErr != nil {
 		t.Fatalf("stale dry-run error = %v", domainErr)
 	}
@@ -138,7 +138,7 @@ func TestCreateDryRunDestructiveDriftBlocksApply(t *testing.T) {
 
 	result, domainErr := Create(context.Background(), Dependencies{Client: client, Registry: loader}, CreateRequest{
 		Profile: "fixture-server-hardware-repair",
-		Input:   TicketInput{"title": "repair", "devices": []any{map[string]any{"host_name": "server-01", "component": "disk"}}},
+		Input:   TicketInput{"title": "repair", "devices": []any{map[string]any{"hostName": "server-01", "part": "disk"}}},
 	})
 	if domainErr != nil {
 		t.Fatalf("destructive-drift dry-run error = %v", domainErr)

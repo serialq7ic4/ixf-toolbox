@@ -43,6 +43,7 @@ type NormalizedInput struct {
 	DefaultedFieldCount int
 	TableRowCount       int
 	required            map[string]bool
+	publicNames         map[string]string
 }
 
 type fieldView struct {
@@ -137,14 +138,23 @@ func decodeUniqueValue(decoder *json.Decoder) (any, error) {
 }
 
 func NormalizeInput(template Template, overlay *ResolvedOverlay, input TicketInput) (NormalizedInput, []FieldIssue) {
-	normalized := NormalizedInput{Inputs: make(map[string]any), Sources: make(map[string]string), required: make(map[string]bool)}
+	normalized := NormalizedInput{Inputs: make(map[string]any), Sources: make(map[string]string), required: make(map[string]bool), publicNames: make(map[string]string)}
 	views, aliases := buildFieldViews(template, overlay)
 	issues := make([]FieldIssue, 0)
 	resolvedInput := make(map[string]any, len(input))
 	for key, value := range input {
 		publicName, ok := aliases[key]
 		if !ok {
-			issues = append(issues, FieldIssue{Code: "unknown_field", Field: key, Message: "unknown ticket field"})
+			issueField := key
+			if overlay != nil {
+				for _, view := range views {
+					if view.Field.BackendKey == key {
+						issueField = view.PublicName
+						break
+					}
+				}
+			}
+			issues = append(issues, FieldIssue{Code: "unknown_field", Field: issueField, Message: "unknown ticket field"})
 			continue
 		}
 		if publicName == "" {
@@ -160,6 +170,7 @@ func NormalizeInput(template Template, overlay *ResolvedOverlay, input TicketInp
 
 	for _, view := range views {
 		normalized.required[view.Field.BackendKey] = view.Field.Required
+		normalized.publicNames[view.Field.BackendKey] = view.PublicName
 		value, provided := resolvedInput[view.PublicName]
 		source := ""
 		if provided {
@@ -176,6 +187,10 @@ func NormalizeInput(template Template, overlay *ResolvedOverlay, input TicketInp
 		}
 
 		if !provided && source == "" {
+			if view.Field.Required && !view.Field.Supported && !view.Field.DisplayOnly {
+				issues = append(issues, fieldIssue(view, "unsupported_field", "required field type is not supported for writing"))
+				continue
+			}
 			if view.Field.Required && len(view.Field.Conditions.Conditions) == 0 && !view.Field.DisplayOnly {
 				issues = append(issues, fieldIssue(view, "missing_required", "required field is missing"))
 			}
@@ -250,11 +265,13 @@ func buildFieldViews(template Template, overlay *ResolvedOverlay) ([]fieldView, 
 		for _, alias := range view.Aliases {
 			addFieldAlias(aliases, alias, view.PublicName)
 		}
-		if field.StableID != "" {
-			addFieldAlias(aliases, field.StableID, view.PublicName)
-		}
-		if field.Name != "" {
-			addFieldAlias(aliases, field.Name, view.PublicName)
+		if overlay == nil {
+			if field.StableID != "" {
+				addFieldAlias(aliases, field.StableID, view.PublicName)
+			}
+			if field.Name != "" {
+				addFieldAlias(aliases, field.Name, view.PublicName)
+			}
 		}
 	}
 	return views, aliases
@@ -428,13 +445,28 @@ func normalizeTableRow(row map[string]any, field Field, view fieldView, rowIndex
 	resolved := make(map[int]string)
 	result := make(map[string]any)
 	for name, value := range row {
-		index, publicName, ok, ambiguous := matchInputColumn(name, columns, publicNames)
+		index, publicName, ok, ambiguous := matchInputColumn(name, columns, publicNames, view.Overlay != nil)
 		if ambiguous {
 			issues = append(issues, tableIssue(view, "ambiguous_column", name, rowIndex, "table column is ambiguous"))
 			continue
 		}
 		if !ok {
-			issues = append(issues, tableIssue(view, "unknown_column", name, rowIndex, "unknown table column"))
+			issueColumn := name
+			if view.Overlay != nil {
+				for _, column := range columns {
+					if column.BackendKey == name || column.Name == name {
+						issueColumn = column.Name
+						for _, resolved := range publicNames {
+							if resolved.Column.BackendKey == column.BackendKey {
+								issueColumn = resolved.PublicName
+								break
+							}
+						}
+						break
+					}
+				}
+			}
+			issues = append(issues, tableIssue(view, "unknown_column", issueColumn, rowIndex, "unknown table column"))
 			continue
 		}
 		if previous, exists := resolved[index]; exists {
@@ -486,10 +518,13 @@ func normalizeTableRow(row map[string]any, field Field, view fieldView, rowIndex
 }
 
 func resolvedColumnForIndex(column TableColumn, index int, public map[string]ResolvedColumn) (string, *ResolvedColumn) {
-	for name, resolved := range public {
+	for _, resolved := range public {
 		if resolved.LiveIndex == index {
 			copy := resolved
-			return name, &copy
+			if resolved.PublicName != "" {
+				return resolved.PublicName, &copy
+			}
+			return column.Name, &copy
 		}
 	}
 	if column.Name != "" {
@@ -513,9 +548,12 @@ func columnDefault(column TableColumn, resolved *ResolvedColumn) (any, string, b
 	return nil, "", false
 }
 
-func matchInputColumn(name string, columns []TableColumn, public map[string]ResolvedColumn) (int, string, bool, bool) {
+func matchInputColumn(name string, columns []TableColumn, public map[string]ResolvedColumn, profileMode bool) (int, string, bool, bool) {
 	if resolved, ok := public[name]; ok {
 		return resolved.LiveIndex, resolved.PublicName, true, false
+	}
+	if profileMode {
+		return 0, name, false, false
 	}
 	for index, column := range columns {
 		if column.BackendKey == name {
@@ -535,9 +573,11 @@ func matchInputColumn(name string, columns []TableColumn, public map[string]Reso
 }
 
 func columnPublicName(column TableColumn, public map[string]ResolvedColumn) string {
-	for name, resolved := range public {
+	for _, resolved := range public {
 		if resolved.Column.BackendKey == column.BackendKey || resolved.LiveIndex >= 0 && resolved.Column.BackendKey == column.BackendKey {
-			return name
+			if resolved.PublicName != "" {
+				return resolved.PublicName
+			}
 		}
 	}
 	if column.Name != "" {

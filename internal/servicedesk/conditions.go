@@ -39,6 +39,9 @@ func EvaluateConditions(template Template, normalized NormalizedInput) Condition
 		result.ConditionalFieldCount++
 		active, unsupported := evaluateConditionSet(field.Conditions, lookup)
 		name := preferredFieldName(field)
+		if normalized.publicNames != nil && normalized.publicNames[field.BackendKey] != "" {
+			name = normalized.publicNames[field.BackendKey]
+		}
 		result.Active[name] = active
 		if active {
 			result.ActiveConditionalFieldCount++
@@ -48,7 +51,13 @@ func EvaluateConditions(template Template, normalized NormalizedInput) Condition
 			result.Blocking = append(result.Blocking, FieldIssue{Code: "unsupported_condition", Field: name, Message: "field visibility or requiredness depends on an unsupported condition"})
 			continue
 		}
-		if active && field.Required {
+		required := field.Required
+		if normalized.required != nil {
+			if effective, ok := normalized.required[field.BackendKey]; ok {
+				required = effective
+			}
+		}
+		if active && required {
 			if _, present := normalized.Inputs[field.BackendKey]; !present {
 				result.Blocking = append(result.Blocking, FieldIssue{Code: "missing_required", Field: name, Message: "active required field is missing"})
 			}

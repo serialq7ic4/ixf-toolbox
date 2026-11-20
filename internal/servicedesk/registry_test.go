@@ -384,6 +384,71 @@ func TestRegistryRejectsSymlinkedCacheComponents(t *testing.T) {
 	}
 }
 
+func TestRegistryRejectsSymlinkedCacheAncestor(t *testing.T) {
+	profile := mustReadFixture(t, "profile-4003.json")
+	const profilePath = "profiles/fixture-server-hardware-repair.json"
+	parent := t.TempDir()
+	outside := t.TempDir()
+	redirect := filepath.Join(parent, "redirect")
+	if err := os.Symlink(outside, redirect); err != nil {
+		t.Fatalf("symlink cache ancestor: %v", err)
+	}
+	sentinel := filepath.Join(outside, "sentinel.json")
+	original := []byte("ancestor sentinel must remain untouched")
+	if err := os.WriteFile(sentinel, original, 0o600); err != nil {
+		t.Fatalf("write outside sentinel: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(outside, "missing"), 0o700); err != nil {
+		t.Fatalf("create outside intermediate directory: %v", err)
+	}
+
+	server := registryServer(t, registryIndexJSON(t, "fixture-server-hardware-repair", profilePath, profile), map[string][]byte{profilePath: profile})
+	defer server.Close()
+	cacheDir := filepath.Join(redirect, "missing", "cache")
+	loader := registryLoaderFor(t, server.URL, cacheDir, time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC))
+	loader.CacheDir = cacheDir
+	if _, _, err := loader.List(testContext(t)); err == nil {
+		t.Fatal("List() error = nil, want symlinked cache ancestor rejection")
+	}
+	got, err := os.ReadFile(sentinel)
+	if err != nil {
+		t.Fatalf("read outside sentinel: %v", err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Fatal("symlinked cache ancestor modified outside file")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "missing", "cache")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("symlinked cache ancestor redirected cache creation, stat error = %v", err)
+	}
+}
+
+func TestRegistryInitializesMissingDefaultCacheParents(t *testing.T) {
+	cacheHome, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve cache home: %v", err)
+	}
+	t.Setenv("HOME", cacheHome)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(cacheHome, "xdg-cache"))
+	profile := mustReadFixture(t, "profile-4003.json")
+	const profilePath = "profiles/fixture-server-hardware-repair.json"
+	server := registryServer(t, registryIndexJSON(t, "fixture-server-hardware-repair", profilePath, profile), map[string][]byte{profilePath: profile})
+	defer server.Close()
+	loader := registryLoaderFor(t, server.URL, "", time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC))
+	cacheDir, err := loader.cacheDir()
+	if err != nil {
+		t.Fatalf("cacheDir() error = %v", err)
+	}
+	if _, err := os.Stat(cacheDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("default cache path already exists before load, stat error = %v", err)
+	}
+	if _, _, err := loader.List(testContext(t)); err != nil {
+		t.Fatalf("List() error = %v, want missing parents initialized", err)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, "index.json")); err != nil {
+		t.Fatalf("default cache index missing after load: %v", err)
+	}
+}
+
 func registryLoaderFor(t *testing.T, serverURL, cacheDir string, now time.Time) RegistryLoader {
 	t.Helper()
 	base, err := url.Parse(serverURL)
@@ -392,8 +457,56 @@ func registryLoaderFor(t *testing.T, serverURL, cacheDir string, now time.Time) 
 	}
 	return RegistryLoader{
 		HTTPClient: &http.Client{Transport: rewriteRegistryTransport{base: base}},
-		CacheDir:   cacheDir,
+		CacheDir:   physicalTestCacheDir(t, cacheDir),
 		Now:        func() time.Time { return now },
+	}
+}
+
+func physicalTestCacheDir(t *testing.T, cacheDir string) string {
+	t.Helper()
+	if cacheDir == "" {
+		return ""
+	}
+	absolute, err := filepath.Abs(cacheDir)
+	if err != nil {
+		return cacheDir
+	}
+	if info, err := os.Lstat(absolute); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return cacheDir
+		}
+		if physical, err := filepath.EvalSymlinks(absolute); err == nil {
+			return physical
+		}
+		return cacheDir
+	}
+
+	var suffix []string
+	current := absolute
+	for {
+		info, err := os.Lstat(current)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return cacheDir
+			}
+			physical, err := filepath.EvalSymlinks(current)
+			if err != nil {
+				return cacheDir
+			}
+			for index := len(suffix) - 1; index >= 0; index-- {
+				physical = filepath.Join(physical, suffix[index])
+			}
+			return physical
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return cacheDir
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return cacheDir
+		}
+		suffix = append(suffix, filepath.Base(current))
+		current = parent
 	}
 }
 

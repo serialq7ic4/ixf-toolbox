@@ -413,7 +413,7 @@ func (l RegistryLoader) writeCache(loaded loadedRegistry, indexBytes []byte, fet
 		return err
 	}
 	parent := filepath.Dir(cacheDir)
-	if err := validateCachePath(parent, parent, cacheDirectory, false); err != nil {
+	if err := ensureCacheParent(cacheDir); err != nil {
 		return fmt.Errorf("validate ServiceDesk cache parent: %w", err)
 	}
 	stage, err := os.MkdirTemp(parent, "."+filepath.Base(cacheDir)+".staging-")
@@ -524,6 +524,17 @@ func validateCacheLayout(cacheDir string, entries []RegistryEntry, allowMissing 
 	return nil
 }
 
+func ensureCacheParent(cacheDir string) error {
+	parent := filepath.Dir(cacheDir)
+	if err := validatePathComponents(parent, cacheDirectory, true); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return err
+	}
+	return validatePathComponents(parent, cacheDirectory, false)
+}
+
 func validateCachePath(cacheRoot, target string, kind cachePathKind, allowMissing bool) error {
 	absoluteRoot, err := filepath.Abs(cacheRoot)
 	if err != nil {
@@ -537,43 +548,67 @@ func validateCachePath(cacheRoot, target string, kind cachePathKind, allowMissin
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("path %q escapes cache root %q", target, cacheRoot)
 	}
+	return validatePathComponents(absolute, kind, allowMissing)
+}
+
+func validatePathComponents(target string, kind cachePathKind, allowMissing bool) error {
+	absolute, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	filesystemRoot := filepath.VolumeName(absolute) + string(filepath.Separator)
+	if absolute == filesystemRoot {
+		return validateExistingPathComponent(absolute, kind)
+	}
+	relative := strings.TrimPrefix(absolute, filesystemRoot)
 	missing := false
-	for current := absolute; ; current = filepath.Dir(current) {
+	current := filesystemRoot
+	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+		if component == "" {
+			continue
+		}
+		current = filepath.Join(current, component)
 		info, statErr := os.Lstat(current)
 		if statErr != nil {
 			if !errors.Is(statErr, os.ErrNotExist) {
 				return statErr
 			}
 			missing = true
-		} else {
-			if info.Mode()&os.ModeSymlink != 0 {
-				return fmt.Errorf("path component %q is a symlink", current)
-			}
-			if current == absolute {
-				switch kind {
-				case cacheDirectory:
-					if !info.IsDir() {
-						return fmt.Errorf("path %q is not a directory", current)
-					}
-				case cacheRegularFile:
-					if !info.Mode().IsRegular() {
-						return fmt.Errorf("path %q is not a regular file", current)
-					}
-				}
-			} else if !info.IsDir() {
-				return fmt.Errorf("path component %q is not a directory", current)
-			}
+			continue
 		}
-		if current == absoluteRoot {
-			break
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path component %q is a symlink", current)
 		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			break
+		if current == absolute {
+			if kind == cacheDirectory && !info.IsDir() {
+				return fmt.Errorf("path %q is not a directory", current)
+			}
+			if kind == cacheRegularFile && !info.Mode().IsRegular() {
+				return fmt.Errorf("path %q is not a regular file", current)
+			}
+		} else if !info.IsDir() {
+			return fmt.Errorf("path component %q is not a directory", current)
 		}
 	}
 	if missing && !allowMissing {
 		return os.ErrNotExist
+	}
+	return nil
+}
+
+func validateExistingPathComponent(path string, kind cachePathKind) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("path component %q is a symlink", path)
+	}
+	if kind == cacheDirectory && !info.IsDir() {
+		return fmt.Errorf("path %q is not a directory", path)
+	}
+	if kind == cacheRegularFile && !info.Mode().IsRegular() {
+		return fmt.Errorf("path %q is not a regular file", path)
 	}
 	return nil
 }

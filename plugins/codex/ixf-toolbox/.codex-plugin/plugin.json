@@ -1,7 +1,7 @@
 {
   "name": "ixf-toolbox",
-  "version": "3.31.3",
-  "description": "Use authorized i讯飞 and LarkShell workflows through the Go ixf runtime.",
+  "version": "3.32.0",
+  "description": "Use authorized i讯飞, LarkShell, and ServiceDesk workflows through the Go ixf runtime.",
   "author": {
     "name": "serialq7ic4"
   },
@@ -15,12 +15,13 @@
     "docx",
     "okr",
     "bitable",
-    "messenger"
+    "messenger",
+    "servicedesk"
   ],
   "interface": {
     "displayName": "i讯飞 Toolbox",
     "shortDescription": "Authorized i讯飞 workflows",
-    "longDescription": "Use authorized i讯飞 and LarkShell workflows through the Go ixf runtime.",
+    "longDescription": "Use authorized i讯飞, LarkShell, and ServiceDesk workflows through the Go ixf runtime.",
     "developerName": "serialq7ic4",
     "category": "Productivity",
     "capabilities": [
@@ -29,7 +30,8 @@
     ],
     "defaultPrompt": [
       "Read an i讯飞 document",
-      "Plan an approved document update"
+      "Plan an approved document update",
+      "List my open ServiceDesk tickets"
     ]
   },
   "skills": "./skills/"

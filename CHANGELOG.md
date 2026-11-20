@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.32.0 - 2026-11-20
+
+- Added the Go-native, API-only `ixf servicedesk` command family for ServiceDesk readiness, live form/profile inspection, validated ticket creation, current-user recent/open ticket listing, ticket status reads, and confirmed withdrawal with readback verification.
+- Added shared semantic ServiceDesk reader/writer skills and Claude routing for explicit ticket intents. Fault descriptions without a ticket action remain ordinary analysis requests; profile selection stays with the Agent rather than a CLI keyword scorer.
+- Added dynamic live-template validation, Registry overlay drift checks, stable JSON contracts, explicit dry-run/apply gates, unknown-create-outcome handling, owner/state checks, and API Key diagnostics without secret output.
+
 ## 3.31.3 - 2026-11-19
 
 - Fixed `ixf cookies export --provider auto` selecting only `profile_explorer/Cookies` on macOS. Current i讯飞 desktop sessions can keep the docs Web session under `profile_explorer/Default` or `PartitionsV2/openplatform_web_container_*`; the exporter now checks those supported live-profile sources, excludes Playwright clones, skips unreadable or undecryptable candidates, and selects the first source with a non-empty `_csrf_token`. An explicit `--cookies-db` remains exact and never falls back to another login.

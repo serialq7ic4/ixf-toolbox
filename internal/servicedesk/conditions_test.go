@@ -89,6 +89,19 @@ func TestEvaluateConditionsUnsupportedConsequentialConditionBlocks(t *testing.T)
 	}
 }
 
+func TestEvaluateConditionsUnsupportedLiveExpressionBlocks(t *testing.T) {
+	t.Parallel()
+
+	template := Template{Fields: []Field{{
+		BackendKey: "details", StableID: "details", Name: "Details", Type: "input", Supported: true,
+		Conditions: ConditionSet{Unsupported: true},
+	}}}
+	result := EvaluateConditions(template, NormalizedInput{})
+	if result.ConditionalFieldCount != 1 || result.UnsupportedConditionCount != 1 || !hasFieldIssue(result.Blocking, "unsupported_condition", "details") {
+		t.Fatalf("unsupported live expression result = %+v", result)
+	}
+}
+
 func TestEvaluateConditionsUsesOverlayPublicNameAndRequiredStrengthening(t *testing.T) {
 	t.Parallel()
 	template := Template{Fields: []Field{

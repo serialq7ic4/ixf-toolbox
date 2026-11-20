@@ -3,6 +3,7 @@ package servicedesk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -37,6 +38,117 @@ func TestNormalizeVerifiedLadingFixture(t *testing.T) {
 	}
 	if !strings.HasPrefix(template.MetadataHash, "sha256:") || len(template.MetadataHash) != len("sha256:")+64 {
 		t.Fatalf("metadata hash = %q", template.MetadataHash)
+	}
+}
+
+func TestNormalizeServiceDeskWireSchema(t *testing.T) {
+	t.Parallel()
+
+	lading := map[string]any{
+		"field_title": map[string]any{
+			"field_unique_Identifier": "title",
+			"field_name":              "Title",
+			"field_type":              "input",
+			"field_required":          "REQUIRE",
+			"field_default":           "",
+			"field_choice":            map[string]any{},
+		},
+		"field_devices": map[string]any{
+			"field_unique_Identifier": "devices",
+			"field_name":              "Affected devices",
+			"field_type":              "extend_table",
+			"field_required":          "OPTION",
+			"field_default":           "",
+			"field_choice": map[string]any{
+				"2": map[string]any{"name": "Component", "key": "component", "isRequest": false},
+				"1": map[string]any{"name": "Host name", "key": "host_name", "isRequest": true},
+			},
+		},
+		"field_fault": map[string]any{
+			"field_unique_Identifier": "fault_type",
+			"field_name":              "Fault type",
+			"field_type":              "select",
+			"field_required":          "REQUIRE",
+			"field_default":           "disk",
+			"field_choice": map[string]any{
+				"2": map[string]any{"name": "Memory", "key": "memory"},
+				"1": map[string]any{"name": "Disk", "key": "disk"},
+			},
+		},
+	}
+
+	template := loadSyntheticTemplate(t, lading)
+	fields := fieldsByStableIDOrName(template.Fields)
+
+	title := fields["title"]
+	if title.Name != "Title" || title.Type != "input" || !title.Required || !title.Supported {
+		t.Fatalf("live title field = %+v", title)
+	}
+	if title.DefaultAvailable {
+		t.Fatalf("blank live default must not satisfy a required field: %+v", title)
+	}
+
+	devices := fields["devices"]
+	if devices.Name != "Affected devices" || devices.Type != "extend_table" || devices.Required || len(devices.TableColumns) != 2 {
+		t.Fatalf("live table field = %+v", devices)
+	}
+	if got := devices.TableColumns[0]; got.BackendKey != "host_name" || got.Name != "Host name" || got.Type != "input" || !got.Required {
+		t.Fatalf("first live table column = %+v", got)
+	}
+	if got := devices.TableColumns[1]; got.BackendKey != "component" || got.Name != "Component" || got.Type != "input" || got.Required {
+		t.Fatalf("second live table column = %+v", got)
+	}
+
+	fault := fields["fault_type"]
+	wantChoices := []Choice{{Label: "Disk", Value: "disk"}, {Label: "Memory", Value: "memory"}}
+	if fault.Name != "Fault type" || fault.Type != "select" || !fault.Required || fmt.Sprint(fault.Choices) != fmt.Sprint(wantChoices) {
+		t.Fatalf("live choice field = %+v, want choices %#v", fault, wantChoices)
+	}
+	if !fault.DefaultAvailable || fault.DefaultValue != "disk" {
+		t.Fatalf("live choice default = %+v", fault)
+	}
+}
+
+func TestNormalizeRejectsIncompleteServiceDeskWireField(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name  string
+		field map[string]any
+	}{
+		{
+			name: "missing name and type",
+			field: map[string]any{
+				"field_unique_Identifier": "title",
+				"field_required":          "REQUIRE",
+			},
+		},
+		{
+			name: "unknown required marker",
+			field: map[string]any{
+				"field_unique_Identifier": "title",
+				"field_name":              "Title",
+				"field_type":              "input",
+				"field_required":          "MAYBE",
+			},
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			raw, err := json.Marshal(test.field)
+			if err != nil {
+				t.Fatalf("encode field: %v", err)
+			}
+			_, err = normalizeLading(Lading{"field_title": raw})
+			if err == nil {
+				t.Fatal("normalizeLading() error = nil, want invalid response")
+			}
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) || apiErr.Code != "invalid_response" {
+				t.Fatalf("normalizeLading() error = %v, want invalid_response", err)
+			}
+		})
 	}
 }
 
@@ -240,6 +352,56 @@ func TestNormalizeConditionsAndMapOrderAreStable(t *testing.T) {
 	condition := details.Conditions.Conditions[0]
 	if condition.Field != "fault_type" || condition.Operator != "==" || condition.Value != "disk" {
 		t.Fatalf("condition = %+v", condition)
+	}
+}
+
+func TestNormalizeLiveConditionExpressionTreatsEmptyGroupsAsNoCondition(t *testing.T) {
+	t.Parallel()
+
+	template := loadSyntheticTemplate(t, map[string]any{
+		"field_details": map[string]any{
+			"field_unique_Identifier": "details",
+			"field_name":              "Details",
+			"field_type":              "textarea",
+			"field_required":          "OPTION",
+			"conditions_expression": map[string]any{
+				"hide":                           true,
+				"field_display":                  false,
+				"group_condition_relation":       "and",
+				"condition_groups_list_all_dict": map[string]any{},
+			},
+		},
+	})
+
+	conditions := template.Fields[0].Conditions
+	if conditions.Unsupported || conditions.Operator != "" || len(conditions.Conditions) != 0 {
+		t.Fatalf("empty live conditions = %+v, want no condition", conditions)
+	}
+}
+
+func TestNormalizeLiveConditionExpressionMarksNonEmptyGroupsUnsupported(t *testing.T) {
+	t.Parallel()
+
+	template := loadSyntheticTemplate(t, map[string]any{
+		"field_details": map[string]any{
+			"field_unique_Identifier": "details",
+			"field_name":              "Details",
+			"field_type":              "textarea",
+			"field_required":          "OPTION",
+			"conditions_expression": map[string]any{
+				"hide":                     true,
+				"field_display":            false,
+				"group_condition_relation": "and",
+				"condition_groups_list_all_dict": map[string]any{
+					"group_1": map[string]any{"field": "fault_type", "operator": "==", "value": "disk"},
+				},
+			},
+		},
+	})
+
+	conditions := template.Fields[0].Conditions
+	if !conditions.Unsupported {
+		t.Fatalf("non-empty live conditions = %+v, want unsupported", conditions)
 	}
 }
 

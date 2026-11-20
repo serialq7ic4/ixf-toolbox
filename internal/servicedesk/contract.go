@@ -411,7 +411,7 @@ func resolveURLInputContract(fields []Field) (InputContract, error) {
 			StableID:         field.StableID,
 			Type:             field.Type,
 			Required:         field.Required,
-			Conditional:      len(field.Conditions.Conditions) > 0,
+			Conditional:      field.Conditions.Unsupported || len(field.Conditions.Conditions) > 0,
 			DefaultAvailable: field.DefaultAvailable,
 			Choices:          field.Choices,
 			Columns:          columns,

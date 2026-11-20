@@ -1,7 +1,7 @@
 # Migration From Legacy Reader/Writer
 
 `ixf-toolbox` replaces the archived `ixunfei-docx-reader` and
-`ixunfei-docx-writer` projects with one Go `ixf` runtime and seven agent skills.
+`ixunfei-docx-writer` projects with one Go `ixf` runtime and nine agent skills.
 New installations use a native plugin for each host:
 
 ```bash
@@ -63,6 +63,8 @@ user owns the final cleanup decision.
 | Approved OKR writes | `ixf-okr-writer` |
 | Messenger readiness and conversation reads | `ixf-messenger-reader` |
 | Approved Messenger sends | `ixf-messenger-writer` |
+| ServiceDesk ticket lists and status reads | `ixf-servicedesk-reader` |
+| Approved ServiceDesk ticket create/withdraw | `ixf-servicedesk-writer` |
 
 ## Removed commands
 

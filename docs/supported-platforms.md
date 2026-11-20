@@ -1,6 +1,6 @@
 # Supported Platforms
 
-`ixf-toolbox` targets desktop i讯飞/LarkShell environments with local authenticated session data. Native Codex and Claude plugins provide the skills; the Go binary is the only business runtime. The CLI owns cookie export, diagnostics, document workflows, OKR workflows, dependency repair, runtime updates, and staged Messenger automation foundations.
+`ixf-toolbox` targets desktop i讯飞/LarkShell environments with local authenticated session data. Native Codex and Claude plugins provide the skills; the Go binary is the only business runtime. The CLI owns cookie export, diagnostics, document workflows, OKR workflows, API-only ServiceDesk ticket workflows, dependency repair, runtime updates, and staged Messenger automation foundations.
 
 | Platform | Status | Notes |
 |---|---|---|
@@ -8,6 +8,11 @@
 | Windows | CI-tested / experimental | `ixf cookies export --provider windows-larkshell` reads the local Chromium profile and decrypts cookies with Windows DPAPI. Messenger profile discovery uses the LarkShell Chromium profile under `%APPDATA%`; Messenger automation still uses a cloned profile and needs more live desktop validation. |
 
 Linux desktop-session export and Messenger automation are not supported because i讯飞 does not ship a Linux desktop client. Pure parsing and dry-run document/OKR components may still work, but authenticated remote operations require a supported cookie source.
+
+ServiceDesk uses its own API Key and fixed ServiceDesk HTTPS API; it does not
+depend on the desktop cookie export or browser automation. The Go client reads
+the user's API Key from the documented local sources and performs live metadata,
+ticket, and readback requests directly.
 
 ## Authentication Diagnosis
 

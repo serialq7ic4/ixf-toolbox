@@ -634,3 +634,31 @@ func TestClaudeUserPromptSubmitHookIgnoresLocalMarkdown(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeUserPromptSubmitHookRoutesServiceDeskActionButNotFaultAnalysis(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX hook test; Windows host validation uses Claude's shell dispatcher")
+	}
+	root := generateRepositoryFixture(t)
+	pluginRoot := filepath.Join(root, "plugins", "claude", "ixf-toolbox")
+	for _, prompt := range []string{
+		`{"prompt":"我要提单报修服务器上的硬盘"}`,
+		`{"prompt":"帮我撤回刚才的工单"}`,
+		`{"prompt":"看一下我最近的工单状态"}`,
+		`{"prompt":"Check the ServiceDesk ticket status"}`,
+	} {
+		output := runUserPromptSubmit(t, pluginRoot, prompt)
+		if len(bytes.TrimSpace(output)) == 0 || !bytes.Contains(output, []byte("ixf-toolbox:using-ixf-toolbox")) {
+			t.Fatalf("ServiceDesk prompt was not routed: %s", output)
+		}
+	}
+	for _, prompt := range []string{
+		`{"prompt":"服务器硬盘坏了，帮我分析原因"}`,
+		`{"prompt":"检查本地 Markdown 里的工单说明"}`,
+	} {
+		output := runUserPromptSubmit(t, pluginRoot, prompt)
+		if len(bytes.TrimSpace(output)) != 0 {
+			t.Fatalf("non-action prompt was routed: %s", output)
+		}
+	}
+}

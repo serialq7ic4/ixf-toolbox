@@ -209,6 +209,26 @@ func TestClientEndpointRequests(t *testing.T) {
 	}
 }
 
+func TestDefaultHTTPClientDoesNotInheritProxyEnvironment(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:1")
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+
+	client := newDirectHTTPClient(defaultTimeout)
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("default transport = %T, want *http.Transport", client.Transport)
+	}
+	if transport.Proxy != nil {
+		t.Fatal("default ServiceDesk client inherits proxy environment")
+	}
+
+	client = NewClient(Credential{APIKey: testAPIKey}, ClientOptions{HTTPClient: &http.Client{}}).httpClient
+	transport, ok = client.Transport.(*http.Transport)
+	if !ok || transport.Proxy != nil {
+		t.Fatalf("empty injected HTTP client transport = %#v, want direct transport", client.Transport)
+	}
+}
+
 func TestClientClassifiesHTTPStatus(t *testing.T) {
 	t.Parallel()
 

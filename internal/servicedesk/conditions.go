@@ -33,10 +33,19 @@ func EvaluateConditions(template Template, normalized NormalizedInput) Condition
 		lookup[key] = value
 	}
 	for _, field := range template.Fields {
-		if len(field.Conditions.Conditions) == 0 {
+		if !field.Conditions.Unsupported && len(field.Conditions.Conditions) == 0 {
 			continue
 		}
 		result.ConditionalFieldCount++
+		if field.Conditions.Unsupported {
+			name := preferredFieldName(field)
+			if normalized.publicNames != nil && normalized.publicNames[field.BackendKey] != "" {
+				name = normalized.publicNames[field.BackendKey]
+			}
+			result.UnsupportedConditionCount++
+			result.Blocking = append(result.Blocking, FieldIssue{Code: "unsupported_condition", Field: name, Message: "field visibility or requiredness depends on an unsupported condition"})
+			continue
+		}
 		active, unsupported := evaluateConditionSet(field.Conditions, lookup)
 		name := preferredFieldName(field)
 		if normalized.publicNames != nil && normalized.publicNames[field.BackendKey] != "" {

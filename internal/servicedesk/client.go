@@ -138,10 +138,13 @@ type WithdrawPayload struct {
 }
 
 func NewClient(credential Credential, options ClientOptions) *Client {
-	httpClient := &http.Client{Timeout: defaultTimeout}
+	httpClient := newDirectHTTPClient(defaultTimeout)
 	if options.HTTPClient != nil {
 		clone := *options.HTTPClient
 		httpClient = &clone
+		if httpClient.Transport == nil {
+			httpClient.Transport = newDirectHTTPClient(defaultTimeout).Transport
+		}
 	}
 	if options.Transport != nil {
 		httpClient.Transport = options.Transport
@@ -155,6 +158,12 @@ func NewClient(credential Credential, options ClientOptions) *Client {
 		now = time.Now
 	}
 	return &Client{credential: credential, httpClient: httpClient, now: now}
+}
+
+func newDirectHTTPClient(timeout time.Duration) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	return &http.Client{Timeout: timeout, Transport: transport}
 }
 
 func (c *Client) UserInfo(ctx context.Context, businessID int) (UserInfo, error) {

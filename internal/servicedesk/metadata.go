@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -36,9 +37,10 @@ type Condition struct {
 }
 
 type ConditionSet struct {
-	Source     string      `json:"source,omitempty"`
-	Operator   string      `json:"operator,omitempty"`
-	Conditions []Condition `json:"conditions,omitempty"`
+	Source      string      `json:"source,omitempty"`
+	Operator    string      `json:"operator,omitempty"`
+	Conditions  []Condition `json:"conditions,omitempty"`
+	Unsupported bool        `json:"unsupported,omitempty"`
 }
 
 type Field struct {
@@ -94,14 +96,19 @@ type metadataColumnFingerprint struct {
 }
 
 type rawField struct {
-	StableID   string           `json:"field_unique_Identifier"`
-	Name       string           `json:"name"`
-	Type       string           `json:"type"`
-	Required   bool             `json:"required"`
-	Default    *json.RawMessage `json:"default"`
-	Choices    []Choice         `json:"choices"`
-	Conditions *rawConditionSet `json:"conditions_expression"`
-	Columns    []rawTableColumn `json:"columns"`
+	StableID     string           `json:"field_unique_Identifier"`
+	Name         string           `json:"name"`
+	LiveName     string           `json:"field_name"`
+	Type         string           `json:"type"`
+	LiveType     string           `json:"field_type"`
+	Required     *json.RawMessage `json:"required"`
+	LiveRequired *json.RawMessage `json:"field_required"`
+	Default      *json.RawMessage `json:"default"`
+	LiveDefault  *json.RawMessage `json:"field_default"`
+	Choices      []Choice         `json:"choices"`
+	LiveChoices  json.RawMessage  `json:"field_choice"`
+	Conditions   *rawConditionSet `json:"conditions_expression"`
+	Columns      []rawTableColumn `json:"columns"`
 }
 
 type rawTableColumn struct {
@@ -115,8 +122,12 @@ type rawTableColumn struct {
 }
 
 type rawConditionSet struct {
-	Operator   string         `json:"operator"`
-	Conditions []rawCondition `json:"conditions"`
+	Operator                   string          `json:"operator"`
+	Conditions                 []rawCondition  `json:"conditions"`
+	Hide                       *bool           `json:"hide"`
+	FieldDisplay               *bool           `json:"field_display"`
+	GroupConditionRelation     string          `json:"group_condition_relation"`
+	ConditionGroupsListAllDict json.RawMessage `json:"condition_groups_list_all_dict"`
 }
 
 type rawCondition struct {
@@ -124,6 +135,23 @@ type rawCondition struct {
 	Operator   string         `json:"operator"`
 	Value      any            `json:"value"`
 	Conditions []rawCondition `json:"conditions"`
+}
+
+type rawLiveChoice struct {
+	Name         string           `json:"name"`
+	Label        string           `json:"label"`
+	Key          string           `json:"key"`
+	Value        string           `json:"value"`
+	Type         string           `json:"type"`
+	LiveType     string           `json:"field_type"`
+	Required     *json.RawMessage `json:"required"`
+	LiveRequired *json.RawMessage `json:"field_required"`
+	IsRequest    *bool            `json:"isRequest"`
+	Default      *json.RawMessage `json:"default"`
+	LiveDefault  *json.RawMessage `json:"field_default"`
+	Choices      []Choice         `json:"choices"`
+	LiveChoices  json.RawMessage  `json:"field_choice"`
+	Conditions   *rawConditionSet `json:"conditions_expression"`
 }
 
 func LoadTemplate(ctx context.Context, client *Client, target EditTarget) (Template, error) {
@@ -210,21 +238,37 @@ func normalizeLading(lading Lading) ([]Field, error) {
 			return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk lading metadata has an unexpected field shape"}
 		}
 
+		name := firstNonEmpty(raw.LiveName, raw.Name)
+		fieldType := firstNonEmpty(raw.LiveType, raw.Type)
+		if strings.TrimSpace(name) == "" || strings.TrimSpace(fieldType) == "" {
+			return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk lading metadata is missing a field name or type"}
+		}
+		required, err := normalizeRequired(raw.LiveRequired, raw.Required)
+		if err != nil {
+			return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk lading metadata has an invalid required marker"}
+		}
 		field := Field{
 			BackendKey:  key,
 			StableID:    raw.StableID,
-			Name:        raw.Name,
-			Type:        raw.Type,
-			Required:    raw.Required,
+			Name:        name,
+			Type:        fieldType,
+			Required:    required,
 			Choices:     nonNilChoices(raw.Choices),
-			Supported:   supportedFieldType(raw.Type),
-			DisplayOnly: displayOnlyFieldType(raw.Type),
+			Supported:   supportedFieldType(fieldType),
+			DisplayOnly: displayOnlyFieldType(fieldType),
 		}
-		if raw.Default != nil && string(*raw.Default) != "null" {
-			if err := decodeMetadataJSON(*raw.Default, &field.DefaultValue); err != nil {
+		defaultRaw, liveDefault := preferredRaw(raw.LiveDefault, raw.Default)
+		if defaultRaw != nil && string(*defaultRaw) != "null" {
+			if err := decodeMetadataJSON(*defaultRaw, &field.DefaultValue); err != nil {
 				return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk lading metadata has an invalid default value"}
 			}
-			field.DefaultAvailable = true
+			field.DefaultAvailable = !liveDefault || !blankString(field.DefaultValue)
+		}
+		if len(field.Choices) == 0 && len(raw.LiveChoices) > 0 && !tableFieldType(fieldType) {
+			field.Choices, err = normalizeLiveChoices(raw.LiveChoices)
+			if err != nil {
+				return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk lading metadata has invalid choices"}
+			}
 		}
 		if len(field.Choices) > 0 {
 			field.ChoiceHash, _ = canonicalHash(field.Choices)
@@ -236,10 +280,174 @@ func normalizeLading(lading Lading) ([]Field, error) {
 		if err != nil {
 			return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk lading metadata has an invalid table column default value"}
 		}
+		if len(columns) == 0 && tableFieldType(fieldType) && len(raw.LiveChoices) > 0 {
+			columns, err = normalizeLiveColumns(raw.LiveChoices)
+			if err != nil {
+				return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk lading metadata has invalid table columns"}
+			}
+		}
 		field.TableColumns = columns
 		fields = append(fields, field)
 	}
 	return fields, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func preferredRaw(primary, fallback *json.RawMessage) (*json.RawMessage, bool) {
+	if primary != nil {
+		return primary, true
+	}
+	return fallback, false
+}
+
+func blankString(value any) bool {
+	text, ok := value.(string)
+	return ok && strings.TrimSpace(text) == ""
+}
+
+func normalizeRequired(primary, fallback *json.RawMessage) (bool, error) {
+	raw, _ := preferredRaw(primary, fallback)
+	if raw == nil || string(*raw) == "null" {
+		return false, nil
+	}
+	var value any
+	if err := decodeMetadataJSON(*raw, &value); err != nil {
+		return false, err
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed, nil
+	case string:
+		switch strings.ToUpper(strings.TrimSpace(typed)) {
+		case "REQUIRE", "REQUIRED", "TRUE":
+			return true, nil
+		case "OPTION", "OPTIONAL", "FALSE":
+			return false, nil
+		}
+	}
+	return false, &APIError{Code: "invalid_response", Message: "unknown ServiceDesk required marker"}
+}
+
+func normalizeLiveChoices(data json.RawMessage) ([]Choice, error) {
+	entries, err := decodeLiveChoiceEntries(data)
+	if err != nil {
+		return nil, err
+	}
+	choices := make([]Choice, 0, len(entries))
+	for _, entry := range entries {
+		label := firstNonEmpty(entry.Name, entry.Label)
+		value := firstNonEmpty(entry.Key, entry.Value)
+		if label == "" || value == "" {
+			return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk choice is missing a label or value"}
+		}
+		choices = append(choices, Choice{Label: label, Value: value})
+	}
+	return choices, nil
+}
+
+func normalizeLiveColumns(data json.RawMessage) ([]TableColumn, error) {
+	entries, err := decodeLiveChoiceEntries(data)
+	if err != nil {
+		return nil, err
+	}
+	columns := make([]TableColumn, 0, len(entries))
+	for _, entry := range entries {
+		key := firstNonEmpty(entry.Key, entry.Value)
+		name := firstNonEmpty(entry.Name, entry.Label)
+		if key == "" || name == "" {
+			return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk table column is missing a key or name"}
+		}
+		required := false
+		if entry.IsRequest != nil {
+			required = *entry.IsRequest
+		} else {
+			required, err = normalizeRequired(entry.LiveRequired, entry.Required)
+			if err != nil {
+				return nil, err
+			}
+		}
+		columnType := firstNonEmpty(entry.LiveType, entry.Type, "input")
+		column := TableColumn{
+			BackendKey: key,
+			Name:       name,
+			Type:       columnType,
+			Required:   required,
+			Choices:    nonNilChoices(entry.Choices),
+			Supported:  supportedTableColumnType(columnType),
+		}
+		defaultRaw, liveDefault := preferredRaw(entry.LiveDefault, entry.Default)
+		if defaultRaw != nil && string(*defaultRaw) != "null" {
+			if err := decodeMetadataJSON(*defaultRaw, &column.DefaultValue); err != nil {
+				return nil, err
+			}
+			column.DefaultAvailable = !liveDefault || !blankString(column.DefaultValue)
+		}
+		if len(column.Choices) == 0 && len(entry.LiveChoices) > 0 {
+			column.Choices, err = normalizeLiveChoices(entry.LiveChoices)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if len(column.Choices) > 0 {
+			column.ChoiceHash, _ = canonicalHash(column.Choices)
+		}
+		if entry.Conditions != nil {
+			column.Conditions = normalizeConditionSet(*entry.Conditions)
+		}
+		columns = append(columns, column)
+	}
+	return columns, nil
+}
+
+func decodeLiveChoiceEntries(data json.RawMessage) ([]rawLiveChoice, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, nil
+	}
+	switch trimmed[0] {
+	case '{':
+		var values map[string]json.RawMessage
+		if err := decodeMetadataJSON(trimmed, &values); err != nil {
+			return nil, err
+		}
+		keys := make([]string, 0, len(values))
+		for key := range values {
+			keys = append(keys, key)
+		}
+		sort.Slice(keys, func(left, right int) bool {
+			leftNumber, leftErr := strconv.Atoi(keys[left])
+			rightNumber, rightErr := strconv.Atoi(keys[right])
+			if leftErr == nil && rightErr == nil {
+				return leftNumber < rightNumber
+			}
+			return keys[left] < keys[right]
+		})
+		entries := make([]rawLiveChoice, 0, len(keys))
+		for _, key := range keys {
+			var entry rawLiveChoice
+			if err := decodeMetadataJSON(values[key], &entry); err != nil {
+				return nil, err
+			}
+			entries = append(entries, entry)
+		}
+		return entries, nil
+	case '[':
+		var entries []rawLiveChoice
+		if err := decodeMetadataJSON(trimmed, &entries); err != nil {
+			return nil, err
+		}
+		return entries, nil
+	default:
+		return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk choices must be an object or array"}
+	}
 }
 
 func decodeMetadataJSON(data []byte, target any) error {
@@ -280,11 +488,26 @@ func normalizeColumns(rawColumns []rawTableColumn) ([]TableColumn, error) {
 }
 
 func normalizeConditionSet(raw rawConditionSet) ConditionSet {
+	if raw.liveConditionExpression() {
+		groups := bytes.TrimSpace(raw.ConditionGroupsListAllDict)
+		if len(groups) == 0 || bytes.Equal(groups, []byte("null")) {
+			return ConditionSet{Unsupported: true}
+		}
+		var object map[string]json.RawMessage
+		if err := decodeMetadataJSON(groups, &object); err != nil || len(object) != 0 {
+			return ConditionSet{Unsupported: true}
+		}
+		return ConditionSet{}
+	}
 	conditions := make([]Condition, 0, len(raw.Conditions))
 	for _, rawCondition := range raw.Conditions {
 		conditions = append(conditions, normalizeCondition(rawCondition))
 	}
 	return ConditionSet{Operator: raw.Operator, Conditions: conditions}
+}
+
+func (raw rawConditionSet) liveConditionExpression() bool {
+	return raw.Hide != nil || raw.FieldDisplay != nil || raw.GroupConditionRelation != "" || raw.ConditionGroupsListAllDict != nil
 }
 
 func normalizeCondition(raw rawCondition) Condition {

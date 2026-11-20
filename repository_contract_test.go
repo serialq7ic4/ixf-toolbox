@@ -272,14 +272,29 @@ var routingTriggers = []string{
 	"i讯飞", "讯飞文档", "LarkShell", "/docx/", "/wiki/", "/base/",
 	"docx", "wiki", "sheets", "bitable", "OKR", "Messenger",
 	"read", "publish", "update", "patch", "append row", "upload image", "attachment",
+	"ServiceDesk", "工单", "报修", "撤回",
 	// A listing request names a directory and asks what is under it. It is read-only
 	// but is not a read: `docs read` takes one document and cannot enumerate children,
 	// so without this trigger an agent can conclude the toolbox cannot list a directory.
 	"list", "enumerate", "ixf docs tree",
 }
 
+func TestServiceDeskSkillsAreCanonicalAndGenerated(t *testing.T) {
+	for _, skillName := range []string{"ixf-servicedesk-reader", "ixf-servicedesk-writer"} {
+		for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
+			path := filepath.Join(repoRoot(t), skillRoot, skillName, "SKILL.md")
+			content := readRepoFile(t, filepath.ToSlash(filepath.Join(skillRoot, skillName, "SKILL.md")))
+			for _, expected := range []string{"ixf servicedesk", "Runtime Boundary", "explicit confirmation"} {
+				if !strings.Contains(content, expected) {
+					t.Fatalf("%s missing %q", path, expected)
+				}
+			}
+		}
+	}
+}
+
 func TestRoutingSkillTriggersNativePluginDiscovery(t *testing.T) {
-	const frontmatter = "description: Use when a request mentions i讯飞, 讯飞文档, or LarkShell and involves /docx/, /wiki/, /base/, docx, wiki, sheets, bitable, OKR, or Messenger, including read, list or enumerate the documents under a directory or space, publish, update, patch, append-row, image upload, attachment upload, or message workflows; do not use for ordinary local Markdown reading or editing."
+	const frontmatter = "description: Use when a request mentions i讯飞, 讯飞文档, LarkShell, ServiceDesk, or servicedesk.iflytek.com and involves /docx/, /wiki/, /base/, docx, wiki, sheets, bitable, OKR, Messenger, or ticket workflows, including read, list, enumerate, publish, update, patch, append-row, image upload, attachment upload, message, create-ticket, repair-report, status, or withdraw workflows; do not use for ordinary local Markdown reading or editing."
 	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
 		path := filepath.ToSlash(filepath.Join(skillRoot, "using-ixf-toolbox", "SKILL.md"))
 		content := readRepoFile(t, path)
@@ -508,7 +523,7 @@ func TestSheetsRoutingAndUpdateBoundaryAreDocumented(t *testing.T) {
 	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
 		routingPath := filepath.ToSlash(filepath.Join(skillRoot, "using-ixf-toolbox", "SKILL.md"))
 		routing := readRepoFile(t, routingPath)
-		for _, expected := range []string{"Classify the request as docs, sheets, bitable, OKR, or messenger", "direct sheets link reads", "ixf sheets update --dry-run"} {
+		for _, expected := range []string{"Classify the request as docs, sheets, bitable, OKR, Messenger, or ServiceDesk", "direct sheets link reads", "ixf sheets update --dry-run"} {
 			if !strings.Contains(routing, expected) {
 				t.Fatalf("%s missing sheet routing guidance %q:\n%s", routingPath, expected, routing)
 			}
@@ -677,6 +692,8 @@ var canonicalSkillNames = []string{
 	"ixf-messenger-reader",
 	"ixf-messenger-writer",
 	"ixf-sheets-writer",
+	"ixf-servicedesk-reader",
+	"ixf-servicedesk-writer",
 }
 
 func TestCanonicalSkillsHaveGeneratedHostCopies(t *testing.T) {

@@ -16,17 +16,17 @@ history.
 ## Natural User Prompts
 
 Users do not need to name skills explicitly. They can paste an authorized
-document, sheet, OKR, or Messenger request and describe the desired outcome in
+document, sheet, OKR, Messenger, or ServiceDesk request and describe the desired outcome in
 ordinary language. `using-ixf-toolbox` performs background routing to the
 correct domain skill.
 
 ## Decision Rules
 
-1. Classify the domain: docs, sheets, bitable, OKR, or Messenger.
+1. Classify the domain: docs, sheets, bitable, OKR, Messenger, or ServiceDesk.
 2. Classify the intent: read-only or write.
 3. Default ambiguous intent to read-only.
 4. For writes, confirm the exact target and content.
-5. Use dry-run-first workflows before any remote mutation or message send.
+5. Use dry-run-first workflows before any remote mutation, ticket create/withdraw, or message send.
 6. Run `ixf doctor --json` when the installed routing or local auth state is unclear; `ixf doctor --json` exposes `agentRouting` for machine-readable verification.
 7. For docs publish readiness, inspect `cookies.ok`, `capabilities.docsPublish`, and `docs.defaultBaseURL`; do not treat top-level `doctor.ok=false` alone as an auth failure.
 
@@ -70,6 +70,32 @@ and requires confirmed `ixf deps install --apply`; never invoke it silently.
 Canonical skill sources live under `skills/*/SKILL.md`; generated host copies live
 under `plugins/codex/ixf-toolbox/skills/` and
 `plugins/claude/ixf-toolbox/skills/`.
+
+## ServiceDesk Boundary
+
+Use `ixf-servicedesk-reader` for the supported profile list, live form inspection,
+profile validation, the current user's recent/open ticket list, and one-ticket
+status reads. Use `ixf-servicedesk-writer` only after the user explicitly asks to
+submit/create/report a repair ticket or withdraw one.
+
+The Agent chooses a semantic profile from the Registry description, intended use,
+examples, and exclusions. The CLI does not score keywords, resolve natural
+language, or invent missing business facts. A sentence such as “服务器硬盘坏了，
+帮我分析原因” is fault analysis, not a ticket action. “提单报修一下这个硬盘”
+is an action intent and enters the writer workflow.
+
+For create, inspect the live form, reuse facts already established in the current
+conversation, ask only for missing required facts, run `ixf servicedesk create
+--dry-run`, show the exact service/title/fact summary, obtain fresh confirmation,
+then use `--apply` and require readback. For withdraw, list the user's open tickets,
+semantically narrow to one unique candidate, run withdraw dry-run, obtain a new
+withdraw-specific confirmation, apply, and require `verify.stateWithdrawn:true`.
+
+Each user supplies their own API Key through `IXF_SERVICEDESK_API_KEY`,
+`--api-key-file`, or the private default credential file. Keys never belong in
+profiles, prompts, logs, or command arguments. Registry profiles contain business
+semantics only; live ServiceDesk metadata remains authoritative for backend field
+keys and current input shape.
 
 ## Local Markdown Boundary
 

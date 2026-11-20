@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.md)
 
-Let Codex, Claude Code, and other local coding agents read and publish authorized i讯飞/LarkShell cloud documents, read or write confirmed OKR content, and use local Messenger workflows.
+Let Codex, Claude Code, and other local coding agents read and publish authorized i讯飞/LarkShell cloud documents, read or write confirmed OKR content, manage ServiceDesk tickets, and use local Messenger workflows.
 
 > Built for local agent workflows. `ixf` is the unified local command. It reuses your desktop login session, runs no hosted service, sends no telemetry, and requires no Open Platform app.
 
@@ -12,7 +12,7 @@ Let Codex, Claude Code, and other local coding agents read and publish authorize
   <img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-green">
 </p>
 
-`ixf-toolbox` provides one local CLI and seven agent skills:
+`ixf-toolbox` provides one local CLI and nine agent skills:
 
 - `using-ixf-toolbox`: lightweight routing entry point for choosing the right document/OKR/Messenger and reader/writer skill.
 - `ixf-docs-reader`: read-only document reading, chunking, and image artifact handling.
@@ -21,6 +21,8 @@ Let Codex, Claude Code, and other local coding agents read and publish authorize
 - `ixf-okr-writer`: dry-run-first creation or update of confirmed Objective / Key Result content.
 - `ixf-messenger-reader`: read-only Messenger readiness checks plus recent or unread conversation extraction.
 - `ixf-messenger-writer`: dry-run-first approved sends with target verification and fresh-session post-send verification.
+- `ixf-servicedesk-reader`: read-only supported ticket types, live forms, the user's recent/open tickets, and ticket status.
+- `ixf-servicedesk-writer`: explicit ticket create/repair-report/withdraw workflows with dry-run, confirmation, apply, and readback.
 
 This project is intentionally local and narrow. It is not a browser extension, daemon, sync service, bulk migration tool, or substitute for organizational data-access rules.
 
@@ -85,11 +87,11 @@ Starting with v3.1, the repository no longer contains the Python runtime/package
 implementation or Python test harness. The supported runtime is the Go `ixf`
 binary, and development, CI, and release checks use the Go toolchain.
 
-All current document, wiki, docx, sheets, OKR, cookie, dependency diagnosis, runtime update, and Messenger workflows use Go `ixf` only. Do not use Python fallback, and do not call the legacy `ixfdoc` or `ixfwrite` commands; historical changelog entries and `docs/superpowers/` plans are not current routing guidance. See [`docs/agent-routing.md`](docs/agent-routing.md) for the current routing contract; `ixf doctor --json` exposes `agentRouting` and native plugin installation diagnostics.
+All current document, wiki, docx, sheets, OKR, ServiceDesk, cookie, dependency diagnosis, runtime update, and Messenger workflows use Go `ixf` only. Do not use Python fallback, and do not call the legacy `ixfdoc` or `ixfwrite` commands; historical changelog entries and `docs/superpowers/` plans are not current routing guidance. See [`docs/agent-routing.md`](docs/agent-routing.md) for the current routing contract; `ixf doctor --json` exposes `agentRouting` and native plugin installation diagnostics.
 
 ## Agent Usage
 
-After installing the skills, ask your agent to work with authorized links, local input files for publish/update workflows, or Messenger requests. You do not need to name a specific skill. Describe the task naturally; `using-ixf-toolbox` routes in the background based on link type, read/write intent, and safety boundaries. Ordinary local Markdown inspection, summary, review, and edits do not need `ixf-toolbox`; use the host filesystem.
+After installing the skills, ask your agent to work with authorized links, local input files for publish/update workflows, ServiceDesk tickets, or Messenger requests. You do not need to name a specific skill. Describe the task naturally; `using-ixf-toolbox` routes in the background based on link type, ticket intent, read/write intent, and safety boundaries. Ordinary local Markdown inspection, summary, review, and edits do not need `ixf-toolbox`; use the host filesystem.
 
 > Summarize this document: https://tenant.example.test/wiki/example
 
@@ -108,6 +110,14 @@ After installing the skills, ask your agent to work with authorized links, local
 > Check unread messages and summarize what needs my attention.
 
 > Send this message to the group. Show the dry-run plan first and wait for my confirmation.
+
+> What ServiceDesk ticket types can I submit?
+
+> Submit a hardware repair ticket for the server disk described above. Show the dry-run first.
+
+> Withdraw the disk repair ticket I just created, but show me the plan first.
+
+> Show my recent tickets and which ones are still unfinished.
 
 ### Local Markdown Routing Boundary
 
@@ -154,6 +164,13 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf messenger read --scope unread\|recent --apply --json` | Launch a cloned-profile browser and read conversation snippets without sending |
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --dry-run --json` | Plan a send without launching a browser or echoing the full message body |
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --apply --json` | Send an approved message and report success only after fresh-session verification |
+| `ixf servicedesk doctor --business-id <id> --json` | Read-only API Key and userinfo readiness check |
+| `ixf servicedesk profile list\|show <name> --json` | List or inspect shared ServiceDesk semantic profiles |
+| `ixf servicedesk template inspect --profile <name> --json` | Read the current live ServiceDesk input contract |
+| `ixf servicedesk create --profile <name> --input row.json --dry-run\|--apply --json` | Plan or confirm creation and verify the created ticket |
+| `ixf servicedesk list --mine --business-id <id> --view recent\|open --json` | List the current user's recent or unfinished tickets |
+| `ixf servicedesk get --url <detail-url> --json` | Read one ticket's current state, step, and processors |
+| `ixf servicedesk withdraw --url <detail-url> --reason <text> --dry-run\|--apply --json` | Plan or confirm withdrawal and verify `WITHDRAWN` |
 | `ixf cookies export` | Export cookies from the local desktop session |
 | `ixf doctor --json` | Read-only inspection of runtime, native plugins, legacy skills, cookies, and full dependency metadata without printing cookie values |
 | `ixf deps install --dry-run --json` | Plan scriptable Mermaid dependency installation without modifying the machine |
@@ -166,7 +183,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 - `ixf` is a single Go binary; GitHub Releases publish only Go binaries and checksums.
 - The Python runtime/package has been removed; do not use legacy `ixfdoc` or `ixfwrite`.
 - Remote writes default to dry-run and require explicit `--apply`; write commands verify by readback where supported.
-- Current routing for docs, sheets, bitable, OKR, and Messenger lives in [`docs/agent-routing.md`](docs/agent-routing.md).
+- Current routing for docs, sheets, bitable, OKR, Messenger, and ServiceDesk lives in [`docs/agent-routing.md`](docs/agent-routing.md).
 - Messenger boundaries live in [`docs/messenger.md`](docs/messenger.md), including Chrome/Chromium-only discovery, cloned profile isolation, read side effects, and send success criteria.
 - Version-by-version capability history lives in [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -557,6 +574,7 @@ Toolbox currently supports:
 - Simple tables, task lists, code languages, rich-text links, image block download, direct sheets reads, embedded sheet expansion, sheets update dry-run/apply, and safe artifact cleanup.
 - Explicit local Markdown chunking, artifact generation, publishing, and test workflows; ordinary local Markdown reading uses the host filesystem.
 - Authorized OKR reading, selected Objective update/create, multi-Objective writes by Objective text, KR create/update/order, explicit prune, and publish-after-edit.
+- API-only ServiceDesk profile/type discovery, live form inspection, current-user recent/open ticket reads, ticket status queries, and confirmed create/withdraw with readback.
 - Messenger readiness diagnostics, profile discovery, safe cloned profile usage, dry-run open planning, explicit --apply target verification, read-only recent/unread extraction, and approved sends with fresh-session verification.
 - macOS and experimental Windows desktop-session cookie export, native plugin diagnostics, and confirmed user-local runtime bootstrap.
 
@@ -587,6 +605,7 @@ See [`docs/migration-from-legacy.md`](docs/migration-from-legacy.md) for command
 - `ixf docs table append-row --apply` only mutates native docx table blocks; do not use it for bitable/base records or sheet cells.
 - `ixf bitable record create --apply` only supports confirmed new records, appended to the current view by default; apply currently supports text and attachment fields and verifies by readback. Do not use `ixf docs update` or `ixf sheets update` to modify bitable data.
 - `ixf bitable attach --apply` supports confirmed existing-record attachment append writes; it uploads local files, preserves existing attachments, and verifies by readback. Ordinary docx `view/file` preview blocks are not bitable entry points.
+- `ixf servicedesk create/withdraw --apply` only runs after a dry-run and fresh user confirmation of the target/content, then verifies by readback; API Keys are read only from local environment or protected credential files.
 - `ixf docs patch replace-section` and `ixf docs patch delete-section` are bounded destructive operations; simple additions must use `ixf docs patch insert` first.
 - Messenger currently supports diagnostics, dry-run open planning, explicit --apply target verification, read-only conversation extraction, and approved sends with fresh-session verification. Messenger auto-discovers only Chrome/Chromium and always uses a cloned profile.
 - Destructive OKR pruning requires explicit `--prune`.

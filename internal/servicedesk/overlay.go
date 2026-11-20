@@ -955,7 +955,7 @@ func optionalCanonicalHash(value any, available bool) string {
 }
 
 func optionalConditionHash(conditions ConditionSet) string {
-	if conditions.Source == "" && conditions.Operator == "" && len(conditions.Conditions) == 0 {
+	if conditions.Source == "" && conditions.Operator == "" && len(conditions.Conditions) == 0 && !conditions.Unsupported {
 		return ""
 	}
 	hash, _ := canonicalHash(conditions)

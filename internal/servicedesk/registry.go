@@ -226,10 +226,13 @@ func (l RegistryLoader) loadCache(now time.Time) (loadedRegistry, RegistryStatus
 func (l RegistryLoader) fetch(ctx context.Context, target string) ([]byte, error) {
 	client := l.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: defaultTimeout}
+		client = newDirectHTTPClient(defaultTimeout)
 	} else {
 		clone := *client
 		client = &clone
+		if client.Transport == nil {
+			client.Transport = newDirectHTTPClient(defaultTimeout).Transport
+		}
 	}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)

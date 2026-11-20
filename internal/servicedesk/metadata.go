@@ -16,13 +16,16 @@ type Choice struct {
 }
 
 type TableColumn struct {
-	BackendKey string   `json:"-"`
-	Name       string   `json:"name"`
-	Type       string   `json:"type"`
-	Required   bool     `json:"required"`
-	Choices    []Choice `json:"choices,omitempty"`
-	ChoiceHash string   `json:"-"`
-	Supported  bool     `json:"supported"`
+	BackendKey       string       `json:"-"`
+	Name             string       `json:"name"`
+	Type             string       `json:"type"`
+	Required         bool         `json:"required"`
+	DefaultValue     any          `json:"-"`
+	DefaultAvailable bool         `json:"defaultAvailable"`
+	Choices          []Choice     `json:"choices,omitempty"`
+	ChoiceHash       string       `json:"-"`
+	Conditions       ConditionSet `json:"conditions,omitempty"`
+	Supported        bool         `json:"supported"`
 }
 
 type Condition struct {
@@ -79,12 +82,15 @@ type metadataFieldFingerprint struct {
 }
 
 type metadataColumnFingerprint struct {
-	BackendKey string   `json:"backendKey"`
-	Name       string   `json:"name"`
-	Type       string   `json:"type"`
-	Required   bool     `json:"required"`
-	Choices    []Choice `json:"choices,omitempty"`
-	Supported  bool     `json:"supported"`
+	BackendKey       string       `json:"backendKey"`
+	Name             string       `json:"name"`
+	Type             string       `json:"type"`
+	Required         bool         `json:"required"`
+	DefaultValue     any          `json:"defaultValue"`
+	DefaultAvailable bool         `json:"defaultAvailable"`
+	Choices          []Choice     `json:"choices,omitempty"`
+	Conditions       ConditionSet `json:"conditions,omitempty"`
+	Supported        bool         `json:"supported"`
 }
 
 type rawField struct {
@@ -99,11 +105,13 @@ type rawField struct {
 }
 
 type rawTableColumn struct {
-	BackendKey string   `json:"key"`
-	Name       string   `json:"name"`
-	Type       string   `json:"type"`
-	Required   bool     `json:"required"`
-	Choices    []Choice `json:"choices"`
+	BackendKey string           `json:"key"`
+	Name       string           `json:"name"`
+	Type       string           `json:"type"`
+	Required   bool             `json:"required"`
+	Default    *json.RawMessage `json:"default"`
+	Choices    []Choice         `json:"choices"`
+	Conditions *rawConditionSet `json:"conditions_expression"`
 }
 
 type rawConditionSet struct {
@@ -156,12 +164,15 @@ func hashMetadata(serviceKey string, fields []Field) (string, error) {
 		columns := make([]metadataColumnFingerprint, 0, len(field.TableColumns))
 		for _, column := range field.TableColumns {
 			columns = append(columns, metadataColumnFingerprint{
-				BackendKey: column.BackendKey,
-				Name:       column.Name,
-				Type:       column.Type,
-				Required:   column.Required,
-				Choices:    column.Choices,
-				Supported:  column.Supported,
+				BackendKey:       column.BackendKey,
+				Name:             column.Name,
+				Type:             column.Type,
+				Required:         column.Required,
+				DefaultValue:     column.DefaultValue,
+				DefaultAvailable: column.DefaultAvailable,
+				Choices:          column.Choices,
+				Conditions:       column.Conditions,
+				Supported:        column.Supported,
 			})
 		}
 		fingerprints = append(fingerprints, metadataFieldFingerprint{
@@ -221,7 +232,11 @@ func normalizeLading(lading Lading) ([]Field, error) {
 		if raw.Conditions != nil {
 			field.Conditions = normalizeConditionSet(*raw.Conditions)
 		}
-		field.TableColumns = normalizeColumns(raw.Columns)
+		columns, err := normalizeColumns(raw.Columns)
+		if err != nil {
+			return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk lading metadata has an invalid table column default value"}
+		}
+		field.TableColumns = columns
 		fields = append(fields, field)
 	}
 	return fields, nil
@@ -233,9 +248,9 @@ func decodeMetadataJSON(data []byte, target any) error {
 	return decoder.Decode(target)
 }
 
-func normalizeColumns(rawColumns []rawTableColumn) []TableColumn {
+func normalizeColumns(rawColumns []rawTableColumn) ([]TableColumn, error) {
 	if len(rawColumns) == 0 {
-		return nil
+		return nil, nil
 	}
 	columns := make([]TableColumn, 0, len(rawColumns))
 	for _, raw := range rawColumns {
@@ -247,12 +262,21 @@ func normalizeColumns(rawColumns []rawTableColumn) []TableColumn {
 			Choices:    nonNilChoices(raw.Choices),
 			Supported:  supportedTableColumnType(raw.Type),
 		}
+		if raw.Default != nil && string(*raw.Default) != "null" {
+			if err := decodeMetadataJSON(*raw.Default, &column.DefaultValue); err != nil {
+				return nil, err
+			}
+			column.DefaultAvailable = true
+		}
 		if len(column.Choices) > 0 {
 			column.ChoiceHash, _ = canonicalHash(column.Choices)
 		}
+		if raw.Conditions != nil {
+			column.Conditions = normalizeConditionSet(*raw.Conditions)
+		}
 		columns = append(columns, column)
 	}
-	return columns
+	return columns, nil
 }
 
 func normalizeConditionSet(raw rawConditionSet) ConditionSet {

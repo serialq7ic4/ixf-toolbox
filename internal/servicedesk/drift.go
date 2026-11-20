@@ -1,9 +1,11 @@
 package servicedesk
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 )
 
@@ -106,6 +108,26 @@ func CompareBaseline(baseline Baseline, template Template) DriftReport {
 			})
 			fingerprintChanged = true
 		}
+		currentDefaultHash := optionalCanonicalHash(current.DefaultValue, current.DefaultAvailable)
+		if baselineField.DefaultHash != currentDefaultHash {
+			appendDrift(&report, DriftChange{
+				Kind:           "field_default_changed",
+				Field:          current.Name,
+				Classification: driftNonDestructive,
+				Message:        "A field default changed",
+			})
+			fingerprintChanged = true
+		}
+		currentConditionHash := optionalConditionHash(current.Conditions)
+		if baselineField.ConditionHash != currentConditionHash {
+			appendDrift(&report, DriftChange{
+				Kind:           "field_condition_changed",
+				Field:          current.Name,
+				Classification: driftDestructive,
+				Message:        "A field condition expression changed",
+			})
+			fingerprintChanged = true
+		}
 		if compareBaselineColumns(&report, baselineField, current) {
 			fingerprintChanged = true
 		}
@@ -152,7 +174,7 @@ func CompareBaseline(baseline Baseline, template Template) DriftReport {
 
 func liveMetadataMayAffectInput(fields []Field) bool {
 	for _, field := range fields {
-		if !field.Supported || len(field.Conditions.Conditions) > 0 {
+		if !field.Supported {
 			return true
 		}
 		for _, column := range field.TableColumns {
@@ -269,6 +291,28 @@ func compareBaselineColumns(report *DriftReport, baselineField BaselineField, cu
 				Column:         column.Name,
 				Classification: driftDestructive,
 				Message:        "A table column choice set changed",
+			})
+			changed = true
+		}
+		currentDefaultHash := optionalCanonicalHash(column.DefaultValue, column.DefaultAvailable)
+		if baselineColumn.DefaultHash != currentDefaultHash {
+			appendDrift(report, DriftChange{
+				Kind:           "column_default_changed",
+				Field:          current.Name,
+				Column:         column.Name,
+				Classification: driftNonDestructive,
+				Message:        "A table column default changed",
+			})
+			changed = true
+		}
+		currentConditionHash := optionalConditionHash(column.Conditions)
+		if baselineColumn.ConditionHash != currentConditionHash {
+			appendDrift(report, DriftChange{
+				Kind:           "column_condition_changed",
+				Field:          current.Name,
+				Column:         column.Name,
+				Classification: driftDestructive,
+				Message:        "A table column condition expression changed",
 			})
 			changed = true
 		}
@@ -448,11 +492,20 @@ func ResolveOverlay(overlay Overlay, template Template) (ResolvedOverlay, error)
 				fmt.Errorf("ServiceDesk overlay field %q cannot relax a live required field", publicName))
 		}
 		if overlayField.Default != nil {
-			if err := validateLiveDefault(overlayField.Default, field.Type, field.Choices); err != nil {
+			if err := validateDefaultType(overlayField.Default, field.Type); err != nil {
 				resolutionErrors = append(resolutionErrors, fmt.Errorf("ServiceDesk overlay field %q default: %w", publicName, err))
+			} else if !tableFieldType(field.Type) {
+				if err := validateLiveDefault(overlayField.Default, field.Type, field.Choices); err != nil {
+					resolutionErrors = append(resolutionErrors, fmt.Errorf("ServiceDesk overlay field %q default: %w", publicName, err))
+				}
 			}
 		}
 		resolveOverlayColumns(&resolved, &resolvedField, publicName, overlayField.Columns, field.TableColumns, &resolutionErrors)
+		if overlayField.Default != nil && tableFieldType(field.Type) {
+			if err := validateTableDefaultRows(overlayField.Default, resolvedField, field.TableColumns); err != nil {
+				resolutionErrors = append(resolutionErrors, fmt.Errorf("ServiceDesk overlay field %q default: %w", publicName, err))
+			}
+		}
 		resolved.Fields[publicName] = resolvedField
 		resolved.Aliases[publicName] = publicName
 		for _, alias := range overlayField.Aliases {
@@ -526,8 +579,127 @@ func resolveOverlayColumns(
 					fmt.Errorf("ServiceDesk overlay field %q column %q default: %w", fieldName, publicName, err))
 			}
 		}
-		field.Columns[publicName] = ResolvedColumn{PublicName: publicName, Column: column, Overlay: overlayColumn}
+		field.Columns[publicName] = ResolvedColumn{PublicName: publicName, Column: column, Overlay: overlayColumn, LiveIndex: index}
 	}
+}
+
+type tableDefaultEntry struct {
+	Name  string
+	Value json.RawMessage
+}
+
+func validateTableDefaultRows(raw json.RawMessage, field ResolvedField, liveColumns []TableColumn) error {
+	rows, err := decodeTableDefaultRows(raw)
+	if err != nil {
+		return err
+	}
+	accepted := make(map[string]ResolvedColumn, len(field.Columns)*2)
+	for publicName, column := range field.Columns {
+		accepted[publicName] = column
+		for _, alias := range column.Overlay.Aliases {
+			accepted[alias] = column
+		}
+	}
+	for rowIndex, row := range rows {
+		provided := make(map[int]string, len(row))
+		for _, entry := range row {
+			if isLiveBackendColumnName(entry.Name, liveColumns) {
+				return fmt.Errorf("row %d uses a backend table column name", rowIndex+1)
+			}
+			column, ok := accepted[entry.Name]
+			if !ok {
+				return fmt.Errorf("row %d contains unknown table column %q", rowIndex+1, entry.Name)
+			}
+			if previous, duplicate := provided[column.LiveIndex]; duplicate {
+				return fmt.Errorf("row %d contains duplicate table column %q via %q", rowIndex+1, column.PublicName, previous)
+			}
+			if err := validateLiveDefault(entry.Value, column.Column.Type, column.Column.Choices); err != nil {
+				return fmt.Errorf("row %d column %q: %w", rowIndex+1, column.PublicName, err)
+			}
+			provided[column.LiveIndex] = entry.Name
+		}
+		for liveIndex, column := range liveColumns {
+			if !column.Required {
+				continue
+			}
+			if _, ok := provided[liveIndex]; ok {
+				continue
+			}
+			return fmt.Errorf("row %d is missing required table column %q", rowIndex+1, resolvedColumnPublicName(field.Columns, liveIndex))
+		}
+	}
+	return nil
+}
+
+func isLiveBackendColumnName(name string, columns []TableColumn) bool {
+	for _, column := range columns {
+		if column.BackendKey != "" && name == column.BackendKey {
+			return true
+		}
+	}
+	return false
+}
+
+func resolvedColumnPublicName(columns map[string]ResolvedColumn, liveIndex int) string {
+	for publicName, column := range columns {
+		if column.LiveIndex == liveIndex {
+			return publicName
+		}
+	}
+	return "unmapped live column"
+}
+
+func decodeTableDefaultRows(raw json.RawMessage) ([][]tableDefaultEntry, error) {
+	var encodedRows []json.RawMessage
+	if err := decodeStrictJSON(raw, &encodedRows); err != nil {
+		return nil, errors.New("must be an object array")
+	}
+	rows := make([][]tableDefaultEntry, 0, len(encodedRows))
+	for _, encodedRow := range encodedRows {
+		row, err := decodeTableDefaultRow(encodedRow)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func decodeTableDefaultRow(raw json.RawMessage) ([]tableDefaultEntry, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
+		return nil, errors.New("must be an object array")
+	}
+	entries := make([]tableDefaultEntry, 0)
+	seen := make(map[string]struct{})
+	for decoder.More() {
+		nameToken, err := decoder.Token()
+		if err != nil {
+			return nil, errors.New("must be an object array")
+		}
+		name, ok := nameToken.(string)
+		if !ok {
+			return nil, errors.New("must be an object array")
+		}
+		if _, duplicate := seen[name]; duplicate {
+			return nil, fmt.Errorf("contains duplicate table column %q", name)
+		}
+		seen[name] = struct{}{}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return nil, errors.New("must be an object array")
+		}
+		entries = append(entries, tableDefaultEntry{Name: name, Value: value})
+	}
+	if token, err := decoder.Token(); err != nil || token != json.Delim('}') {
+		return nil, errors.New("must be an object array")
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return nil, errors.New("must be an object array")
+	}
+	return entries, nil
 }
 
 func matchErrorLabel(err error) string {

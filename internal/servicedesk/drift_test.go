@@ -269,10 +269,10 @@ func TestDriftClassifiesMissingMatcherTypeChoiceRequiredAndConditionChangesAsDes
 			},
 		},
 		"conditions changed": {
-			kind: "metadata_changed",
+			kind: "field_condition_changed",
 			mutate: func(template *Template) {
 				template.MetadataHash = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-				template.Fields[1].Conditions = ConditionSet{Operator: "and", Conditions: []Condition{{Field: "fault_type", Operator: "==", Value: "disk"}}}
+				template.Fields[1].Conditions = ConditionSet{}
 			},
 		},
 		"new required field without default": {
@@ -314,7 +314,7 @@ func TestDriftClassifiesMetadataOnlyChangesByCurrentConsequence(t *testing.T) {
 		current = templateWithMetadataHash(t, current)
 
 		report := CompareBaseline(baseline, current)
-		assertDriftChange(t, report, "metadata_changed", "non_destructive")
+		assertDriftChange(t, report, "field_default_changed", "non_destructive")
 		if report.ApplyBlocked {
 			t.Fatalf("unused default drift blocked apply: %+v", report)
 		}
@@ -324,11 +324,11 @@ func TestDriftClassifiesMetadataOnlyChangesByCurrentConsequence(t *testing.T) {
 		t.Parallel()
 		current := baselineTemplate
 		current.Fields = append([]Field(nil), baselineTemplate.Fields...)
-		current.Fields[1].Conditions = ConditionSet{Operator: "and", Conditions: []Condition{{Field: "fault_type", Operator: "==", Value: "disk"}}}
+		current.Fields[3].Conditions = ConditionSet{Operator: "and", Conditions: []Condition{{Field: "fault_type", Operator: "==", Value: "disk"}}}
 		current = templateWithMetadataHash(t, current)
 
 		report := CompareBaseline(baseline, current)
-		assertDriftChange(t, report, "metadata_changed", "destructive")
+		assertDriftChange(t, report, "field_condition_changed", "destructive")
 		if !report.ApplyBlocked {
 			t.Fatalf("condition drift did not block apply: %+v", report)
 		}
@@ -338,13 +338,13 @@ func TestDriftClassifiesMetadataOnlyChangesByCurrentConsequence(t *testing.T) {
 		t.Parallel()
 		current := baselineTemplate
 		current.Fields = append([]Field(nil), baselineTemplate.Fields...)
-		current.Fields[1].Name = "Renamed failure details"
-		current.Fields[1].Conditions = ConditionSet{Operator: "and", Conditions: []Condition{{Field: "fault_type", Operator: "==", Value: "disk"}}}
+		current.Fields[3].Name = "Renamed title"
+		current.Fields[3].Conditions = ConditionSet{Operator: "and", Conditions: []Condition{{Field: "fault_type", Operator: "==", Value: "disk"}}}
 		current = templateWithMetadataHash(t, current)
 
 		report := CompareBaseline(baseline, current)
 		assertDriftChange(t, report, "field_name_changed", "non_destructive")
-		assertDriftChange(t, report, "metadata_changed", "destructive")
+		assertDriftChange(t, report, "field_condition_changed", "destructive")
 		if !report.ApplyBlocked {
 			t.Fatalf("condition drift with display-name change did not block apply: %+v", report)
 		}
@@ -360,6 +360,116 @@ func TestDriftClassifiesMetadataOnlyChangesByCurrentConsequence(t *testing.T) {
 		report := CompareBaseline(baseline, current)
 		assertDriftChange(t, report, "metadata_changed", "destructive")
 	})
+}
+
+func TestDriftClassifiesFingerprintDefaultAndConditionChanges(t *testing.T) {
+	t.Parallel()
+
+	baselineTemplate := overlayValidationTemplate()
+	baselineTemplate.Fields[0].TableColumns[0].DefaultAvailable = true
+	baselineTemplate.Fields[0].TableColumns[0].DefaultValue = "host-1"
+	baselineTemplate.Fields[0].TableColumns[0].Conditions = ConditionSet{Operator: "or", Conditions: []Condition{{Field: "enabled", Operator: "==", Value: true}}}
+	baselineTemplate.Fields[1].Conditions = ConditionSet{Operator: "and", Conditions: []Condition{{Field: "fault_type", Operator: "==", Value: "disk"}}}
+	baseline := DiscoverOverlay(baselineTemplate, "drift-test").Baseline
+
+	t.Run("field default changes are non-destructive", func(t *testing.T) {
+		t.Parallel()
+		current := baselineTemplate
+		current.Fields = append([]Field(nil), baselineTemplate.Fields...)
+		current.Fields[1].DefaultAvailable = true
+		current.Fields[1].DefaultValue = "new default"
+		report := CompareBaseline(baseline, current)
+		assertDriftChange(t, report, "field_default_changed", "non_destructive")
+		if report.ApplyBlocked {
+			t.Fatalf("field default drift blocked apply: %+v", report)
+		}
+	})
+
+	t.Run("field condition removal is destructive", func(t *testing.T) {
+		t.Parallel()
+		current := baselineTemplate
+		current.Fields = append([]Field(nil), baselineTemplate.Fields...)
+		current.Fields[1].Conditions = ConditionSet{}
+		report := CompareBaseline(baseline, current)
+		assertDriftChange(t, report, "field_condition_changed", "destructive")
+		if !report.ApplyBlocked {
+			t.Fatalf("field condition removal did not block apply: %+v", report)
+		}
+	})
+
+	t.Run("column hashes are compared", func(t *testing.T) {
+		t.Parallel()
+		current := baselineTemplate
+		current.Fields = append([]Field(nil), baselineTemplate.Fields...)
+		current.Fields[0].TableColumns = append([]TableColumn(nil), baselineTemplate.Fields[0].TableColumns...)
+		current.Fields[0].TableColumns[0].Conditions = ConditionSet{}
+		current.Fields[0].TableColumns[0].DefaultValue = "host-2"
+		report := CompareBaseline(baseline, current)
+		assertDriftChange(t, report, "column_default_changed", "non_destructive")
+		assertDriftChange(t, report, "column_condition_changed", "destructive")
+		if !report.ApplyBlocked {
+			t.Fatalf("column condition removal did not block apply: %+v", report)
+		}
+	})
+}
+
+func TestResolveOverlayValidatesTableDefaultRows(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		value any
+		want  string
+	}{
+		"valid public names": {
+			value: []any{map[string]any{"hostName": "host-1", "part": "disk"}},
+		},
+		"unknown name": {
+			value: []any{map[string]any{"hostName": "host-1", "unknown": "disk"}},
+			want:  "unknown table column",
+		},
+		"backend name": {
+			value: []any{map[string]any{"host_name": "host-1", "part": "disk"}},
+			want:  "backend table column",
+		},
+		"wrong type": {
+			value: []any{map[string]any{"hostName": 42, "part": "disk"}},
+			want:  "must be a string",
+		},
+		"duplicate public names": {
+			value: []byte(`[{"hostName":"host-1","part":"disk","part":"memory"}]`),
+			want:  "duplicate table column",
+		},
+		"missing required": {
+			value: []any{map[string]any{"hostName": "host-1"}},
+			want:  "missing required table column",
+		},
+	}
+
+	for name, test := range tests {
+		name, test := name, test
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			overlay := decodeFixtureOverlay(t)
+			field := overlay.Fields["devices"]
+			if data, ok := test.value.([]byte); ok {
+				field.Default = data
+			} else {
+				field.Default = mustJSONValue(t, test.value)
+			}
+			overlay.Fields["devices"] = field
+
+			_, err := ResolveOverlay(overlay, overlayValidationTemplate())
+			if test.want == "" {
+				if err != nil {
+					t.Fatalf("ResolveOverlay(valid table default) error = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ResolveOverlay() error = %v, want %q", err, test.want)
+			}
+		})
+	}
 }
 
 func TestDriftOutputIsDeterministicAndPrivate(t *testing.T) {

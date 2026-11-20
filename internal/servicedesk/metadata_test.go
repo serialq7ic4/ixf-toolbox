@@ -81,6 +81,42 @@ func TestNormalizeNestedTableAndChoices(t *testing.T) {
 	}
 }
 
+func TestNormalizeTableColumnDefaultsAndConditions(t *testing.T) {
+	t.Parallel()
+
+	lading := map[string]any{
+		"field_devices": map[string]any{
+			"field_unique_Identifier": "devices",
+			"name":                    "Affected devices",
+			"type":                    "extend_table",
+			"required":                true,
+			"columns": []any{
+				map[string]any{
+					"key":      "component",
+					"name":     "Component",
+					"type":     "input",
+					"required": true,
+					"default":  "disk",
+					"conditions_expression": map[string]any{
+						"operator": "and",
+						"conditions": []any{
+							map[string]any{"field": "other", "operator": "==", "value": "enabled"},
+						},
+					},
+				},
+			},
+		},
+	}
+	template := loadSyntheticTemplate(t, lading)
+	column := template.Fields[0].TableColumns[0]
+	if !column.DefaultAvailable || column.DefaultValue != "disk" {
+		t.Fatalf("table column default = %+v", column)
+	}
+	if column.Conditions.Operator != "and" || len(column.Conditions.Conditions) != 1 {
+		t.Fatalf("table column conditions = %+v", column.Conditions)
+	}
+}
+
 func TestNormalizeDefaultsAndDisplayOnlyFields(t *testing.T) {
 	t.Parallel()
 

@@ -49,24 +49,28 @@ type Baseline struct {
 }
 
 type BaselineField struct {
-	StableID   string           `json:"stableId,omitempty"`
-	Name       string           `json:"name"`
-	Type       string           `json:"type"`
-	Required   bool             `json:"required"`
-	ChoiceHash string           `json:"choiceHash,omitempty"`
-	Columns    []BaselineColumn `json:"columns,omitempty"`
+	StableID      string           `json:"stableId,omitempty"`
+	Name          string           `json:"name"`
+	Type          string           `json:"type"`
+	Required      bool             `json:"required"`
+	ChoiceHash    string           `json:"choiceHash,omitempty"`
+	DefaultHash   string           `json:"defaultHash,omitempty"`
+	ConditionHash string           `json:"conditionHash,omitempty"`
+	Columns       []BaselineColumn `json:"columns,omitempty"`
 
 	columnsPresent bool
 }
 
 func (field BaselineField) MarshalJSON() ([]byte, error) {
 	type baselineFieldJSON struct {
-		StableID   string            `json:"stableId,omitempty"`
-		Name       string            `json:"name"`
-		Type       string            `json:"type"`
-		Required   bool              `json:"required"`
-		ChoiceHash string            `json:"choiceHash,omitempty"`
-		Columns    *[]BaselineColumn `json:"columns,omitempty"`
+		StableID      string            `json:"stableId,omitempty"`
+		Name          string            `json:"name"`
+		Type          string            `json:"type"`
+		Required      bool              `json:"required"`
+		ChoiceHash    string            `json:"choiceHash,omitempty"`
+		DefaultHash   string            `json:"defaultHash,omitempty"`
+		ConditionHash string            `json:"conditionHash,omitempty"`
+		Columns       *[]BaselineColumn `json:"columns,omitempty"`
 	}
 	var columns *[]BaselineColumn
 	if field.columnsPresent || field.Columns != nil || tableFieldType(field.Type) {
@@ -77,21 +81,25 @@ func (field BaselineField) MarshalJSON() ([]byte, error) {
 		columns = &value
 	}
 	return json.Marshal(baselineFieldJSON{
-		StableID:   field.StableID,
-		Name:       field.Name,
-		Type:       field.Type,
-		Required:   field.Required,
-		ChoiceHash: field.ChoiceHash,
-		Columns:    columns,
+		StableID:      field.StableID,
+		Name:          field.Name,
+		Type:          field.Type,
+		Required:      field.Required,
+		ChoiceHash:    field.ChoiceHash,
+		DefaultHash:   field.DefaultHash,
+		ConditionHash: field.ConditionHash,
+		Columns:       columns,
 	})
 }
 
 type BaselineColumn struct {
-	Key        string `json:"key,omitempty"`
-	Name       string `json:"name"`
-	Type       string `json:"type"`
-	Required   bool   `json:"required"`
-	ChoiceHash string `json:"choiceHash,omitempty"`
+	Key           string `json:"key,omitempty"`
+	Name          string `json:"name"`
+	Type          string `json:"type"`
+	Required      bool   `json:"required"`
+	ChoiceHash    string `json:"choiceHash,omitempty"`
+	DefaultHash   string `json:"defaultHash,omitempty"`
+	ConditionHash string `json:"conditionHash,omitempty"`
 }
 
 type FieldMatcher struct {
@@ -139,6 +147,7 @@ type ResolvedColumn struct {
 	PublicName string
 	Column     TableColumn
 	Overlay    OverlayColumn
+	LiveIndex  int
 }
 
 type DriftReport struct {
@@ -186,20 +195,24 @@ type baselineWire struct {
 }
 
 type baselineFieldWire struct {
-	StableID   string          `json:"stableId"`
-	Name       *string         `json:"name"`
-	Type       *string         `json:"type"`
-	Required   *bool           `json:"required"`
-	ChoiceHash string          `json:"choiceHash"`
-	Columns    json.RawMessage `json:"columns"`
+	StableID      string          `json:"stableId"`
+	Name          *string         `json:"name"`
+	Type          *string         `json:"type"`
+	Required      *bool           `json:"required"`
+	ChoiceHash    string          `json:"choiceHash"`
+	DefaultHash   string          `json:"defaultHash"`
+	ConditionHash string          `json:"conditionHash"`
+	Columns       json.RawMessage `json:"columns"`
 }
 
 type baselineColumnWire struct {
-	Key        string  `json:"key"`
-	Name       *string `json:"name"`
-	Type       *string `json:"type"`
-	Required   *bool   `json:"required"`
-	ChoiceHash string  `json:"choiceHash"`
+	Key           string  `json:"key"`
+	Name          *string `json:"name"`
+	Type          *string `json:"type"`
+	Required      *bool   `json:"required"`
+	ChoiceHash    string  `json:"choiceHash"`
+	DefaultHash   string  `json:"defaultHash"`
+	ConditionHash string  `json:"conditionHash"`
 }
 
 type overlayFieldWire struct {
@@ -349,11 +362,13 @@ func baselineFromWire(wire baselineWire) (Baseline, error) {
 			return Baseline{}, fmt.Errorf("ServiceDesk overlay baseline field %d is missing a required property", index)
 		}
 		converted := BaselineField{
-			StableID:   field.StableID,
-			Name:       *field.Name,
-			Type:       *field.Type,
-			Required:   *field.Required,
-			ChoiceHash: field.ChoiceHash,
+			StableID:      field.StableID,
+			Name:          *field.Name,
+			Type:          *field.Type,
+			Required:      *field.Required,
+			ChoiceHash:    field.ChoiceHash,
+			DefaultHash:   field.DefaultHash,
+			ConditionHash: field.ConditionHash,
 		}
 		if field.Columns != nil {
 			converted.columnsPresent = true
@@ -370,11 +385,13 @@ func baselineFromWire(wire baselineWire) (Baseline, error) {
 					return Baseline{}, fmt.Errorf("ServiceDesk overlay baseline field %d column %d is missing a required property", index, columnIndex)
 				}
 				converted.Columns = append(converted.Columns, BaselineColumn{
-					Key:        column.Key,
-					Name:       *column.Name,
-					Type:       *column.Type,
-					Required:   *column.Required,
-					ChoiceHash: column.ChoiceHash,
+					Key:           column.Key,
+					Name:          *column.Name,
+					Type:          *column.Type,
+					Required:      *column.Required,
+					ChoiceHash:    column.ChoiceHash,
+					DefaultHash:   column.DefaultHash,
+					ConditionHash: column.ConditionHash,
 				})
 			}
 		}
@@ -471,6 +488,12 @@ func validateBaseline(baseline Baseline) error {
 		if field.ChoiceHash != "" && (!choiceFieldType(field.Type) || !hashPattern.MatchString(field.ChoiceHash)) {
 			return fmt.Errorf("ServiceDesk overlay baseline field %d has invalid choiceHash", index)
 		}
+		if err := validateOptionalFingerprintHash(field.DefaultHash, "defaultHash", index, -1); err != nil {
+			return err
+		}
+		if err := validateOptionalFingerprintHash(field.ConditionHash, "conditionHash", index, -1); err != nil {
+			return err
+		}
 		for columnIndex, column := range field.Columns {
 			if err := validateOptionalName(column.Key, "baseline column key"); err != nil {
 				return err
@@ -484,9 +507,25 @@ func validateBaseline(baseline Baseline) error {
 			if column.ChoiceHash != "" && (!choiceFieldType(column.Type) || !hashPattern.MatchString(column.ChoiceHash)) {
 				return fmt.Errorf("ServiceDesk overlay baseline field %d column %d has invalid choiceHash", index, columnIndex)
 			}
+			if err := validateOptionalFingerprintHash(column.DefaultHash, "defaultHash", index, columnIndex); err != nil {
+				return err
+			}
+			if err := validateOptionalFingerprintHash(column.ConditionHash, "conditionHash", index, columnIndex); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func validateOptionalFingerprintHash(value, name string, fieldIndex, columnIndex int) error {
+	if value == "" || hashPattern.MatchString(value) {
+		return nil
+	}
+	if columnIndex >= 0 {
+		return fmt.Errorf("ServiceDesk overlay baseline field %d column %d has invalid %s", fieldIndex, columnIndex, name)
+	}
+	return fmt.Errorf("ServiceDesk overlay baseline field %d has invalid %s", fieldIndex, name)
 }
 
 func validateOverlayPublicNames(fields map[string]OverlayField) error {
@@ -794,22 +833,26 @@ func DiscoverOverlay(template Template, name string) Overlay {
 	usedFieldNames := make(map[string]struct{}, len(template.Fields))
 	for index, field := range template.Fields {
 		baseline := BaselineField{
-			StableID:   field.StableID,
-			Name:       field.Name,
-			Type:       field.Type,
-			Required:   field.Required,
-			ChoiceHash: field.ChoiceHash,
+			StableID:      field.StableID,
+			Name:          field.Name,
+			Type:          field.Type,
+			Required:      field.Required,
+			ChoiceHash:    field.ChoiceHash,
+			DefaultHash:   optionalCanonicalHash(field.DefaultValue, field.DefaultAvailable),
+			ConditionHash: optionalConditionHash(field.Conditions),
 		}
 		if tableFieldType(field.Type) {
 			baseline.columnsPresent = true
 			baseline.Columns = make([]BaselineColumn, 0, len(field.TableColumns))
 			for _, column := range field.TableColumns {
 				baseline.Columns = append(baseline.Columns, BaselineColumn{
-					Key:        column.BackendKey,
-					Name:       column.Name,
-					Type:       column.Type,
-					Required:   column.Required,
-					ChoiceHash: column.ChoiceHash,
+					Key:           column.BackendKey,
+					Name:          column.Name,
+					Type:          column.Type,
+					Required:      column.Required,
+					ChoiceHash:    column.ChoiceHash,
+					DefaultHash:   optionalCanonicalHash(column.DefaultValue, column.DefaultAvailable),
+					ConditionHash: optionalConditionHash(column.Conditions),
 				})
 			}
 		}
@@ -842,15 +885,15 @@ func preferredFieldName(field Field) string {
 }
 
 func uniqueTechnicalName(preferred, kind string, index int, used map[string]struct{}) string {
-	name := preferred
-	if validateRequiredName(name, kind) != nil {
-		name = fmt.Sprintf("%s-%d", kind, index+1)
-	}
-	if _, exists := used[name]; exists {
+	if validateRequiredName(preferred, kind) == nil {
+		if _, exists := used[preferred]; !exists {
+			used[preferred] = struct{}{}
+			return preferred
+		}
 		for suffix := 2; ; suffix++ {
 			candidate := fmt.Sprintf("%s-%d", preferred, suffix)
 			if validateRequiredName(candidate, kind) != nil {
-				candidate = fmt.Sprintf("%s-%d", kind, index+1)
+				break
 			}
 			if _, duplicate := used[candidate]; !duplicate {
 				used[candidate] = struct{}{}
@@ -858,8 +901,33 @@ func uniqueTechnicalName(preferred, kind string, index int, used map[string]stru
 			}
 		}
 	}
-	used[name] = struct{}{}
-	return name
+	fallback := fmt.Sprintf("%s-%d", kind, index+1)
+	for suffix := 1; ; suffix++ {
+		candidate := fallback
+		if suffix > 1 {
+			candidate = fmt.Sprintf("%s-%d", fallback, suffix)
+		}
+		if _, exists := used[candidate]; !exists {
+			used[candidate] = struct{}{}
+			return candidate
+		}
+	}
+}
+
+func optionalCanonicalHash(value any, available bool) string {
+	if !available {
+		return ""
+	}
+	hash, _ := canonicalHash(value)
+	return hash
+}
+
+func optionalConditionHash(conditions ConditionSet) string {
+	if conditions.Source == "" && conditions.Operator == "" && len(conditions.Conditions) == 0 {
+		return ""
+	}
+	hash, _ := canonicalHash(conditions)
+	return hash
 }
 
 func ValidateOverlay(template Template, overlay Overlay) (ResolvedOverlay, error) {

@@ -612,8 +612,10 @@ Registry 保存轻量 JSON overlay，不复制完整 lading payload：
 - `baseline`：`snapshotId`、`serviceKey`、`metadataHash`、`fields`。
 - overlay field：`match`、`aliases`、`description`、`default`、`required`、`columns`。
 - table column：`match`、`aliases`、`description`、`default`、`required`。
-- baseline field fingerprint：`stableId`、`name`、`type`、`required`、`choiceHash`、`columns`。
-- baseline column fingerprint：`key`、`name`、`type`、`required`、`choiceHash`。
+- baseline field fingerprint：`stableId`、`name`、`type`、`required`、`choiceHash`、`defaultHash`、
+  `conditionHash`、`columns`。
+- baseline column fingerprint：`key`、`name`、`type`、`required`、`choiceHash`、`defaultHash`、
+  `conditionHash`。
 - 顶层 matcher：至少包含 `stableId` 或 `name` 之一；两者都有时先匹配 `stableId`，失败后按
   唯一 `name` 回退并报告 drift。
 - table column matcher：至少包含 `key` 或 `name` 之一；两者都有时先匹配 `key`，失败后按
@@ -623,9 +625,10 @@ Registry 保存轻量 JSON overlay，不复制完整 lading payload：
 `description` 可为空字符串，
 `fields` 必须是 object。overlay field 和 table column 的 `match` 必填，其余属性可选。fingerprint
 的 `name`、`type`、`required` 必填；顶层 `stableId`、列 `key` 和选择类型 `choiceHash` 在实时
-元数据提供时必填，`columns` 只允许且必须用于 table 类型。`snapshotId` 和 `serviceKey` 是非空
-string。matcher 的值、公共 input 名和 alias 均为去除首尾空白后 1 到 128 个 Unicode 字符；
-aliases 必须是 string array 且不得包含重复项。
+元数据提供时必填；实时默认值存在时 `defaultHash` 必填，实时条件表达式存在时 `conditionHash`
+必填；`columns` 只允许且必须用于 table 类型。`snapshotId` 和 `serviceKey` 是非空 string。
+matcher 的值、公共 input 名和 alias 均为去除首尾空白后 1 到 128 个 Unicode 字符；aliases 必须是
+string array 且不得包含重复项。
 
 `routing.displayName` 是 Agent 向用户展示的工单类型；`useWhen` 用自然语言描述适用的业务目标，
 `doNotUseWhen` 描述容易混淆但不适用的边界，`examples` 提供少量典型表达而不是穷举关键词。
@@ -641,12 +644,16 @@ table 可以复用列名。`default` 必须符合目标字段的公共 JSON 类�
 `required=true` 可以把实时可选字段强化为必填；它不能把服务端必填字段放宽为可选，若对实时
 必填字段声明 `required=false`，在线 validate 直接失败。首版不定义通用 validation DSL；除
 required、类型、枚举、条件和 ServiceDesk 实时约束外，不接受任意自定义校验属性。
+table 字段的 overlay `default` 必须逐行使用该 overlay 声明的公共列名或 alias；未知列、实时
+后端列 key、重复解析到同一列、错误 JSON 类型和缺失的实时必填列均使在线 validate 失败。
 
 `baseline.fields` 必须覆盖 discover 时的全部顶层字段，而不只覆盖 overlay 使用的字段。每个字段
 保存 `stableId`（不存在时省略）、`name`、`type`、`required`，选择字段额外保存规范化 choice
-列表的 `choiceHash`；表格字段的 `columns` 保存每列的 `key`、`name`、`type`、`required`，选择列
-同样保存 `choiceHash`。这组最小指纹用于产生可解释的 drift，不保存原始 lading。`metadataHash`
-是完整规范化指纹的摘要，格式为 `sha256:` 加 64 位小写十六进制；`choiceHash` 使用相同格式。
+列表的 `choiceHash`，存在实时默认值或条件表达式时分别保存 `defaultHash`、`conditionHash`；表格
+字段的 `columns` 保存每列的 `key`、`name`、`type`、`required`，选择列、默认值和条件表达式同样
+保存对应 hash。这组最小指纹用于产生可解释的 drift，不保存原始 lading。`metadataHash` 是完整
+规范化指纹的摘要，格式为 `sha256:` 加 64 位小写十六进制；`choiceHash`、`defaultHash` 和
+`conditionHash` 使用相同格式，分别对规范化 choice 列表、默认 JSON 值和条件表达式计算。
 
 overlay 不能包含可执行脚本、任意 URL、API Key、Cookie 或自定义 HTTP header。
 
@@ -721,7 +728,7 @@ apply。`profile validate` 同样始终使用实时元数据。
 
 - 新增可选字段；
 - 描述或提示变化；
-- 未被 overlay 使用的默认值变化；
+- 没有伴随类型、条件或其他后果变化的实时默认值 fingerprint 变化；
 - matcher 仍唯一解析的显示名变化。
 
 破坏性变化包括：
@@ -730,6 +737,7 @@ apply。`profile validate` 同样始终使用实时元数据。
 - 字段类型变化；
 - 新增必填字段且没有实时默认值或用户输入；
 - overlay 默认值不再属于当前枚举；
+- 字段或表格列的 `conditionHash` 变化或由存在变为不存在；
 - 条件表达式无法解释且影响活动必填字段；
 - 当前 ServiceDesk service key 与已支持创建模型不兼容。
 

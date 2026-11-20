@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDecodeOverlayStrictSchema(t *testing.T) {
@@ -85,14 +86,20 @@ func TestOverlayNameAndRoutingValidation(t *testing.T) {
 		"zero target": replaceOverlayText(t, valid, `"serviceId": 4003`, `"serviceId": 0`),
 		"bad metadata hash": replaceOverlayText(t, valid,
 			`sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`, `sha256:ABC`),
+		"bad default hash": replaceOverlayText(t, valid,
+			`"type": "textarea",\n        "required": false`,
+			`"type": "textarea",\n        "required": false,\n        "defaultHash": "sha256:ABC"`),
+		"bad condition hash": replaceOverlayText(t, valid,
+			`sha256:788e7b8a1b8f77979f40e39437584f1f57ef62ecf7f5989bd19ca45a18e82da6`,
+			`sha256:ABC`),
 		"columns on non-table fingerprint": replaceOverlayText(t, valid,
 			`"type": "textarea",\n        "required": false`,
 			`"type": "textarea",\n        "required": false,\n        "columns": []`),
 		"missing table fingerprint columns": replaceOverlayText(t, valid,
 			`,\n        "columns": [\n          {\n            "key": "host_name",\n            "name": "Host name",\n            "type": "input",\n            "required": true\n          },\n          {\n            "key": "component",\n            "name": "Component",\n            "type": "input",\n            "required": true\n          }\n        ]`, ``),
 		"choice hash on plain input": replaceOverlayText(t, valid,
-			`"type": "input",\n        "required": true\n      }\n    ]`,
-			`"type": "input",\n        "required": true,\n        "choiceHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"\n      }\n    ]`),
+			`"type": "input",\n        "required": true,\n        "defaultHash": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"`,
+			`"type": "input",\n        "required": true,\n        "choiceHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",\n        "defaultHash": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"`),
 		"empty matcher": replaceOverlayText(t, valid,
 			`"details": {\n      "match": {\n        "stableId": "details",\n        "name": "Failure details"\n      }`,
 			`"details": {\n      "match": {}`),
@@ -109,6 +116,22 @@ func TestOverlayNameAndRoutingValidation(t *testing.T) {
 				t.Fatal("DecodeOverlay() succeeded, want validation error")
 			}
 		})
+	}
+}
+
+func TestDecodeOverlayAcceptsDefaultAndConditionFingerprints(t *testing.T) {
+	t.Parallel()
+
+	data := string(mustReadFixture(t, "profile-4003.json"))
+	data = replaceOverlayText(t, data,
+		`"type": "textarea",\n        "required": false`,
+		`"type": "textarea",\n        "required": false,\n        "defaultHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",\n        "conditionHash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"`)
+	data = replaceOverlayText(t, data,
+		`"key": "host_name",\n            "name": "Host name",\n            "type": "input",\n            "required": true`,
+		`"key": "host_name",\n            "name": "Host name",\n            "type": "input",\n            "required": true,\n            "defaultHash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",\n            "conditionHash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"`)
+
+	if _, err := DecodeOverlay([]byte(data)); err != nil {
+		t.Fatalf("DecodeOverlay(default/condition fingerprints) error = %v", err)
 	}
 }
 
@@ -280,6 +303,90 @@ func TestOverlayDiscoverPreservesEmptyTableColumnsInJSON(t *testing.T) {
 	}
 }
 
+func TestDiscoverOverlayIncludesMetadataFingerprintHashes(t *testing.T) {
+	t.Parallel()
+
+	template := overlayValidationTemplate()
+	template.Fields[1].Conditions = ConditionSet{Operator: "and", Conditions: []Condition{{Field: "fault_type", Operator: "==", Value: "disk"}}}
+	template.Fields[0].TableColumns[0].DefaultAvailable = true
+	template.Fields[0].TableColumns[0].DefaultValue = "host-1"
+	template.Fields[0].TableColumns[0].Conditions = ConditionSet{Operator: "or", Conditions: []Condition{{Field: "enabled", Operator: "==", Value: true}}}
+	overlay := DiscoverOverlay(template, "fixture-discovery")
+
+	field := findBaselineField(overlay.Baseline.Fields, "details")
+	if field.DefaultHash != "" || field.ConditionHash == "" {
+		t.Fatalf("details fingerprint hashes = %+v, want conditionHash only", field)
+	}
+	column := findBaselineField(overlay.Baseline.Fields, "devices").Columns[0]
+	if column.DefaultHash == "" || column.ConditionHash == "" {
+		t.Fatalf("table column fingerprint hashes = %+v, want defaultHash and conditionHash", column)
+	}
+	for _, value := range []string{field.ConditionHash, column.DefaultHash, column.ConditionHash} {
+		if !hashPattern.MatchString(value) {
+			t.Fatalf("fingerprint hash = %q, want sha256 digest", value)
+		}
+	}
+}
+
+func findBaselineField(fields []BaselineField, stableID string) BaselineField {
+	for _, field := range fields {
+		if field.StableID == stableID {
+			return field
+		}
+	}
+	return BaselineField{}
+}
+
+func TestDiscoverOverlayTerminatesWithInvalidOccupiedNames(t *testing.T) {
+	t.Parallel()
+
+	t.Run("fields", func(t *testing.T) {
+		t.Parallel()
+		template := overlayValidationTemplate()
+		template.Fields[0].StableID = "field-2"
+		template.Fields[1].StableID = strings.Repeat("x", 129)
+
+		overlay := discoverOverlayWithin(t, template, "fixture-discovery")
+		if _, ok := overlay.Fields["field-2"]; !ok {
+			t.Fatalf("discovered fields = %#v, want occupied candidate", overlay.Fields)
+		}
+		if _, ok := overlay.Fields["field-2-2"]; !ok {
+			t.Fatalf("discovered fields = %#v, want progressed fallback", overlay.Fields)
+		}
+	})
+
+	t.Run("columns", func(t *testing.T) {
+		t.Parallel()
+		template := overlayValidationTemplate()
+		template.Fields[0].TableColumns = []TableColumn{
+			{BackendKey: "first", Name: "column-2", Type: "input", Supported: true},
+			{BackendKey: "second", Name: strings.Repeat("x", 129), Type: "input", Supported: true},
+		}
+
+		overlay := discoverOverlayWithin(t, template, "fixture-discovery")
+		columns := overlay.Fields["devices"].Columns
+		if _, ok := columns["column-2"]; !ok {
+			t.Fatalf("discovered columns = %#v, want occupied candidate", columns)
+		}
+		if _, ok := columns["column-2-2"]; !ok {
+			t.Fatalf("discovered columns = %#v, want progressed fallback", columns)
+		}
+	})
+}
+
+func discoverOverlayWithin(t *testing.T, template Template, name string) Overlay {
+	t.Helper()
+	done := make(chan Overlay, 1)
+	go func() { done <- DiscoverOverlay(template, name) }()
+	select {
+	case overlay := <-done:
+		return overlay
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("DiscoverOverlay() did not terminate")
+		return Overlay{}
+	}
+}
+
 func replaceOverlayText(t *testing.T, input, old, replacement string) string {
 	t.Helper()
 	old = strings.ReplaceAll(old, `\n`, "\n")
@@ -306,7 +413,10 @@ func overlayValidationTemplate() Template {
 					{BackendKey: "component", Name: "Component", Type: "input", Required: true, Supported: true},
 				},
 			},
-			{BackendKey: "field_details_1004", StableID: "details", Name: "Failure details", Type: "textarea", Supported: true},
+			{
+				BackendKey: "field_details_1004", StableID: "details", Name: "Failure details", Type: "textarea", Supported: true,
+				Conditions: ConditionSet{Operator: "and", Conditions: []Condition{{Field: "fault_type", Operator: "==", Value: "disk"}}},
+			},
 			{
 				BackendKey: "field_fault_1002", StableID: "fault_type", Name: "Fault type", Type: "select", Required: true,
 				DefaultValue: "disk", DefaultAvailable: true,

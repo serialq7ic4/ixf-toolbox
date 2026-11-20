@@ -158,6 +158,96 @@ func TestInspectProfileResolvedContract(t *testing.T) {
 	}
 }
 
+func TestInspectProfileSerializesApplyBlockedFalse(t *testing.T) {
+	t.Parallel()
+
+	client := newTemplateFixtureClient(t, mustReadFixture(t, "lading-4003.json"))
+	template, err := LoadTemplate(context.Background(), client, EditTarget{BusinessID: 15, ServiceID: 4003})
+	if err != nil {
+		t.Fatalf("LoadTemplate() error = %v", err)
+	}
+	overlay, err := DecodeOverlay(mustReadFixture(t, "profile-4003.json"))
+	if err != nil {
+		t.Fatalf("DecodeOverlay() error = %v", err)
+	}
+	overlay.Baseline = DiscoverOverlay(template, overlay.Name).Baseline
+
+	contract, err := Inspect(context.Background(), client, InspectRequest{
+		Target:  EditTarget{BusinessID: 15, ServiceID: 4003},
+		Profile: &ProfileContext{Overlay: overlay, Source: "network"},
+	})
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+	encoded, err := json.Marshal(contract)
+	if err != nil {
+		t.Fatalf("marshal contract: %v", err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatalf("unmarshal contract: %v", err)
+	}
+	applyBlocked, ok := payload["applyBlocked"]
+	if !ok || string(applyBlocked) != "false" {
+		t.Fatalf("profile applyBlocked = %s, present=%v; contract=%s", applyBlocked, ok, encoded)
+	}
+}
+
+func TestInspectProfileSerializesColumnDefaultAvailabilityForUnmappedTable(t *testing.T) {
+	t.Parallel()
+
+	client := newTemplateFixtureClient(t, mustReadFixture(t, "lading-4003.json"))
+	template, err := LoadTemplate(context.Background(), client, EditTarget{BusinessID: 15, ServiceID: 4003})
+	if err != nil {
+		t.Fatalf("LoadTemplate() error = %v", err)
+	}
+	overlay, err := DecodeOverlay(mustReadFixture(t, "profile-4003.json"))
+	if err != nil {
+		t.Fatalf("DecodeOverlay() error = %v", err)
+	}
+	overlay.Baseline = DiscoverOverlay(template, overlay.Name).Baseline
+	delete(overlay.Fields, "devices")
+
+	contract, err := Inspect(context.Background(), client, InspectRequest{
+		Target:  EditTarget{BusinessID: 15, ServiceID: 4003},
+		Profile: &ProfileContext{Overlay: overlay, Source: "network"},
+	})
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+	encoded, err := json.Marshal(contract)
+	if err != nil {
+		t.Fatalf("marshal contract: %v", err)
+	}
+	var payload struct {
+		InputContract struct {
+			Fields []struct {
+				Name    string                       `json:"name"`
+				Columns []map[string]json.RawMessage `json:"columns"`
+			} `json:"fields"`
+		} `json:"inputContract"`
+	}
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatalf("unmarshal contract: %v", err)
+	}
+	for _, field := range payload.InputContract.Fields {
+		if field.Name != "devices" {
+			continue
+		}
+		if len(field.Columns) != 2 {
+			t.Fatalf("unmapped table columns = %+v", field.Columns)
+		}
+		for _, column := range field.Columns {
+			defaultAvailable, ok := column["defaultAvailable"]
+			if !ok || string(defaultAvailable) != "false" {
+				t.Fatalf("unmapped profile column defaultAvailable = %s, present=%v; contract=%s", defaultAvailable, ok, encoded)
+			}
+		}
+		return
+	}
+	t.Fatalf("profile contract is missing unmapped table field: %s", encoded)
+}
+
 func TestInspectProfileDestructiveDrift(t *testing.T) {
 	t.Parallel()
 

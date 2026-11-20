@@ -109,6 +109,36 @@ type ResolvedContract struct {
 	ContractHash        string           `json:"contractHash,omitempty"`
 }
 
+func (contract ResolvedContract) MarshalJSON() ([]byte, error) {
+	type resolvedContractJSON struct {
+		ContractVersion     int              `json:"contractVersion"`
+		Target              ResolvedTarget   `json:"target"`
+		Profile             *ResolvedProfile `json:"profile,omitempty"`
+		InputContract       InputContract    `json:"inputContract"`
+		TemplateDrift       bool             `json:"templateDrift"`
+		DriftClassification string           `json:"driftClassification,omitempty"`
+		DriftChanges        []DriftChange    `json:"driftChanges,omitempty"`
+		ApplyBlocked        *bool            `json:"applyBlocked,omitempty"`
+		ContractHash        string           `json:"contractHash,omitempty"`
+	}
+	var applyBlocked *bool
+	if contract.Profile != nil {
+		value := contract.ApplyBlocked
+		applyBlocked = &value
+	}
+	return json.Marshal(resolvedContractJSON{
+		ContractVersion:     contract.ContractVersion,
+		Target:              contract.Target,
+		Profile:             contract.Profile,
+		InputContract:       contract.InputContract,
+		TemplateDrift:       contract.TemplateDrift,
+		DriftClassification: contract.DriftClassification,
+		DriftChanges:        contract.DriftChanges,
+		ApplyBlocked:        applyBlocked,
+		ContractHash:        contract.ContractHash,
+	})
+}
+
 func Inspect(ctx context.Context, client *Client, request InspectRequest) (ResolvedContract, error) {
 	template, err := LoadTemplate(ctx, client, request.Target)
 	if err != nil {
@@ -172,19 +202,19 @@ func resolveProfileInputContract(fields []Field, overlay ResolvedOverlay) (Input
 	}
 
 	for index, liveField := range fields {
+		resolved := &contract.Fields[index]
+		for columnIndex := range resolved.Columns {
+			resolved.Columns[columnIndex].includeDefaultAvailable = true
+		}
 		mapped, ok := mappedFields[liveField.BackendKey]
 		if !ok {
 			continue
 		}
-		resolved := &contract.Fields[index]
 		resolved.Name = mapped.PublicName
 		resolved.Aliases = mapped.Overlay.Aliases
 		resolved.Description = mapped.Overlay.Description
 		resolved.Required = liveField.Required || overlayRequired(mapped.Overlay.Required)
 		resolved.DefaultAvailable = liveField.DefaultAvailable || mapped.Overlay.Default != nil
-		for columnIndex := range resolved.Columns {
-			resolved.Columns[columnIndex].includeDefaultAvailable = true
-		}
 		for _, column := range mapped.Columns {
 			if column.LiveIndex < 0 || column.LiveIndex >= len(resolved.Columns) {
 				return InputContract{}, fmt.Errorf("ServiceDesk overlay resolved an invalid table column")

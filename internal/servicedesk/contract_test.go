@@ -195,6 +195,226 @@ func TestInspectProfileDestructiveDrift(t *testing.T) {
 	}
 }
 
+func TestInspectProfileProjectsDriftReferencesToPublicNames(t *testing.T) {
+	t.Parallel()
+
+	client := newTemplateFixtureClient(t, mustReadFixture(t, "lading-4003.json"))
+	template, err := LoadTemplate(context.Background(), client, EditTarget{BusinessID: 15, ServiceID: 4003})
+	if err != nil {
+		t.Fatalf("LoadTemplate() error = %v", err)
+	}
+	overlay, err := DecodeOverlay(mustReadFixture(t, "profile-4003.json"))
+	if err != nil {
+		t.Fatalf("DecodeOverlay() error = %v", err)
+	}
+	overlay.Baseline = DiscoverOverlay(template, overlay.Name).Baseline
+	for index := range overlay.Baseline.Fields {
+		if overlay.Baseline.Fields[index].StableID == "title" {
+			overlay.Baseline.Fields[index].Type = "number"
+		}
+		if overlay.Baseline.Fields[index].StableID == "devices" {
+			for columnIndex := range overlay.Baseline.Fields[index].Columns {
+				if overlay.Baseline.Fields[index].Columns[columnIndex].Key == "host_name" {
+					overlay.Baseline.Fields[index].Columns = append(overlay.Baseline.Fields[index].Columns,
+						BaselineColumn{Key: "stale_host_name", Name: "host_name", Type: "input", Required: true})
+					break
+				}
+			}
+		}
+	}
+	overlay.Baseline.Fields = append(overlay.Baseline.Fields,
+		BaselineField{StableID: "field_title_1001", Name: "field_title_1001", Type: "input", Required: true})
+
+	contract, err := Inspect(context.Background(), client, InspectRequest{
+		Target:  EditTarget{BusinessID: 15, ServiceID: 4003},
+		Profile: &ProfileContext{Overlay: overlay, Source: "network"},
+	})
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+	encoded, err := json.Marshal(contract)
+	if err != nil {
+		t.Fatalf("marshal contract: %v", err)
+	}
+	for _, privateName := range []string{"field_title_1001", "host_name"} {
+		if strings.Contains(string(encoded), privateName) {
+			t.Fatalf("profile drift exposes private identifier %q: %s", privateName, encoded)
+		}
+	}
+	var typeDrift *DriftChange
+	for index := range contract.DriftChanges {
+		if contract.DriftChanges[index].Kind == "field_type_changed" {
+			typeDrift = &contract.DriftChanges[index]
+			break
+		}
+	}
+	if typeDrift == nil || typeDrift.Field != "title" {
+		t.Fatalf("mapped type drift = %+v, want public field title", typeDrift)
+	}
+	columnDriftFound := false
+	for _, change := range contract.DriftChanges {
+		if change.Kind == "column_missing" && change.Column != "hostName" {
+			t.Fatalf("stale column drift = %+v, want public column hostName", change)
+		}
+		if change.Kind == "column_missing" {
+			columnDriftFound = true
+		}
+	}
+	if !columnDriftFound {
+		t.Fatalf("profile drift changes = %+v, want stale column change", contract.DriftChanges)
+	}
+}
+
+func TestInspectProfileRejectsUnresolvableDriftReferenceWithoutDisclosure(t *testing.T) {
+	t.Parallel()
+
+	client := newTemplateFixtureClient(t, mustReadFixture(t, "lading-4003.json"))
+	template, err := LoadTemplate(context.Background(), client, EditTarget{BusinessID: 15, ServiceID: 4003})
+	if err != nil {
+		t.Fatalf("LoadTemplate() error = %v", err)
+	}
+	overlay, err := DecodeOverlay(mustReadFixture(t, "profile-4003.json"))
+	if err != nil {
+		t.Fatalf("DecodeOverlay() error = %v", err)
+	}
+	overlay.Baseline = DiscoverOverlay(template, overlay.Name).Baseline
+	const privateName = "private_baseline_field_991"
+	overlay.Baseline.Fields = append(overlay.Baseline.Fields,
+		BaselineField{StableID: privateName, Name: privateName, Type: "input", Required: false})
+
+	_, err = Inspect(context.Background(), client, InspectRequest{
+		Target:  EditTarget{BusinessID: 15, ServiceID: 4003},
+		Profile: &ProfileContext{Overlay: overlay, Source: "network"},
+	})
+	if err == nil {
+		t.Fatal("Inspect() succeeded, want unresolved drift reference error")
+	}
+	if strings.Contains(err.Error(), privateName) {
+		t.Fatalf("Inspect() error exposes private drift identifier %q: %v", privateName, err)
+	}
+	if err.Error() != "ServiceDesk drift contains an unresolved field reference" {
+		t.Fatalf("Inspect() error = %q, want generic unresolved field error", err)
+	}
+}
+
+func TestInspectURLContractPreservesPreProfileJSONAndHash(t *testing.T) {
+	t.Parallel()
+
+	client := newTemplateFixtureClient(t, mustReadFixture(t, "lading-4003.json"))
+	contract, err := Inspect(context.Background(), client, InspectRequest{
+		Target: EditTarget{BusinessID: 15, ServiceID: 4003},
+	})
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+
+	legacy := legacyURLContract(contract)
+	legacy.ContractHash = ""
+	legacyHash, err := canonicalHash(legacy)
+	if err != nil {
+		t.Fatalf("hash legacy URL contract: %v", err)
+	}
+	const wantHash = "sha256:b77bf746d0334fbbc62b9d23d6bde0825f5221c5d1c3e2d9dbc5079f4acd8e43"
+	if legacyHash != wantHash {
+		t.Fatalf("pre-profile URL fixture hash = %q, want %q", legacyHash, wantHash)
+	}
+	legacy.ContractHash = wantHash
+	wantJSON, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatalf("marshal legacy URL contract: %v", err)
+	}
+	gotJSON, err := json.Marshal(contract)
+	if err != nil {
+		t.Fatalf("marshal URL contract: %v", err)
+	}
+	if string(gotJSON) != string(wantJSON) {
+		t.Fatalf("URL contract JSON changed from pre-profile shape:\n got: %s\nwant: %s", gotJSON, wantJSON)
+	}
+	if contract.ContractHash != wantHash {
+		t.Fatalf("URL contract hash = %q, want pre-profile hash %q", contract.ContractHash, wantHash)
+	}
+}
+
+type legacyURLResolvedContract struct {
+	ContractVersion     int                    `json:"contractVersion"`
+	Target              ResolvedTarget         `json:"target"`
+	InputContract       legacyURLInputContract `json:"inputContract"`
+	TemplateDrift       bool                   `json:"templateDrift"`
+	DriftClassification string                 `json:"driftClassification,omitempty"`
+	ContractHash        string                 `json:"contractHash,omitempty"`
+}
+
+type legacyURLInputContract struct {
+	Fields                        []legacyURLInputField `json:"fields"`
+	UnsupportedRequiredFieldCount int                   `json:"unsupportedRequiredFieldCount"`
+}
+
+type legacyURLInputField struct {
+	Name             string                 `json:"name"`
+	Aliases          []string               `json:"aliases,omitempty"`
+	DisplayName      string                 `json:"displayName"`
+	StableID         string                 `json:"stableId,omitempty"`
+	Type             string                 `json:"type"`
+	Required         bool                   `json:"required"`
+	Conditional      bool                   `json:"conditional"`
+	DefaultAvailable bool                   `json:"defaultAvailable"`
+	Choices          []Choice               `json:"choices,omitempty"`
+	Columns          []legacyURLInputColumn `json:"columns,omitempty"`
+	Conditions       *ConditionSet          `json:"conditions,omitempty"`
+	Supported        bool                   `json:"supported"`
+}
+
+type legacyURLInputColumn struct {
+	Name        string   `json:"name"`
+	DisplayName string   `json:"displayName"`
+	Type        string   `json:"type"`
+	Required    bool     `json:"required"`
+	Choices     []Choice `json:"choices,omitempty"`
+	Supported   bool     `json:"supported"`
+}
+
+func legacyURLContract(contract ResolvedContract) legacyURLResolvedContract {
+	legacy := legacyURLResolvedContract{
+		ContractVersion:     contract.ContractVersion,
+		Target:              contract.Target,
+		TemplateDrift:       contract.TemplateDrift,
+		DriftClassification: contract.DriftClassification,
+		ContractHash:        contract.ContractHash,
+		InputContract: legacyURLInputContract{
+			UnsupportedRequiredFieldCount: contract.InputContract.UnsupportedRequiredFieldCount,
+			Fields:                        make([]legacyURLInputField, 0, len(contract.InputContract.Fields)),
+		},
+	}
+	for _, field := range contract.InputContract.Fields {
+		legacyField := legacyURLInputField{
+			Name:             field.Name,
+			Aliases:          field.Aliases,
+			DisplayName:      field.DisplayName,
+			StableID:         field.StableID,
+			Type:             field.Type,
+			Required:         field.Required,
+			Conditional:      field.Conditional,
+			DefaultAvailable: field.DefaultAvailable,
+			Choices:          field.Choices,
+			Conditions:       field.Conditions,
+			Supported:        field.Supported,
+			Columns:          make([]legacyURLInputColumn, 0, len(field.Columns)),
+		}
+		for _, column := range field.Columns {
+			legacyField.Columns = append(legacyField.Columns, legacyURLInputColumn{
+				Name:        column.Name,
+				DisplayName: column.DisplayName,
+				Type:        column.Type,
+				Required:    column.Required,
+				Choices:     column.Choices,
+				Supported:   column.Supported,
+			})
+		}
+		legacy.InputContract.Fields = append(legacy.InputContract.Fields, legacyField)
+	}
+	return legacy
+}
+
 func TestResolvedContractIncludesChoicesTablesAndConditions(t *testing.T) {
 	t.Parallel()
 

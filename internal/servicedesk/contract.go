@@ -2,6 +2,7 @@ package servicedesk
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 )
 
@@ -27,15 +28,46 @@ type ResolvedTarget struct {
 }
 
 type InputColumn struct {
-	Name             string   `json:"name"`
-	Aliases          []string `json:"aliases,omitempty"`
-	Description      string   `json:"description,omitempty"`
-	DisplayName      string   `json:"displayName"`
-	Type             string   `json:"type"`
-	Required         bool     `json:"required"`
-	DefaultAvailable bool     `json:"defaultAvailable"`
-	Choices          []Choice `json:"choices,omitempty"`
-	Supported        bool     `json:"supported"`
+	Name                    string   `json:"name"`
+	Aliases                 []string `json:"aliases,omitempty"`
+	Description             string   `json:"description,omitempty"`
+	DisplayName             string   `json:"displayName"`
+	Type                    string   `json:"type"`
+	Required                bool     `json:"required"`
+	DefaultAvailable        bool     `json:"defaultAvailable"`
+	Choices                 []Choice `json:"choices,omitempty"`
+	Supported               bool     `json:"supported"`
+	includeDefaultAvailable bool
+}
+
+func (column InputColumn) MarshalJSON() ([]byte, error) {
+	type inputColumnJSON struct {
+		Name             string   `json:"name"`
+		Aliases          []string `json:"aliases,omitempty"`
+		Description      string   `json:"description,omitempty"`
+		DisplayName      string   `json:"displayName"`
+		Type             string   `json:"type"`
+		Required         bool     `json:"required"`
+		DefaultAvailable *bool    `json:"defaultAvailable,omitempty"`
+		Choices          []Choice `json:"choices,omitempty"`
+		Supported        bool     `json:"supported"`
+	}
+	var defaultAvailable *bool
+	if column.includeDefaultAvailable {
+		value := column.DefaultAvailable
+		defaultAvailable = &value
+	}
+	return json.Marshal(inputColumnJSON{
+		Name:             column.Name,
+		Aliases:          column.Aliases,
+		Description:      column.Description,
+		DisplayName:      column.DisplayName,
+		Type:             column.Type,
+		Required:         column.Required,
+		DefaultAvailable: defaultAvailable,
+		Choices:          column.Choices,
+		Supported:        column.Supported,
+	})
 }
 
 type InputField struct {
@@ -73,7 +105,7 @@ type ResolvedContract struct {
 	TemplateDrift       bool             `json:"templateDrift"`
 	DriftClassification string           `json:"driftClassification,omitempty"`
 	DriftChanges        []DriftChange    `json:"driftChanges,omitempty"`
-	ApplyBlocked        bool             `json:"applyBlocked"`
+	ApplyBlocked        bool             `json:"applyBlocked,omitempty"`
 	ContractHash        string           `json:"contractHash,omitempty"`
 }
 
@@ -107,7 +139,11 @@ func Inspect(ctx context.Context, client *Client, request InspectRequest) (Resol
 		}
 		contract.TemplateDrift = resolved.Drift.Changed
 		contract.DriftClassification = resolved.Drift.Classification
-		contract.DriftChanges = resolved.Drift.Changes
+		projectedDrift, projectErr := projectProfileDrift(resolved.Drift, template.Fields, contract.InputContract)
+		if projectErr != nil {
+			return ResolvedContract{}, projectErr
+		}
+		contract.DriftChanges = projectedDrift.Changes
 		contract.ApplyBlocked = resolved.Drift.ApplyBlocked
 	}
 	if err != nil {
@@ -146,6 +182,9 @@ func resolveProfileInputContract(fields []Field, overlay ResolvedOverlay) (Input
 		resolved.Description = mapped.Overlay.Description
 		resolved.Required = liveField.Required || overlayRequired(mapped.Overlay.Required)
 		resolved.DefaultAvailable = liveField.DefaultAvailable || mapped.Overlay.Default != nil
+		for columnIndex := range resolved.Columns {
+			resolved.Columns[columnIndex].includeDefaultAvailable = true
+		}
 		for _, column := range mapped.Columns {
 			if column.LiveIndex < 0 || column.LiveIndex >= len(resolved.Columns) {
 				return InputContract{}, fmt.Errorf("ServiceDesk overlay resolved an invalid table column")
@@ -196,6 +235,83 @@ func resolveProfileInputContract(fields []Field, overlay ResolvedOverlay) (Input
 		}
 	}
 	return contract, nil
+}
+
+func projectProfileDrift(report DriftReport, fields []Field, profile InputContract) (DriftReport, error) {
+	urlContract, err := resolveURLInputContract(fields)
+	if err != nil {
+		return DriftReport{}, fmt.Errorf("ServiceDesk drift could not be projected safely")
+	}
+	if len(urlContract.Fields) != len(profile.Fields) || len(fields) != len(profile.Fields) {
+		return DriftReport{}, fmt.Errorf("ServiceDesk drift could not be projected safely")
+	}
+
+	fieldNames := make(map[string]string, len(fields)*5)
+	columnNames := make(map[string]map[string]string, len(fields))
+	for index, liveField := range fields {
+		publicName := profile.Fields[index].Name
+		for _, identifier := range []string{liveField.BackendKey, liveField.StableID, liveField.Name, urlContract.Fields[index].Name, publicName} {
+			if err := addProfileDriftIdentifier(fieldNames, identifier, publicName); err != nil {
+				return DriftReport{}, err
+			}
+		}
+
+		liveColumns := liveField.TableColumns
+		profileColumns := profile.Fields[index].Columns
+		urlColumns := urlContract.Fields[index].Columns
+		if len(liveColumns) != len(profileColumns) || len(urlColumns) != len(profileColumns) {
+			return DriftReport{}, fmt.Errorf("ServiceDesk drift could not be projected safely")
+		}
+		columnPublicNames := make(map[string]string, len(liveColumns)*4)
+		for columnIndex, liveColumn := range liveColumns {
+			publicColumnName := profileColumns[columnIndex].Name
+			for _, identifier := range []string{liveColumn.BackendKey, liveColumn.Name, urlColumns[columnIndex].Name, publicColumnName} {
+				if err := addProfileDriftIdentifier(columnPublicNames, identifier, publicColumnName); err != nil {
+					return DriftReport{}, err
+				}
+			}
+		}
+		if len(columnPublicNames) > 0 {
+			columnNames[publicName] = columnPublicNames
+		}
+	}
+
+	projected := report
+	projected.Changes = make([]DriftChange, 0, len(report.Changes))
+	for _, change := range report.Changes {
+		projectedChange := change
+		if change.Field != "" {
+			publicField, ok := fieldNames[change.Field]
+			if !ok {
+				return DriftReport{}, fmt.Errorf("ServiceDesk drift contains an unresolved field reference")
+			}
+			projectedChange.Field = publicField
+			if change.Column != "" {
+				columns := columnNames[publicField]
+				publicColumn, ok := columns[change.Column]
+				if !ok {
+					return DriftReport{}, fmt.Errorf("ServiceDesk drift contains an unresolved column reference")
+				}
+				projectedChange.Column = publicColumn
+			}
+		} else if change.Column != "" {
+			return DriftReport{}, fmt.Errorf("ServiceDesk drift contains an unresolved column reference")
+		}
+		projected.Changes = append(projected.Changes, projectedChange)
+	}
+	sortDriftChanges(projected.Changes)
+	return projected, nil
+}
+
+func addProfileDriftIdentifier(identifiers map[string]string, identifier, publicName string) error {
+	if identifier == "" {
+		return nil
+	}
+	if existing, ok := identifiers[identifier]; ok && existing != publicName {
+		return fmt.Errorf("ServiceDesk drift public mapping is ambiguous")
+	}
+	identifiers[identifier] = publicName
+	return nil
 }
 
 func overlayRequired(required *bool) bool {

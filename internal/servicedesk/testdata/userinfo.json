@@ -1,0 +1,13 @@
+{
+  "result": true,
+  "data": {
+    "username": "fixture.user",
+    "display_name": "Fixture User",
+    "business": [
+      {
+        "business_id": 15,
+        "name": "Fixture Business"
+      }
+    ]
+  }
+}

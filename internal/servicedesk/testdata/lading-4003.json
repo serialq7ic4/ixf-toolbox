@@ -1,0 +1,66 @@
+{
+  "result": true,
+  "data": {
+    "field_title_1001": {
+      "field_unique_Identifier": "title",
+      "name": "Title",
+      "type": "input",
+      "required": true,
+      "default": ""
+    },
+    "field_fault_1002": {
+      "field_unique_Identifier": "fault_type",
+      "name": "Fault type",
+      "type": "select",
+      "required": true,
+      "default": "disk",
+      "choices": [
+        {
+          "label": "Disk",
+          "value": "disk"
+        },
+        {
+          "label": "Memory",
+          "value": "memory"
+        }
+      ]
+    },
+    "field_devices_1003": {
+      "field_unique_Identifier": "devices",
+      "name": "Affected devices",
+      "type": "extend_table",
+      "required": true,
+      "columns": [
+        {
+          "key": "host_name",
+          "name": "Host name",
+          "type": "input",
+          "required": true
+        },
+        {
+          "key": "component",
+          "name": "Component",
+          "type": "input",
+          "required": true
+        }
+      ]
+    },
+    "field_details_1004": {
+      "field_unique_Identifier": "details",
+      "name": "Failure details",
+      "type": "textarea",
+      "required": false,
+      "default": null,
+      "conditions_expression": {
+        "operator": "and",
+        "conditions": [
+          {
+            "field": "fault_type",
+            "operator": "==",
+            "value": "disk"
+          }
+        ]
+      }
+    }
+  }
+}

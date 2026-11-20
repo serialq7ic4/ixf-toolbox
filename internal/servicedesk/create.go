@@ -242,6 +242,9 @@ func applyCreate(ctx context.Context, deps Dependencies, request CreateRequest, 
 	if strings.TrimSpace(start.InstanceID) == "" {
 		return planResult, &DomainError{Code: "malformed_start_response", Message: "ServiceDesk did not return a ticket ID", Action: "inspect ServiceDesk before retrying", Retryable: false}
 	}
+	if _, err := parsePositiveID(start.InstanceID); err != nil {
+		return planResult, &DomainError{Code: "malformed_start_response", Message: "ServiceDesk returned an invalid ticket ID", Action: "inspect ServiceDesk before retrying", Retryable: false}
+	}
 	detailURL := serviceDeskDetailURL(planResult.Plan.Target.BusinessID, start.InstanceID)
 	ref := &TicketReference{InstanceID: start.InstanceID, Name: start.Name, Title: planResult.Plan.expectedTitle, ServiceID: planResult.Plan.Target.ServiceID, ServiceName: planResult.Plan.Target.ServiceName, DetailURL: detailURL}
 	ticket, err := deps.Client.Get(ctx, DetailTarget{BusinessID: planResult.Plan.Target.BusinessID, TicketID: start.InstanceID})

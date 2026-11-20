@@ -146,6 +146,7 @@ func NewClient(credential Credential, options ClientOptions) *Client {
 	if options.Transport != nil {
 		httpClient.Transport = options.Transport
 	}
+	httpClient.Jar = nil
 	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
@@ -358,30 +359,32 @@ func transportError(err error, retryable bool, secret string) *APIError {
 	return &APIError{Code: code, Retryable: retryable, Message: message, Cause: safeCause(err, secret)}
 }
 
-type redactedError struct {
-	err    error
-	secret string
+type sanitizedError struct {
+	message  string
+	identity error
 }
 
-func (e redactedError) Error() string {
-	message := e.err.Error()
-	if e.secret != "" {
-		message = strings.ReplaceAll(message, e.secret, "[REDACTED]")
-	}
-	return message
+func (e sanitizedError) Error() string {
+	return e.message
 }
 
-func (e redactedError) Is(target error) bool {
-	return errors.Is(e.err, target)
-}
-
-func (e redactedError) As(target any) bool {
-	return errors.As(e.err, target)
+func (e sanitizedError) Unwrap() error {
+	return e.identity
 }
 
 func safeCause(err error, secret string) error {
 	if err == nil {
 		return nil
 	}
-	return redactedError{err: err, secret: secret}
+	message := err.Error()
+	if secret != "" {
+		message = strings.ReplaceAll(message, secret, "[REDACTED]")
+	}
+	var identity error
+	if errors.Is(err, context.DeadlineExceeded) {
+		identity = context.DeadlineExceeded
+	} else if errors.Is(err, context.Canceled) {
+		identity = context.Canceled
+	}
+	return sanitizedError{message: message, identity: identity}
 }

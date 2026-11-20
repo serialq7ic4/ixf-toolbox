@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -276,6 +277,57 @@ func TestClientPreservesTimeoutIdentity(t *testing.T) {
 	}
 }
 
+func TestClientDoesNotExposeRawTransportError(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient(Credential{APIKey: testAPIKey}, ClientOptions{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("transport echoed " + testAPIKey)
+		}),
+	})
+	_, err := client.UserInfo(context.Background(), 15)
+	assertAPIError(t, err, "network_error", 0, true)
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		t.Fatal("public error chain exposes the raw transport error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error type = %T, want *APIError", err)
+	}
+	if apiErr.Cause == nil || strings.Contains(apiErr.Cause.Error(), testAPIKey) {
+		t.Fatal("sanitized transport cause is missing or discloses the API key")
+	}
+}
+
+func TestClientIgnoresSuppliedCookieJar(t *testing.T) {
+	t.Parallel()
+
+	jar := &trackingCookieJar{}
+	client := NewClient(Credential{APIKey: testAPIKey}, ClientOptions{
+		HTTPClient: &http.Client{
+			Jar: jar,
+			Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				if cookie := request.Header.Get("Cookie"); cookie != "" {
+					t.Errorf("Cookie header = %q, want empty", cookie)
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Set-Cookie": {"session=stored; Path=/"}},
+					Body:       io.NopCloser(strings.NewReader(`{"result":true,"data":{"username":"fixture.user"}}`)),
+				}, nil
+			}),
+		},
+	})
+	if _, err := client.UserInfo(context.Background(), 15); err != nil {
+		t.Fatalf("UserInfo() error = %v", err)
+	}
+	if jar.cookiesCalls != 0 || jar.setCookiesCalls != 0 {
+		t.Fatalf("cookie jar calls = Cookies %d, SetCookies %d; want 0, 0", jar.cookiesCalls, jar.setCookiesCalls)
+	}
+}
+
 func TestClientLimitsResponseSize(t *testing.T) {
 	t.Parallel()
 
@@ -379,4 +431,18 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return fn(request)
+}
+
+type trackingCookieJar struct {
+	cookiesCalls    int
+	setCookiesCalls int
+}
+
+func (j *trackingCookieJar) Cookies(*url.URL) []*http.Cookie {
+	j.cookiesCalls++
+	return []*http.Cookie{{Name: "session", Value: "private"}}
+}
+
+func (j *trackingCookieJar) SetCookies(*url.URL, []*http.Cookie) {
+	j.setCookiesCalls++
 }

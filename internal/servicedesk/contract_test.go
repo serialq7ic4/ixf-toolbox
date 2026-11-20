@@ -313,6 +313,41 @@ func TestResolvedContractRejectsUnknownConditionSourceWithoutDisclosure(t *testi
 	}
 }
 
+func TestResolvedContractRejectsBackendPublicNameCollision(t *testing.T) {
+	t.Parallel()
+
+	_, err := inspectSyntheticContract(t, map[string]any{
+		"a": map[string]any{
+			"field_unique_Identifier": "z",
+			"name":                    "Field Z",
+			"type":                    "input",
+			"required":                false,
+		},
+		"b": map[string]any{
+			"field_unique_Identifier": "a",
+			"name":                    "Field A",
+			"type":                    "input",
+			"required":                false,
+		},
+		"c": map[string]any{
+			"field_unique_Identifier": "details",
+			"name":                    "Details",
+			"type":                    "textarea",
+			"required":                false,
+			"conditions_expression": map[string]any{
+				"operator": "and",
+				"conditions": []any{
+					map[string]any{"field": "a", "operator": "==", "value": "ready"},
+				},
+			},
+		},
+	})
+	const wantError = "ServiceDesk metadata has ambiguous condition field references"
+	if err == nil || err.Error() != wantError {
+		t.Fatalf("Inspect() error = %v, want generic ambiguous condition reference error", err)
+	}
+}
+
 func TestResolvedContractOmitsBackendConditionSourceName(t *testing.T) {
 	t.Parallel()
 

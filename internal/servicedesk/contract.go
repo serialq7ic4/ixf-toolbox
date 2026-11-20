@@ -106,8 +106,12 @@ func resolveURLInputContract(fields []Field) (InputContract, error) {
 			return InputContract{}, fmt.Errorf("ServiceDesk metadata resolves multiple fields to public name %q", name)
 		}
 		publicNames[name] = struct{}{}
-		backendToPublic[field.BackendKey] = name
-		backendToPublic[name] = name
+		if err := addConditionReference(backendToPublic, field.BackendKey, name); err != nil {
+			return InputContract{}, err
+		}
+		if err := addConditionReference(backendToPublic, name, name); err != nil {
+			return InputContract{}, err
+		}
 		resolvedNames[index] = name
 	}
 
@@ -148,6 +152,14 @@ func resolveURLInputContract(fields []Field) (InputContract, error) {
 		contract.Fields = append(contract.Fields, resolved)
 	}
 	return contract, nil
+}
+
+func addConditionReference(references map[string]string, reference, publicName string) error {
+	if existing, ok := references[reference]; ok && existing != publicName {
+		return fmt.Errorf("ServiceDesk metadata has ambiguous condition field references")
+	}
+	references[reference] = publicName
+	return nil
 }
 
 func resolveConditionSources(conditions ConditionSet, backendToPublic map[string]string) (ConditionSet, error) {

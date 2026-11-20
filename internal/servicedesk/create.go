@@ -40,13 +40,17 @@ type ApplyPlan struct {
 }
 
 type CreatePlan struct {
-	ContractVersion int             `json:"contractVersion"`
-	Target          ResolvedTarget  `json:"target"`
-	Template        TemplateSummary `json:"template"`
-	Input           InputSummary    `json:"input"`
-	Apply           ApplyPlan       `json:"apply"`
-	ProfileSource   string          `json:"profileSource,omitempty"`
-	privatePayload  StartPayload
+	ContractVersion     int             `json:"contractVersion"`
+	Target              ResolvedTarget  `json:"target"`
+	Template            TemplateSummary `json:"template"`
+	Input               InputSummary    `json:"input"`
+	Apply               ApplyPlan       `json:"apply"`
+	ProfileSource       string          `json:"profileSource,omitempty"`
+	TemplateDrift       bool            `json:"templateDrift"`
+	DriftClassification string          `json:"driftClassification,omitempty"`
+	DriftChanges        []DriftChange   `json:"driftChanges,omitempty"`
+	Issues              []FieldIssue    `json:"issues,omitempty"`
+	privatePayload      StartPayload
 }
 
 type CreateVerification struct {
@@ -147,6 +151,16 @@ func Create(ctx context.Context, deps Dependencies, request CreateRequest) (Crea
 		Input:           InputSummary{ProvidedFieldCount: normalized.ProvidedFieldCount, DefaultedFieldCount: normalized.DefaultedFieldCount, MissingRequiredCount: missingRequired, TableRowCount: normalized.TableRowCount, ConditionalFieldCount: conditions.ConditionalFieldCount, ActiveConditionalFieldCount: conditions.ActiveConditionalFieldCount, UnsupportedConditionCount: conditions.UnsupportedConditionCount, UnsupportedFieldCount: countIssues(issues, "unsupported_field")},
 		Apply:           ApplyPlan{ProfileSource: profileSource},
 		ProfileSource:   profileSource,
+		Issues:          append([]FieldIssue(nil), issues...),
+	}
+	if overlay != nil {
+		plan.TemplateDrift = overlay.Drift.Changed
+		plan.DriftClassification = overlay.Drift.Classification
+		plan.DriftChanges = append([]DriftChange(nil), overlay.Drift.Changes...)
+		if overlay.Drift.ApplyBlocked {
+			plan.Apply.Blocked = true
+			plan.Apply.BlockReason = "destructive_drift"
+		}
 	}
 	privateInputs := cloneInputs(normalized.Inputs)
 	privateInputs["retry"] = "true"
@@ -156,7 +170,7 @@ func Create(ctx context.Context, deps Dependencies, request CreateRequest) (Crea
 		plan.Apply.Blocked = true
 		plan.Apply.BlockReason = "unsupported_service_key"
 	}
-	if profileStale && !plan.Apply.Blocked {
+	if profileStale {
 		plan.Apply.Blocked = true
 		plan.Apply.BlockReason = "stale_registry"
 	}

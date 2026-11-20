@@ -125,6 +125,29 @@ func TestCreateDryRunStaleRegistryReportsBlockedApply(t *testing.T) {
 	}
 }
 
+func TestCreateDryRunDestructiveDriftBlocksApply(t *testing.T) {
+	t.Parallel()
+
+	client := newTemplateFixtureClientWithStartCounter(t, mustReadFixture(t, "lading-4003.json"), nil)
+	profile := mustReadFixture(t, "profile-4003.json")
+	profile = []byte(strings.Replace(string(profile), `"serviceKey": "request"`, `"serviceKey": "legacy"`, 1))
+	const profilePath = "profiles/fixture-server-hardware-repair.json"
+	server := registryServer(t, registryIndexJSON(t, "fixture-server-hardware-repair", profilePath, profile), map[string][]byte{profilePath: profile})
+	defer server.Close()
+	loader := registryLoaderFor(t, server.URL, t.TempDir(), time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC))
+
+	result, domainErr := Create(context.Background(), Dependencies{Client: client, Registry: loader}, CreateRequest{
+		Profile: "fixture-server-hardware-repair",
+		Input:   TicketInput{"title": "repair", "devices": []any{map[string]any{"host_name": "server-01", "component": "disk"}}},
+	})
+	if domainErr != nil {
+		t.Fatalf("destructive-drift dry-run error = %v", domainErr)
+	}
+	if !result.Plan.TemplateDrift || result.Plan.DriftClassification != driftDestructive || !result.Plan.Apply.Blocked || result.Plan.Apply.BlockReason != "destructive_drift" {
+		t.Fatalf("destructive-drift dry-run plan = %+v", result.Plan)
+	}
+}
+
 func newTemplateFixtureClientWithStartCounter(t *testing.T, lading []byte, starts *atomic.Int32) *Client {
 	t.Helper()
 	service := mustReadFixture(t, "service-4003.json")

@@ -285,6 +285,9 @@ func expectedTitle(template Template, normalized NormalizedInput) string {
 }
 
 func serviceDeskDetailURL(businessID int, ticketID string) string {
+	if _, err := parsePositiveID(ticketID); err != nil {
+		return ""
+	}
 	return fmt.Sprintf("%s/#/order/order-detail/%d?id=%s", serviceDeskOrigin, businessID, ticketID)
 }
 

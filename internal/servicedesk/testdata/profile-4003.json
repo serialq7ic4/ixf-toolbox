@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "name": "fixture-server-hardware-repair",
+  "description": "Fixture profile for server hardware repair",
+  "routing": {
+    "displayName": "Server hardware repair",
+    "useWhen": "A user asks to create a repair ticket for physical server hardware",
+    "doNotUseWhen": "The issue is limited to software, network policy, or account access",
+    "examples": [
+      "Create a repair ticket for a failed server disk"
+    ]
+  },
+  "target": {
+    "businessId": 15,
+    "serviceId": 4003
+  },
+  "baseline": {
+    "snapshotId": "218527",
+    "serviceKey": "request",
+    "metadataHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "fields": [
+      {
+        "stableId": "devices",
+        "name": "Affected devices",
+        "type": "extend_table",
+        "required": true,
+        "columns": [
+          {
+            "key": "host_name",
+            "name": "Host name",
+            "type": "input",
+            "required": true
+          },
+          {
+            "key": "component",
+            "name": "Component",
+            "type": "input",
+            "required": true
+          }
+        ]
+      },
+      {
+        "stableId": "details",
+        "name": "Failure details",
+        "type": "textarea",
+        "required": false
+      },
+      {
+        "stableId": "fault_type",
+        "name": "Fault type",
+        "type": "select",
+        "required": true,
+        "choiceHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      {
+        "stableId": "title",
+        "name": "Title",
+        "type": "input",
+        "required": true
+      }
+    ]
+  },
+  "fields": {
+    "devices": {
+      "match": {
+        "stableId": "devices",
+        "name": "Affected devices"
+      },
+      "columns": {
+        "hostName": {
+          "match": {
+            "key": "host_name",
+            "name": "Host name"
+          }
+        },
+        "part": {
+          "match": {
+            "key": "component",
+            "name": "Component"
+          }
+        }
+      }
+    },
+    "details": {
+      "match": {
+        "stableId": "details",
+        "name": "Failure details"
+      },
+      "description": "Optional detail shown when the selected fault type requires it"
+    },
+    "faultType": {
+      "match": {
+        "stableId": "fault_type",
+        "name": "Fault type"
+      }
+    },
+    "title": {
+      "match": {
+        "stableId": "title",
+        "name": "Title"
+      },
+      "aliases": [
+        "ticketTitle"
+      ]
+    }
+  }
+}

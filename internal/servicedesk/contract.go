@@ -8,7 +8,14 @@ import (
 const ContractVersion = 1
 
 type InspectRequest struct {
-	Target EditTarget
+	Target  EditTarget
+	Profile *ProfileContext
+}
+
+type ProfileContext struct {
+	Overlay Overlay
+	Source  string
+	Stale   bool
 }
 
 type ResolvedTarget struct {
@@ -20,17 +27,21 @@ type ResolvedTarget struct {
 }
 
 type InputColumn struct {
-	Name        string   `json:"name"`
-	DisplayName string   `json:"displayName"`
-	Type        string   `json:"type"`
-	Required    bool     `json:"required"`
-	Choices     []Choice `json:"choices,omitempty"`
-	Supported   bool     `json:"supported"`
+	Name             string   `json:"name"`
+	Aliases          []string `json:"aliases,omitempty"`
+	Description      string   `json:"description,omitempty"`
+	DisplayName      string   `json:"displayName"`
+	Type             string   `json:"type"`
+	Required         bool     `json:"required"`
+	DefaultAvailable bool     `json:"defaultAvailable"`
+	Choices          []Choice `json:"choices,omitempty"`
+	Supported        bool     `json:"supported"`
 }
 
 type InputField struct {
 	Name             string        `json:"name"`
 	Aliases          []string      `json:"aliases,omitempty"`
+	Description      string        `json:"description,omitempty"`
 	DisplayName      string        `json:"displayName"`
 	StableID         string        `json:"stableId,omitempty"`
 	Type             string        `json:"type"`
@@ -48,13 +59,22 @@ type InputContract struct {
 	UnsupportedRequiredFieldCount int          `json:"unsupportedRequiredFieldCount"`
 }
 
+type ResolvedProfile struct {
+	Name   string `json:"name"`
+	Source string `json:"source"`
+	Stale  bool   `json:"stale"`
+}
+
 type ResolvedContract struct {
-	ContractVersion     int            `json:"contractVersion"`
-	Target              ResolvedTarget `json:"target"`
-	InputContract       InputContract  `json:"inputContract"`
-	TemplateDrift       bool           `json:"templateDrift"`
-	DriftClassification string         `json:"driftClassification,omitempty"`
-	ContractHash        string         `json:"contractHash,omitempty"`
+	ContractVersion     int              `json:"contractVersion"`
+	Target              ResolvedTarget   `json:"target"`
+	Profile             *ResolvedProfile `json:"profile,omitempty"`
+	InputContract       InputContract    `json:"inputContract"`
+	TemplateDrift       bool             `json:"templateDrift"`
+	DriftClassification string           `json:"driftClassification,omitempty"`
+	DriftChanges        []DriftChange    `json:"driftChanges,omitempty"`
+	ApplyBlocked        bool             `json:"applyBlocked"`
+	ContractHash        string           `json:"contractHash,omitempty"`
 }
 
 func Inspect(ctx context.Context, client *Client, request InspectRequest) (ResolvedContract, error) {
@@ -62,11 +82,6 @@ func Inspect(ctx context.Context, client *Client, request InspectRequest) (Resol
 	if err != nil {
 		return ResolvedContract{}, err
 	}
-	inputContract, err := resolveURLInputContract(template.Fields)
-	if err != nil {
-		return ResolvedContract{}, err
-	}
-
 	contract := ResolvedContract{
 		ContractVersion: ContractVersion,
 		Target: ResolvedTarget{
@@ -76,13 +91,135 @@ func Inspect(ctx context.Context, client *Client, request InspectRequest) (Resol
 			ServiceKey:  template.ServiceKey,
 			ServiceName: template.ServiceName,
 		},
-		InputContract: inputContract,
+	}
+	if request.Profile == nil {
+		contract.InputContract, err = resolveURLInputContract(template.Fields)
+	} else {
+		resolved, resolveErr := ResolveOverlay(request.Profile.Overlay, template)
+		if resolveErr != nil {
+			return ResolvedContract{}, resolveErr
+		}
+		contract.InputContract, err = resolveProfileInputContract(template.Fields, resolved)
+		contract.Profile = &ResolvedProfile{
+			Name:   resolved.Overlay.Name,
+			Source: request.Profile.Source,
+			Stale:  request.Profile.Stale,
+		}
+		contract.TemplateDrift = resolved.Drift.Changed
+		contract.DriftClassification = resolved.Drift.Classification
+		contract.DriftChanges = resolved.Drift.Changes
+		contract.ApplyBlocked = resolved.Drift.ApplyBlocked
+	}
+	if err != nil {
+		return ResolvedContract{}, err
 	}
 	contract.ContractHash, err = hashResolvedContract(contract)
 	if err != nil {
 		return ResolvedContract{}, fmt.Errorf("hash resolved ServiceDesk contract: %w", err)
 	}
 	return contract, nil
+}
+
+func resolveProfileInputContract(fields []Field, overlay ResolvedOverlay) (InputContract, error) {
+	contract, err := resolveURLInputContract(fields)
+	if err != nil {
+		return InputContract{}, err
+	}
+
+	urlNames := make([]string, len(contract.Fields))
+	for index := range contract.Fields {
+		urlNames[index] = contract.Fields[index].Name
+	}
+	mappedFields := make(map[string]ResolvedField, len(overlay.Fields))
+	for _, field := range overlay.Fields {
+		mappedFields[field.Field.BackendKey] = field
+	}
+
+	for index, liveField := range fields {
+		mapped, ok := mappedFields[liveField.BackendKey]
+		if !ok {
+			continue
+		}
+		resolved := &contract.Fields[index]
+		resolved.Name = mapped.PublicName
+		resolved.Aliases = mapped.Overlay.Aliases
+		resolved.Description = mapped.Overlay.Description
+		resolved.Required = liveField.Required || overlayRequired(mapped.Overlay.Required)
+		resolved.DefaultAvailable = liveField.DefaultAvailable || mapped.Overlay.Default != nil
+		for _, column := range mapped.Columns {
+			if column.LiveIndex < 0 || column.LiveIndex >= len(resolved.Columns) {
+				return InputContract{}, fmt.Errorf("ServiceDesk overlay resolved an invalid table column")
+			}
+			resolvedColumn := &resolved.Columns[column.LiveIndex]
+			resolvedColumn.Name = column.PublicName
+			resolvedColumn.Aliases = column.Overlay.Aliases
+			resolvedColumn.Description = column.Overlay.Description
+			resolvedColumn.Required = column.Column.Required || overlayRequired(column.Overlay.Required)
+			resolvedColumn.DefaultAvailable = column.Column.DefaultAvailable || column.Overlay.Default != nil
+		}
+	}
+
+	conditionReferences := make(map[string]string, len(fields)*4)
+	publicNames := make(map[string]struct{}, len(fields)*2)
+	for index, liveField := range fields {
+		resolved := &contract.Fields[index]
+		if err := addProfilePublicNames(publicNames, resolved.Name, resolved.Aliases, "field"); err != nil {
+			return InputContract{}, err
+		}
+		for _, reference := range append([]string{liveField.BackendKey, urlNames[index], resolved.Name}, resolved.Aliases...) {
+			if err := addConditionReference(conditionReferences, reference, resolved.Name); err != nil {
+				return InputContract{}, err
+			}
+		}
+		if err := validateProfileColumnNames(resolved.Columns); err != nil {
+			return InputContract{}, fmt.Errorf("resolve columns for field %q: %w", resolved.Name, err)
+		}
+	}
+
+	contract.UnsupportedRequiredFieldCount = 0
+	for index, liveField := range fields {
+		resolved := &contract.Fields[index]
+		if resolved.Conditional {
+			conditions, err := resolveConditionSources(liveField.Conditions, conditionReferences)
+			if err != nil {
+				return InputContract{}, err
+			}
+			resolved.Conditions = &conditions
+		}
+		if resolved.Required && !resolved.Supported {
+			contract.UnsupportedRequiredFieldCount++
+		}
+		for _, column := range resolved.Columns {
+			if column.Required && !column.Supported {
+				contract.UnsupportedRequiredFieldCount++
+			}
+		}
+	}
+	return contract, nil
+}
+
+func overlayRequired(required *bool) bool {
+	return required != nil && *required
+}
+
+func addProfilePublicNames(claimed map[string]struct{}, name string, aliases []string, kind string) error {
+	for _, publicName := range append([]string{name}, aliases...) {
+		if _, exists := claimed[publicName]; exists {
+			return fmt.Errorf("ServiceDesk profile resolves multiple %ss to one public name", kind)
+		}
+		claimed[publicName] = struct{}{}
+	}
+	return nil
+}
+
+func validateProfileColumnNames(columns []InputColumn) error {
+	claimed := make(map[string]struct{}, len(columns)*2)
+	for _, column := range columns {
+		if err := addProfilePublicNames(claimed, column.Name, column.Aliases, "table column"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func resolveURLInputContract(fields []Field) (InputContract, error) {
@@ -207,12 +344,13 @@ func resolveURLColumns(columns []TableColumn) ([]InputColumn, error) {
 			return nil, fmt.Errorf("ServiceDesk metadata has duplicate table column display name %q", column.Name)
 		}
 		resolved = append(resolved, InputColumn{
-			Name:        column.Name,
-			DisplayName: column.Name,
-			Type:        column.Type,
-			Required:    column.Required,
-			Choices:     column.Choices,
-			Supported:   column.Supported,
+			Name:             column.Name,
+			DisplayName:      column.Name,
+			Type:             column.Type,
+			Required:         column.Required,
+			DefaultAvailable: column.DefaultAvailable,
+			Choices:          column.Choices,
+			Supported:        column.Supported,
 		})
 	}
 	return resolved, nil

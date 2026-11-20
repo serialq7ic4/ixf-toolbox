@@ -58,6 +58,143 @@ func TestInspectURLResolvedContract(t *testing.T) {
 	}
 }
 
+func TestInspectProfileResolvedContract(t *testing.T) {
+	t.Parallel()
+
+	client := newTemplateFixtureClient(t, mustReadFixture(t, "lading-4003.json"))
+	template, err := LoadTemplate(context.Background(), client, EditTarget{BusinessID: 15, ServiceID: 4003})
+	if err != nil {
+		t.Fatalf("LoadTemplate() error = %v", err)
+	}
+	overlay, err := DecodeOverlay(mustReadFixture(t, "profile-4003.json"))
+	if err != nil {
+		t.Fatalf("DecodeOverlay() error = %v", err)
+	}
+	overlay.Baseline = DiscoverOverlay(template, overlay.Name).Baseline
+	required := true
+	detailsOverlay := overlay.Fields["details"]
+	detailsOverlay.Default = json.RawMessage(`"No diagnostics supplied"`)
+	detailsOverlay.Required = &required
+	overlay.Fields["details"] = detailsOverlay
+
+	contract, err := Inspect(context.Background(), client, InspectRequest{
+		Target: EditTarget{BusinessID: 15, ServiceID: 4003},
+		Profile: &ProfileContext{
+			Overlay: overlay,
+			Source:  "cache",
+			Stale:   true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+
+	if contract.Profile == nil || contract.Profile.Name != "fixture-server-hardware-repair" || contract.Profile.Source != "cache" || !contract.Profile.Stale {
+		t.Fatalf("resolved profile = %+v", contract.Profile)
+	}
+	if contract.Target.BusinessID != 15 || contract.Target.ServiceID != 4003 {
+		t.Fatalf("resolved target = %+v", contract.Target)
+	}
+	if contract.TemplateDrift || contract.DriftClassification != "" || contract.ApplyBlocked || len(contract.DriftChanges) != 0 {
+		t.Fatalf("matching profile drift = %v/%q blocked=%v changes=%+v", contract.TemplateDrift, contract.DriftClassification, contract.ApplyBlocked, contract.DriftChanges)
+	}
+
+	fields := contractFieldsByName(contract.InputContract.Fields)
+	for _, name := range []string{"title", "faultType", "devices", "details"} {
+		if _, ok := fields[name]; !ok {
+			t.Errorf("resolved profile contract is missing field %q: %+v", name, contract.InputContract.Fields)
+		}
+	}
+	if _, ok := fields["fault_type"]; ok {
+		t.Fatalf("resolved profile retained URL-mode name fault_type: %+v", fields["fault_type"])
+	}
+	if len(fields["title"].Aliases) != 1 || fields["title"].Aliases[0] != "ticketTitle" {
+		t.Fatalf("title aliases = %#v", fields["title"].Aliases)
+	}
+	details := fields["details"]
+	if details.Description != "Optional detail shown when the selected fault type requires it" || !details.DefaultAvailable || !details.Required {
+		t.Fatalf("details contract field = %+v", details)
+	}
+	if details.Conditions == nil || len(details.Conditions.Conditions) != 1 || details.Conditions.Conditions[0].Field != "faultType" {
+		t.Fatalf("details conditions = %+v", details.Conditions)
+	}
+	columns := fields["devices"].Columns
+	if len(columns) != 2 || columns[0].Name != "hostName" || columns[1].Name != "part" {
+		t.Fatalf("device columns = %+v", columns)
+	}
+
+	encoded, err := json.Marshal(contract)
+	if err != nil {
+		t.Fatalf("marshal contract: %v", err)
+	}
+	for _, forbidden := range []string{"field_title_1001", "field_fault_1002", "host_name", "component", "metadataHash", "No diagnostics supplied"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Errorf("public profile contract contains forbidden private value %q: %s", forbidden, encoded)
+		}
+	}
+
+	delete(overlay.Fields, "faultType")
+	devicesOverlay := overlay.Fields["devices"]
+	delete(devicesOverlay.Columns, "part")
+	overlay.Fields["devices"] = devicesOverlay
+	selective, err := Inspect(context.Background(), client, InspectRequest{
+		Target:  EditTarget{BusinessID: 15, ServiceID: 4003},
+		Profile: &ProfileContext{Overlay: overlay, Source: "cache"},
+	})
+	if err != nil {
+		t.Fatalf("Inspect(selective profile) error = %v", err)
+	}
+	selectiveFields := contractFieldsByName(selective.InputContract.Fields)
+	if _, ok := selectiveFields["fault_type"]; !ok {
+		t.Fatalf("selective profile hid unmapped required field: %+v", selective.InputContract.Fields)
+	}
+	selectiveDetails := selectiveFields["details"]
+	if selectiveDetails.Conditions == nil || len(selectiveDetails.Conditions.Conditions) != 1 || selectiveDetails.Conditions.Conditions[0].Field != "fault_type" {
+		t.Fatalf("selective profile condition source = %+v", selectiveDetails.Conditions)
+	}
+	selectiveColumns := selectiveFields["devices"].Columns
+	if len(selectiveColumns) != 2 || selectiveColumns[0].Name != "hostName" || selectiveColumns[1].Name != "Component" {
+		t.Fatalf("selective profile hid unmapped required column: %+v", selectiveColumns)
+	}
+}
+
+func TestInspectProfileDestructiveDrift(t *testing.T) {
+	t.Parallel()
+
+	client := newTemplateFixtureClient(t, mustReadFixture(t, "lading-4003.json"))
+	template, err := LoadTemplate(context.Background(), client, EditTarget{BusinessID: 15, ServiceID: 4003})
+	if err != nil {
+		t.Fatalf("LoadTemplate() error = %v", err)
+	}
+	overlay, err := DecodeOverlay(mustReadFixture(t, "profile-4003.json"))
+	if err != nil {
+		t.Fatalf("DecodeOverlay() error = %v", err)
+	}
+	overlay.Baseline = DiscoverOverlay(template, overlay.Name).Baseline
+	for index := range overlay.Baseline.Fields {
+		if overlay.Baseline.Fields[index].StableID == "title" {
+			overlay.Baseline.Fields[index].Type = "number"
+		}
+	}
+
+	contract, err := Inspect(context.Background(), client, InspectRequest{
+		Target: EditTarget{BusinessID: 15, ServiceID: 4003},
+		Profile: &ProfileContext{
+			Overlay: overlay,
+			Source:  "network",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+	if contract.Profile == nil || contract.Profile.Source != "network" {
+		t.Fatalf("resolved profile = %+v", contract.Profile)
+	}
+	if !contract.TemplateDrift || contract.DriftClassification != "destructive" || !contract.ApplyBlocked || len(contract.DriftChanges) == 0 {
+		t.Fatalf("destructive profile drift = %v/%q blocked=%v changes=%+v", contract.TemplateDrift, contract.DriftClassification, contract.ApplyBlocked, contract.DriftChanges)
+	}
+}
+
 func TestResolvedContractIncludesChoicesTablesAndConditions(t *testing.T) {
 	t.Parallel()
 

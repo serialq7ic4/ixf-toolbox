@@ -310,6 +310,10 @@ func (c *Client) List(ctx context.Context, businessID int, query ListQuery) (Tic
 	if response.Meta.Limit <= 0 || response.Meta.Offset < 0 || response.Meta.TotalCount < 0 {
 		return TicketPage{}, &APIError{Code: "invalid_response", Status: http.StatusOK, Message: "ServiceDesk pagination metadata is incomplete or inconsistent"}
 	}
+	hasNext := response.Meta.Next != nil && strings.TrimSpace(*response.Meta.Next) != ""
+	if !hasNext && response.Meta.Offset+len(response.Data) < response.Meta.TotalCount {
+		return TicketPage{}, &APIError{Code: "invalid_response", Status: http.StatusOK, Message: "ServiceDesk pagination ended before the advertised total count"}
+	}
 	for _, ticket := range response.Data {
 		if ticket.BusinessID <= 0 {
 			return TicketPage{}, &APIError{Code: "invalid_response", Status: http.StatusOK, Message: "ServiceDesk ticket record is missing a valid business ID"}

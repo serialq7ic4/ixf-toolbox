@@ -240,6 +240,8 @@ func TestClientListRejectsMalformedTicketAndPagination(t *testing.T) {
 		{name: "nonnumeric ticket ID", body: `{"result":true,"data":[{"business_id":9,"instance_id":"REQ123"}],"meta":` + validMeta + `}`},
 		{name: "invalid business ID", body: `{"result":true,"data":[{"business_id":0,"instance_id":"123"}],"meta":` + validMeta + `}`},
 		{name: "missing pagination fields", body: `{"result":true,"data":[],"meta":{}}`},
+		{name: "missing next before total count", body: `{"result":true,"data":[{"business_id":9,"instance_id":"123"}],"meta":{"limit":100,"offset":0,"previous":null,"total_count":2}}`},
+		{name: "null next before total count", body: `{"result":true,"data":[{"business_id":9,"instance_id":"123"}],"meta":{"limit":100,"offset":0,"next":null,"previous":null,"total_count":2}}`},
 	}
 	for _, test := range tests {
 		test := test
@@ -251,6 +253,21 @@ func TestClientListRejectsMalformedTicketAndPagination(t *testing.T) {
 			_, err := client.List(context.Background(), 9, ListQuery{FlowType: "apply", Limit: 100})
 			assertAPIError(t, err, "invalid_response", http.StatusOK, false)
 		})
+	}
+}
+
+func TestClientListAcceptsTerminalPageWithoutNext(t *testing.T) {
+	t.Parallel()
+	client := newFixedHostTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"result":true,"data":[{"business_id":9,"instance_id":"123"}],"meta":{"limit":100,"offset":100,"next":null,"previous":"?offset=0","total_count":101}}`)
+	}))
+
+	page, err := client.List(context.Background(), 9, ListQuery{FlowType: "apply", Limit: 100, Offset: 100})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(page.Data) != 1 || page.Meta.TotalCount != 101 || page.Meta.Next != nil {
+		t.Fatalf("List() = %+v", page)
 	}
 }
 
@@ -359,6 +376,27 @@ func TestClientGetPreservesPermissionErrorWhenTicketIsNotVisible(t *testing.T) {
 
 	_, err := client.Get(context.Background(), DetailTarget{BusinessID: 9, TicketID: "789"})
 	assertAPIError(t, err, "permission_denied", http.StatusForbidden, false)
+}
+
+func TestClientGetFallbackRejectsTruncatedListPage(t *testing.T) {
+	t.Parallel()
+	var waitCalls atomic.Int32
+	client := newFixedHostTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/taskflow3/v3/taskflow/789/" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if request.URL.Query().Get("flow_type") == "wait" {
+			waitCalls.Add(1)
+		}
+		_, _ = io.WriteString(w, `{"result":true,"data":[`+clientListTicketJSON("123")+`],"meta":{"limit":100,"offset":0,"next":null,"previous":null,"total_count":2}}`)
+	}))
+
+	_, err := client.Get(context.Background(), DetailTarget{BusinessID: 9, TicketID: "789"})
+	assertAPIError(t, err, "invalid_response", http.StatusOK, false)
+	if waitCalls.Load() != 0 {
+		t.Fatalf("wait list calls = %d, want 0 after invalid apply page", waitCalls.Load())
+	}
 }
 
 func writeClientListPage(t *testing.T, w http.ResponseWriter, offset int, next *string, tickets ...string) {

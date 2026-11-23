@@ -407,6 +407,30 @@ func TestQueryTicketsPartialRecoveredFilteredDataStaysSuccessful(t *testing.T) {
 	}
 }
 
+func TestQueryTicketsMarksScopeIncompleteWhenListPageIsTruncated(t *testing.T) {
+	t.Parallel()
+	client := queryFixtureClient(t, []Business{{BusinessID: 1, Name: "Complete"}, {BusinessID: 9, Name: "Truncated"}}, func(request *http.Request) []byte {
+		businessID, _ := strconv.Atoi(request.Header.Get("businessId"))
+		ticket := queryTicket(businessID, strconv.Itoa(400+businessID), "RUNNING", "fixture.user", "2026-11-20 10:00:00")
+		totalCount := 1
+		if businessID == 9 {
+			totalCount = 2
+		}
+		return queryEnvelope(t, []TicketResponse{ticket}, &PageMeta{Limit: 100, Offset: 0, TotalCount: totalCount})
+	})
+
+	result, domainErr := QueryTickets(context.Background(), client, QueryRequest{BootstrapBusinessID: 9, Mine: true, Role: QueryRoleSubmitted, State: QueryStateAll, Limit: 20})
+	if domainErr != nil {
+		t.Fatalf("QueryTickets() error = %+v", domainErr)
+	}
+	if result.Complete || result.HasMore != nil || fmt.Sprint(queryTicketIDs(result.Tickets)) != "[401]" {
+		t.Fatalf("result = %+v", result)
+	}
+	if len(result.FailedScopes) != 1 || result.FailedScopes[0].BusinessID != 9 || result.FailedScopes[0].Error != "invalid_response" {
+		t.Fatalf("failed scopes = %+v", result.FailedScopes)
+	}
+}
+
 func TestQueryTicketsReturnsQueryFailedWithoutUsableScope(t *testing.T) {
 	t.Parallel()
 	client := queryResponderClient(t, []Business{{BusinessID: 1, Name: "One"}, {BusinessID: 9, Name: "Nine"}}, func(*http.Request) (*http.Response, error) {

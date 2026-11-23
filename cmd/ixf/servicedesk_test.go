@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -38,6 +40,87 @@ func TestServiceDeskProfileLeafHelpReturnsSuccess(t *testing.T) {
 		if !strings.Contains(stdout.String(), "usage: ixf servicedesk profile") {
 			t.Fatalf("%v help = %q", args, stdout.String())
 		}
+	}
+}
+
+func TestServiceDeskProfileShowAcceptsJSONFlagBeforeOrAfterName(t *testing.T) {
+	profilePath := filepath.Join("..", "..", "internal", "servicedesk", "testdata", "profile-4003.json")
+	profile, err := os.ReadFile(profilePath)
+	if err != nil {
+		t.Fatalf("read profile fixture: %v", err)
+	}
+	digest := sha256.Sum256(profile)
+	index := []byte(fmt.Sprintf(`{"schemaVersion":1,"updatedAt":"2026-11-23T00:00:00Z","profiles":[{"name":"fixture-server-hardware-repair","path":"profiles/fixture-server-hardware-repair.json","sha256":"%x"}]}`, digest))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/files/ixf-toolbox/servicedesk/v1/index.json":
+			_, _ = w.Write(index)
+		case "/files/ixf-toolbox/servicedesk/v1/profiles/fixture-server-hardware-repair.json":
+			_, _ = w.Write(profile)
+		default:
+			http.NotFound(w, request)
+		}
+	}))
+	defer server.Close()
+	cacheDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve cache directory: %v", err)
+	}
+
+	original := serviceDeskRegistryLoader
+	serviceDeskRegistryLoader = func() ixfsd.RegistryLoader {
+		return ixfsd.RegistryLoader{
+			HTTPClient: &http.Client{Transport: serviceDeskRewriteTransport(server.URL)},
+			CacheDir:   cacheDir,
+		}
+	}
+	t.Cleanup(func() { serviceDeskRegistryLoader = original })
+
+	for _, args := range [][]string{
+		{"servicedesk", "profile", "show", "fixture-server-hardware-repair", "--json"},
+		{"servicedesk", "profile", "show", "--json", "fixture-server-hardware-repair"},
+	} {
+		stdout, stderr, code := runCLITest(t, args...)
+		if code != 0 {
+			t.Fatalf("%v exit code = %d, stderr=%q stdout=%q", args, code, stderr, stdout)
+		}
+		var envelope serviceDeskEnvelope
+		if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+			t.Fatalf("%v decode output: %v; stdout=%q", args, err, stdout)
+		}
+		if !envelope.OK || envelope.Operation != "servicedesk_profile_show" {
+			t.Fatalf("%v envelope = %+v", args, envelope)
+		}
+	}
+}
+
+func TestServiceDeskProfileShowRejectsInvalidArgumentsBeforeRegistryLookup(t *testing.T) {
+	original := serviceDeskRegistryLoader
+	serviceDeskRegistryLoader = func() ixfsd.RegistryLoader {
+		t.Fatal("registry loader called for invalid profile show arguments")
+		return ixfsd.RegistryLoader{}
+	}
+	t.Cleanup(func() { serviceDeskRegistryLoader = original })
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "missing name", args: []string{"servicedesk", "profile", "show"}},
+		{name: "multiple names", args: []string{"servicedesk", "profile", "show", "first", "second"}},
+		{name: "empty then valid names", args: []string{"servicedesk", "profile", "show", "", "valid-name"}},
+		{name: "uppercase name", args: []string{"servicedesk", "profile", "show", "Bad-Name"}},
+		{name: "blank name", args: []string{"servicedesk", "profile", "show", " "}},
+		{name: "long name", args: []string{"servicedesk", "profile", "show", strings.Repeat("a", 65)}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, _, code := runCLITest(t, test.args...)
+			if code != 2 {
+				t.Fatalf("exit code = %d, want 2; stdout=%q", code, stdout)
+			}
+		})
 	}
 }
 
@@ -113,6 +196,7 @@ func TestServiceDeskCreateRejectsInvalidURLBeforeCredentialLookup(t *testing.T) 
 }
 
 func TestServiceDeskJSONDomainFailureUsesStableEnvelope(t *testing.T) {
+	t.Setenv("IXF_SERVICEDESK_API_KEY", "")
 	var stdout, stderr bytes.Buffer
 	code := run([]string{
 		"servicedesk", "get",

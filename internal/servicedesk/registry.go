@@ -279,7 +279,7 @@ func decodeRegistry(data []byte) (Registry, error) {
 		if entry.Name == nil || entry.Path == nil || entry.SHA256 == nil {
 			return Registry{}, fmt.Errorf("ServiceDesk registry profile %d is missing a required property", index)
 		}
-		if !overlayNamePattern.MatchString(*entry.Name) || len(*entry.Name) > 64 {
+		if !IsValidProfileName(*entry.Name) {
 			return Registry{}, fmt.Errorf("ServiceDesk registry profile %d has invalid name", index)
 		}
 		if _, exists := seen[*entry.Name]; exists {

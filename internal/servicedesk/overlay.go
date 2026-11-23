@@ -19,6 +19,10 @@ var (
 	hashPattern        = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
 
+func IsValidProfileName(name string) bool {
+	return len(name) <= 64 && overlayNamePattern.MatchString(name)
+}
+
 type Overlay struct {
 	SchemaVersion int                     `json:"schemaVersion"`
 	Name          string                  `json:"name"`
@@ -452,7 +456,7 @@ func ValidateOverlaySchema(overlay Overlay) error {
 	if overlay.SchemaVersion != OverlaySchemaVersion {
 		return fmt.Errorf("ServiceDesk overlay schemaVersion must be %d", OverlaySchemaVersion)
 	}
-	if !overlayNamePattern.MatchString(overlay.Name) || len(overlay.Name) > 64 {
+	if !IsValidProfileName(overlay.Name) {
 		return errors.New("ServiceDesk overlay name must be a lowercase hyphenated slug of at most 64 characters")
 	}
 	if err := validateRouting(overlay.Routing); err != nil {

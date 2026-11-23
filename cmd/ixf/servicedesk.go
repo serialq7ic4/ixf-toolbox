@@ -241,10 +241,30 @@ func runServiceDeskProfile(args []string, stdout, stderr io.Writer) int {
 		flags := flag.NewFlagSet("profile show", flag.ContinueOnError)
 		flags.SetOutput(stderr)
 		asJSON := flags.Bool("json", false, "")
-		if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 1 {
+		name := ""
+		nameSet := false
+		flagArgs := make([]string, 0, len(args)-1)
+		for _, arg := range args[1:] {
+			if strings.HasPrefix(arg, "-") {
+				flagArgs = append(flagArgs, arg)
+				continue
+			}
+			if nameSet {
+				return serviceDeskUsageError(stderr, fmt.Errorf("profile show requires exactly one name"))
+			}
+			name = arg
+			nameSet = true
+		}
+		if err := flags.Parse(flagArgs); err != nil || flags.NArg() != 0 {
 			return 2
 		}
-		value, status, err := serviceDeskRegistryLoader().Show(context.Background(), flags.Arg(0))
+		if !nameSet {
+			return serviceDeskUsageError(stderr, fmt.Errorf("profile show requires exactly one name"))
+		}
+		if !ixfsd.IsValidProfileName(name) {
+			return serviceDeskUsageError(stderr, fmt.Errorf("profile name must be a lowercase hyphenated slug of at most 64 characters"))
+		}
+		value, status, err := serviceDeskRegistryLoader().Show(context.Background(), name)
 		if err != nil {
 			return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_show", nil, ixfsd.ClassifyError("registry", err))
 		}

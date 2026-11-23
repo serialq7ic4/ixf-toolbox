@@ -208,6 +208,9 @@ func TestServiceDeskRootDoctorSummaryIsReadOnlyAndSecretFree(t *testing.T) {
 	if !strings.Contains(string(encoded), `"configured"`) {
 		t.Fatalf("diagnostics missing configured field: %s", encoded)
 	}
+	if result["probeSkipped"] != true {
+		t.Fatalf("missing credentials should skip probe: %+v", result)
+	}
 	if strings.Contains(string(encoded), "IXF_SERVICEDESK_API_KEY") {
 		t.Fatalf("diagnostics exposed credential configuration details: %s", encoded)
 	}

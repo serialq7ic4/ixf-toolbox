@@ -168,7 +168,7 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf messenger read --scope unread\|recent --apply --json` | Launch a cloned-profile browser and read conversation snippets without sending |
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --dry-run --json` | Plan a send without launching a browser or echoing the full message body |
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --apply --json` | Send an approved message and report success only after fresh-session verification |
-| `ixf servicedesk doctor --business-id <id> --json` | Read-only API Key and userinfo readiness check |
+| `ixf servicedesk doctor [--business-id <id>] --json` | Read-only API Key and userinfo readiness check; discovers accessible scopes by default |
 | `ixf servicedesk profile list\|show <name> --json` | List or inspect shared ServiceDesk semantic profiles |
 | `ixf servicedesk template inspect --profile <name> --json` | Read the current live ServiceDesk input contract |
 | `ixf servicedesk create --profile <name> --input row.json --dry-run\|--apply --json` | Plan or confirm creation and verify the created ticket |

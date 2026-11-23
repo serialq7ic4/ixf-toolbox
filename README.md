@@ -2,7 +2,7 @@
 
 **简体中文** | [English](README.en.md)
 
-让 Codex、Claude Code 等本地 coding agent 读取、发布已授权访问的 i讯飞/LarkShell 云文档，读取或写入经过确认的 OKR 内容，并接入本机 Messenger 工作流。
+让 Codex、Claude Code 等本地 coding agent 读取、发布已授权访问的 i讯飞/LarkShell 云文档，读取或写入经过确认的 OKR 内容，管理 ServiceDesk 工单，并接入本机 Messenger 工作流。
 
 > 面向本地 agent 使用，`ixf` 是统一执行入口；复用本机登录态，无服务端，无遥测，不需要飞书开放平台应用。
 
@@ -12,7 +12,7 @@
   <img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-green">
 </p>
 
-`ixf-toolbox` 提供一个本地 CLI 和七个 agent skill：
+`ixf-toolbox` 提供一个本地 CLI 和九个 agent skill：
 
 - `using-ixf-toolbox`: 轻量路由入口，在文档/OKR/Messenger、读取/写入意图不明确时选择正确的具体 skill。
 - `ixf-docs-reader`: 只读，读取已授权云文档、动态分块和图片产物；普通本地 Markdown 阅读直接使用宿主文件系统。
@@ -21,6 +21,8 @@
 - `ixf-okr-writer`: 写入，先 dry-run，再创建或修改经过确认的 Objective / Key Result。
 - `ixf-messenger-reader`: 只读，检查 Messenger 自动化就绪状态，读取最近或未读会话。
 - `ixf-messenger-writer`: 写入，先 dry-run，再在目标验证和 fresh-session 复核后发送确认消息。
+- `ixf-servicedesk-reader`: 只读，查看支持的工单类型、实时表单、本人待办/已提交未完成工单、上下文候选和流转状态。
+- `ixf-servicedesk-writer`: 写入，处理明确提出的提单/报修/撤回请求，先 dry-run，再确认、apply 和回读。
 
 项目刻意保持本地化和窄边界。它不是浏览器扩展、常驻 daemon、同步服务、批量迁移工具，也不替代组织的数据权限和审批流程。
 
@@ -81,11 +83,11 @@ plugin 已安装但未启用，doctor 只给出修复命令，不会替用户修
 
 v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只保留 Go `ixf` 作为受支持的执行入口。开发、CI 和发布验证统一使用 Go 工具链。
 
-当前版本所有文档、wiki、docx、sheets、OKR、cookie、依赖诊断、runtime 更新和 Messenger 能力都只走 Go `ixf`。不要使用 Python fallback，不要调用旧的 `ixfdoc` 或 `ixfwrite` 命令；历史 changelog 和 `docs/superpowers/` 计划文件不能作为当前路由依据。当前路由契约见 [`docs/agent-routing.md`](docs/agent-routing.md)，`ixf doctor --json` 会输出 `agentRouting` 和原生 plugin 安装诊断。
+当前版本所有文档、wiki、docx、sheets、OKR、ServiceDesk、cookie、依赖诊断、runtime 更新和 Messenger 能力都只走 Go `ixf`。不要使用 Python fallback，不要调用旧的 `ixfdoc` 或 `ixfwrite` 命令；历史 changelog 和 `docs/superpowers/` 计划文件不能作为当前路由依据。当前路由契约见 [`docs/agent-routing.md`](docs/agent-routing.md)，`ixf doctor --json` 会输出 `agentRouting` 和原生 plugin 安装诊断。
 
 ## 在 Agent 里使用
 
-安装 skill 后，可以直接让 agent 处理授权链接、发布/更新所需的本地输入文件或 Messenger 请求。你不需要点名具体 skill；直接按日常方式描述目标即可。using-ixf-toolbox 会在后台识别链接类型、读写意图和安全边界，再分配给对应的文档、OKR 或 Messenger skill。普通本地 Markdown 的阅读、总结、审阅和编辑不需要 `ixf-toolbox`，直接使用宿主文件系统即可。
+安装 skill 后，可以直接让 agent 处理授权链接、发布/更新所需的本地输入文件、ServiceDesk 工单或 Messenger 请求。你不需要点名具体 skill；直接按日常方式描述目标即可。using-ixf-toolbox 会在后台识别链接类型、读写意图和安全边界，再分配给对应的文档、OKR、ServiceDesk 或 Messenger skill。普通本地 Markdown 的阅读、总结、审阅和编辑不需要 `ixf-toolbox`，直接使用宿主文件系统即可。
 
 > 帮我总结一下这个文档：https://tenant.example.test/wiki/example
 
@@ -104,6 +106,18 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 > 看一下未读消息，帮我汇总需要我处理的事项。
 
 > 给这个群发一段消息，先展示 dry-run 计划，等我确认后再继续。
+
+> 目前可以提哪些工单？
+
+> 帮我提单报修上面这个服务器硬盘，先展示 dry-run。
+
+> 撤回刚才那个硬盘报修工单，先让我确认。
+
+> 看下当前有哪些工单待我处理。
+
+> 看下我提交的工单里，还有哪些没有完成。
+
+> 查一下刚才提到的硬盘报修单现在处理到哪了。
 
 ### 本地 Markdown 路由边界
 
@@ -156,6 +170,15 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf messenger read --scope unread\|recent --apply --json` | 启动克隆 profile 的浏览器并读取会话片段，不发送消息 |
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --dry-run --json` | 规划发送消息，不启动浏览器、不回显完整消息正文 |
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --apply --json` | 发送确认消息，并通过 fresh-session 复核后报告成功 |
+| `ixf servicedesk doctor --business-id <id> --json` | 只读检查 ServiceDesk API Key 和 userinfo 探测状态 |
+| `ixf servicedesk profile list\|show <name> --json` | 列出或查看共享的 ServiceDesk 业务语义 profile |
+| `ixf servicedesk template inspect --profile <name> --json` | 读取当前 ServiceDesk 表单的实时输入契约 |
+| `ixf servicedesk create --profile <name> --input row.json --dry-run\|--apply --json` | 规划或确认后创建 ServiceDesk 工单，并在 apply 后回读 |
+| `ixf servicedesk list --mine --role todo [--business-id <id>] --json` | 查询当前流程待本人处理的工单 |
+| `ixf servicedesk list --mine --role submitted --state open [--business-id <id>] --json` | 查询本人提交且尚未完成的工单 |
+| `ixf servicedesk search --mine --role any --query <text> [--business-id <id>] --json` | 跨本人提交和待办工单搜索候选，供 Agent 选择最相关且最近的一条 |
+| `ixf servicedesk get (--url <detail-url>\|--business-id <id> --ticket-id <internal-id>) --json` | 查询单个工单当前状态、步骤和处理人 |
+| `ixf servicedesk withdraw --url <detail-url> --reason <text> --dry-run\|--apply --json` | 规划或确认后撤回本人可撤回工单，并回读 `WITHDRAWN` |
 | `ixf cookies export` | 从本机桌面端会话导出 cookie |
 | `ixf doctor --json` | 只读检查 runtime、原生 plugin、legacy skill、cookie 和全功能依赖元数据，不打印 cookie 值 |
 | `ixf deps install --dry-run --json` | 规划可脚本化的 Mermaid 可选依赖安装，不修改本机 |
@@ -168,7 +191,7 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 - `ixf` 是单个 Go 二进制；GitHub Release 只发布 Go 二进制和 checksum。
 - Python runtime/package 已删除；不要使用旧的 `ixfdoc` 或 `ixfwrite`。
 - 远程写入默认 dry-run，必须显式加 `--apply`；写入后按命令能力做回读校验。
-- docs、sheets、bitable、OKR、Messenger 的当前路由契约见 [`docs/agent-routing.md`](docs/agent-routing.md)。
+- docs、sheets、bitable、OKR、Messenger、ServiceDesk 的当前路由契约见 [`docs/agent-routing.md`](docs/agent-routing.md)。
 - Messenger 运行边界见 [`docs/messenger.md`](docs/messenger.md)，包括 Chrome/Chromium-only discovery、cloned profile 隔离、读取副作用和发送成功判定。
 - 版本功能演进记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -626,6 +649,7 @@ dry-run 的 `apply.blocked` 直接说明 apply 是否会被拒绝，`apply.requi
 - 简单表格、任务列表、代码块语言、富文本链接、图片块下载、直接 sheets 读取、嵌入 sheet 展开、sheets 更新 dry-run/apply 和安全资源清理。
 - 本地 Markdown 显式分块、artifact 生成、发布和测试；普通本地 Markdown 阅读由宿主文件系统完成。
 - 授权 OKR 页面读取、指定 Objective 更新/创建、按 Objective 文本写入多个 Objective、KR 创建/修改/排序、显式 prune 和发布。
+- API-only ServiceDesk 支持工单类型/profile 查询、实时表单检查、本人待办与已提交未完成工单读取、上下文候选搜索、单个工单状态查询，以及确认后的创建和撤回回读。
 - Messenger 自动化就绪诊断、profile 发现、profile 安全克隆（cloned profile）、dry-run 打开规划、显式 --apply 打开并验证目标会话、只读读取最近/未读会话，以及确认后的消息发送和 fresh-session 复核。
 - 本机 macOS / Windows 桌面端 cookie 导出、原生 plugin 诊断和确认后的用户目录 runtime bootstrap。
 
@@ -666,6 +690,7 @@ Linux 不支持桌面会话导出，因为 i讯飞没有 Linux 桌面客户端�
 - `ixf docs table append-row --apply` 只修改 docx 原生表格 block；不要用它修改 bitable/base 记录或 sheets 单元格。
 - `ixf bitable record create --apply` 只支持确认后的新增记录，默认追加到当前视图末尾，当前字段范围限定为文本和附件，并会回读校验；不要用 `ixf docs update` 或 `ixf sheets update` 修改 bitable 数据。
 - `ixf bitable attach --apply` 只支持确认后的已有记录附件追加写入，会上传本地文件、保留字段中已有附件并回读校验；普通 docx 的 `view/file` 预览块不是 bitable 入口。
+- `ixf servicedesk create/withdraw --apply` 只在 dry-run 后、用户明确确认目标和内容时执行，并在写入后回读；API Key 只从本机环境变量或权限受限凭据文件读取。
 - `ixf docs patch replace-section` 和 `ixf docs patch delete-section` 是有界破坏性操作；简单新增内容必须优先使用 `ixf docs patch insert`。
 - Messenger 当前支持诊断、dry-run 打开规划、显式 --apply 目标验证、只读会话读取，以及确认后的消息发送；发送成功必须通过 fresh-session 复核。Messenger 自动化只自动发现 Chrome/Chromium，并始终使用 cloned profile。
 - 删除 OKR 多余内容需要额外显式使用 `--prune`。

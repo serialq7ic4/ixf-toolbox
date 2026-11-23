@@ -3,7 +3,7 @@
 ## Support Status
 
 The Python package API has been removed. The Go CLI is the supported runtime for
-document, sheets, bitable, OKR, cookie, doctor, dependency, update, and Messenger
+document, sheets, bitable, OKR, ServiceDesk, cookie, doctor, dependency, update, and Messenger
 workflows. Native Codex and Claude plugins are the supported skill installation
 path and use canonical sources from `skills/*/SKILL.md`.
 

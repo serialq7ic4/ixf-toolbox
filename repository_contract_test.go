@@ -272,14 +272,72 @@ var routingTriggers = []string{
 	"i讯飞", "讯飞文档", "LarkShell", "/docx/", "/wiki/", "/base/",
 	"docx", "wiki", "sheets", "bitable", "OKR", "Messenger",
 	"read", "publish", "update", "patch", "append row", "upload image", "attachment",
+	"ServiceDesk", "工单", "报修", "撤回",
 	// A listing request names a directory and asks what is under it. It is read-only
 	// but is not a read: `docs read` takes one document and cannot enumerate children,
 	// so without this trigger an agent can conclude the toolbox cannot list a directory.
 	"list", "enumerate", "ixf docs tree",
 }
 
+func TestServiceDeskSkillsAreCanonicalAndGenerated(t *testing.T) {
+	for _, skillName := range []string{"ixf-servicedesk-reader", "ixf-servicedesk-writer"} {
+		canonicalPath := filepath.ToSlash(filepath.Join("skills", skillName, "SKILL.md"))
+		canonical := readRepoFile(t, canonicalPath)
+		for _, expected := range []string{"ixf servicedesk", "Runtime Boundary", "explicit confirmation"} {
+			if !strings.Contains(canonical, expected) {
+				t.Fatalf("%s missing %q", canonicalPath, expected)
+			}
+		}
+		for _, skillRoot := range []string{"plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
+			generatedPath := filepath.ToSlash(filepath.Join(skillRoot, skillName, "SKILL.md"))
+			if generated := readRepoFile(t, generatedPath); generated != canonical {
+				t.Fatalf("%s differs from canonical %s", generatedPath, canonicalPath)
+			}
+		}
+	}
+}
+
+func TestServiceDeskReaderDocumentsAtomicQueryModes(t *testing.T) {
+	reader := readRepoFile(t, "skills/ixf-servicedesk-reader/SKILL.md")
+	for _, expected := range []string{
+		"--role todo",
+		"--role submitted --state open",
+		"ixf servicedesk search --mine --role any",
+		"most semantically relevant",
+		"most recently updated",
+		"ixf servicedesk get",
+		"actual business/internal ID",
+		"REQ...",
+		"complete:false",
+		"query_failed",
+	} {
+		if !strings.Contains(reader, expected) {
+			t.Fatalf("canonical ServiceDesk reader missing %q:\n%s", expected, reader)
+		}
+	}
+	if strings.Contains(strings.ToLower(reader), "browser cookie") {
+		t.Fatalf("canonical ServiceDesk reader must remain API Key-only:\n%s", reader)
+	}
+
+	writer := readRepoFile(t, "skills/ixf-servicedesk-writer/SKILL.md")
+	for _, expected := range []string{
+		"--role submitted --state open",
+		"ixf servicedesk search --mine --role any",
+		"ixf servicedesk get --business-id",
+		"If zero or multiple plausible tickets remain, ask the user",
+		"fresh confirmation",
+	} {
+		if !strings.Contains(writer, expected) {
+			t.Fatalf("canonical ServiceDesk writer missing %q:\n%s", expected, writer)
+		}
+	}
+	if strings.Contains(strings.ToLower(writer), "browser cookie") {
+		t.Fatalf("canonical ServiceDesk writer must remain API Key-only:\n%s", writer)
+	}
+}
+
 func TestRoutingSkillTriggersNativePluginDiscovery(t *testing.T) {
-	const frontmatter = "description: Use when a request mentions i讯飞, 讯飞文档, or LarkShell and involves /docx/, /wiki/, /base/, docx, wiki, sheets, bitable, OKR, or Messenger, including read, list or enumerate the documents under a directory or space, publish, update, patch, append-row, image upload, attachment upload, or message workflows; do not use for ordinary local Markdown reading or editing."
+	const frontmatter = "description: Use when a request mentions i讯飞, 讯飞文档, LarkShell, ServiceDesk, or servicedesk.iflytek.com and involves /docx/, /wiki/, /base/, docx, wiki, sheets, bitable, OKR, Messenger, or ticket workflows, including read, list, enumerate, publish, update, patch, append-row, image upload, attachment upload, message, create-ticket, repair-report, status, or withdraw workflows; do not use for ordinary local Markdown reading or editing."
 	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
 		path := filepath.ToSlash(filepath.Join(skillRoot, "using-ixf-toolbox", "SKILL.md"))
 		content := readRepoFile(t, path)
@@ -508,7 +566,7 @@ func TestSheetsRoutingAndUpdateBoundaryAreDocumented(t *testing.T) {
 	for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
 		routingPath := filepath.ToSlash(filepath.Join(skillRoot, "using-ixf-toolbox", "SKILL.md"))
 		routing := readRepoFile(t, routingPath)
-		for _, expected := range []string{"Classify the request as docs, sheets, bitable, OKR, or messenger", "direct sheets link reads", "ixf sheets update --dry-run"} {
+		for _, expected := range []string{"Classify the request as docs, sheets, bitable, OKR, Messenger, or ServiceDesk", "direct sheets link reads", "ixf sheets update --dry-run"} {
 			if !strings.Contains(routing, expected) {
 				t.Fatalf("%s missing sheet routing guidance %q:\n%s", routingPath, expected, routing)
 			}
@@ -677,6 +735,8 @@ var canonicalSkillNames = []string{
 	"ixf-messenger-reader",
 	"ixf-messenger-writer",
 	"ixf-sheets-writer",
+	"ixf-servicedesk-reader",
+	"ixf-servicedesk-writer",
 }
 
 func TestCanonicalSkillsHaveGeneratedHostCopies(t *testing.T) {

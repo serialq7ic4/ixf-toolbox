@@ -72,6 +72,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runOKR(args[1:], stdout, stderr)
 	case "messenger":
 		return runMessenger(args[1:], stdout, stderr)
+	case "servicedesk":
+		return runServiceDesk(args[1:], stdout, stderr)
 	case "deps":
 		return runDeps(args[1:], stdout, stderr)
 	case "doctor":
@@ -94,6 +96,7 @@ func printRootHelp(w io.Writer) {
 		{"bitable", "Inspect, plan, or apply approved bitable changes."},
 		{"okr", "Read or plan approved OKR changes."},
 		{"messenger", "Inspect and plan safe i讯飞 Messenger automation."},
+		{"servicedesk", "Inspect, create, query, or withdraw ServiceDesk tickets."},
 		{"deps", "Inspect or install optional local dependencies."},
 		{"doctor", "Inspect local Toolbox and dependency readiness without changing it."},
 		{"cookies", "Export local desktop session cookies."},
@@ -2950,12 +2953,17 @@ func collectDiagnosticsWithOptions(cookiesPath string, agentOptions agentinstall
 			"messengerReadApply": true,
 			"messengerSendPlan":  true,
 			"messengerSendApply": true,
+			"serviceDeskRead":    true,
+			"serviceDeskWrite":   true,
 		},
 		"cookies":        cookies,
 		"docs":           docsDiagnostics(),
 		"dependencies":   dependencies,
 		"legacyCommands": legacyCommands,
 		"agentRouting":   agentRoutingStatus(agentReport),
+		"services": map[string]any{
+			"servicedesk": serviceDeskRootDiagnostics(),
+		},
 	}
 }
 

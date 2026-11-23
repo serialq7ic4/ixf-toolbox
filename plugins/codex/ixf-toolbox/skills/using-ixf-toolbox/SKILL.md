@@ -1,6 +1,6 @@
 ---
 name: using-ixf-toolbox
-description: Use when a request mentions i讯飞, 讯飞文档, or LarkShell and involves /docx/, /wiki/, /base/, docx, wiki, sheets, bitable, OKR, or Messenger, including read, list or enumerate the documents under a directory or space, publish, update, patch, append-row, image upload, attachment upload, or message workflows; do not use for ordinary local Markdown reading or editing.
+description: Use when a request mentions i讯飞, 讯飞文档, LarkShell, ServiceDesk, or servicedesk.iflytek.com and involves /docx/, /wiki/, /base/, docx, wiki, sheets, bitable, OKR, Messenger, or ticket workflows, including read, list, enumerate, publish, update, patch, append-row, image upload, attachment upload, message, create-ticket, repair-report, status, or withdraw workflows; do not use for ordinary local Markdown reading or editing.
 ---
 
 # Using ixf Toolbox
@@ -8,6 +8,10 @@ description: Use when a request mentions i讯飞, 讯飞文档, or LarkShell and
 Use this as a lightweight routing skill for ixf Toolbox workflows. Users do not need to name this skill or any domain skill explicitly. Use background routing for natural user requests, then hand off to the correct domain skill or direct sheets CLI workflow.
 
 High-signal intents include read, list the documents under a directory, publish, update, patch, append row, upload image, and attachment workflows for i讯飞 resources.
+
+ServiceDesk high-signal action intents include explicitly creating/submitting/reporting a ticket, checking the user's todo work, checking unfinished tickets they submitted, finding one contextual ticket, reading its status, or withdrawing it. A plain fault description such as “服务器硬盘坏了，帮我分析原因” is not a ticket action and must stay outside the ServiceDesk write workflow.
+
+中文工单意图包括“提单”“报修”“查询工单”“查看工单状态”“我的待办”“我提交的未完成工单”和“撤回工单”。仅描述“服务器硬盘坏了，帮我分析原因”不触发提单或撤单流程。
 
 ## Runtime Boundary
 
@@ -47,13 +51,15 @@ Use `ixf deps install`, not bootstrap, for Mermaid dependencies. Never invoke de
 - Use `ixf-okr-writer` for approved Objective and Key Result creation or modification. The verbs are `ixf okr objective create|retitle|delete` and `ixf okr kr add|replace|delete`; `ixf okr write` was removed because it performed deletes under a non-destructive name. Pick the verb matching the intent rather than the broadest one, and never use a destructive verb (`kr replace`, `kr delete`, `objective delete`) to accomplish something a non-destructive verb covers.
 - Use `ixf-messenger-reader` for authorized i讯飞 Messenger readiness checks and read-only message inspection workflows.
 - Use `ixf-messenger-writer` for approved Messenger sends after dry-run planning and explicit apply confirmation.
+- Use `ixf-servicedesk-reader` for supported ticket type lists, live form inspection, profile validation, todo lists, submitted-open lists, contextual search, and ticket status reads. The CLI filters deterministically; the Agent selects the most semantically relevant and, on a relevance tie, most recently updated credible search candidate before calling get.
+- Use `ixf-servicedesk-writer` only for explicit ticket create/submit/repair-report or withdraw requests. The Agent chooses a profile semantically from its description and examples; the CLI does not score keywords or invent business facts. Always dry-run, show the exact target/content, obtain fresh confirmation, then use explicit `--apply` and readback verification.
 
 ## Decision Rules
 
-1. Classify the request as docs, sheets, bitable, OKR, or messenger.
+1. Classify the request as docs, sheets, bitable, OKR, Messenger, or ServiceDesk.
 2. Classify the intent as list, read, or write. Listing is its own intent: a request naming a directory, node, or space and asking what is under it, or asking for the URLs of its documents, is a listing request even though it is read-only. Answer it with `ixf docs tree`, not `ixf docs read`.
 3. Default ambiguous intent to read-only. Default to read-only when uncertain.
-4. For writes, confirm the exact target and content, then follow the relevant writer skill or sheet CLI dry-run-first workflow.
+4. For writes, confirm the exact target and content, then follow the relevant writer skill or sheet/ServiceDesk CLI dry-run-first workflow.
 5. For direct sheets link reads, prefer `ixf sheets read`; for embedded sheet reads inside docx, use `ixf docs read --expand-sheets`.
 6. For localized docs insert requests, use `ixf docs patch insert --dry-run`, inspect `structure`, show `duplicateCandidate` and `existingBlocksTouched`, then use `--apply` only after approval.
 7. For one-section replace/delete requests, use `ixf docs patch replace-section` or `ixf docs patch delete-section --dry-run`, inspect `structure`, show complex/outside-section safety metadata, then use `--apply` only after approval.
@@ -61,8 +67,9 @@ Use `ixf deps install`, not bootstrap, for Mermaid dependencies. Never invoke de
 9. For native docs table row append requests, run `ixf docs table append-row --dry-run`, show `tableIndex`, `headers`, `plannedCellCount`, and `plannedImageCount`, then use `--apply` only after explicit approval. After apply, inspect `verify.appendedRow`: `ok:true` means the row is present as the table's last row with its cells in the expected columns. If `verify.appendedRow.ok:false`, report `verify.appendedRow.error` and any `missingCells` columns; do not claim the row was added.
 10. For bitable record create requests, run `ixf bitable record create --dry-run`, show `insertPosition`, `plannedRecordIndex`, and the field plan, then use `--apply` only after explicit approval and inspect `verify.ok` plus `verify.recordIndex`; for `ixf bitable attach`, run `--dry-run`, show the matched record and file plan, then use `--apply` only after explicit approval and inspect `verify.ok` plus `verify.recordId`.
 11. For OKR write requests, run `ixf okr inspect` first and show the user the objective indexes and KR counts, then choose the verb matching the intent. Pass `--objective N` with `--expect-title` copied from the inspect output. For a destructive verb, show `diff.krsToDelete` and `diff.krsToDeleteTexts`, get approval for that count specifically, and pass `--confirm-kr-deletes N` taken from the dry run. Stop if `diff.resultingKrCount` is 0 while `diff.krsToDelete` is above 0, unless emptying the objective was asked for.
-12. If local authentication or installed routing looks unclear, run `ixf doctor --json` and inspect `agentRouting`.
-13. If local authentication looks missing, run `ixf cookies export --provider auto --json`. On failure, use `error.subtype`, `error.reason`, `error.candidates`, and `error.hint` as the diagnosis. A missing `_csrf_token` or rejected cookie DB does not establish whether the branded desktop client process is running or whether the user is signed in; do not use `pgrep` or guessed app/executable names to claim either state. Follow the returned hint, then retry the export. Never substitute `swp_csrf_token` for `_csrf_token`.
+12. For ServiceDesk reads, map “待我处理” to `list --role todo`, “我提交但未完成” to `list --role submitted --state open`, and a contextual single-ticket request to `search --role any` followed by Agent selection and `get`. A display number beginning with `REQ` is a search clue, not the internal ID. Disclose `complete:false` as partial. Do not require write confirmation for these read-only steps.
+13. If local authentication or installed routing looks unclear, run `ixf doctor --json` and inspect `agentRouting`.
+14. If local authentication looks missing, run `ixf cookies export --provider auto --json`. On failure, use `error.subtype`, `error.reason`, `error.candidates`, and `error.hint` as the diagnosis. A missing `_csrf_token` or rejected cookie DB does not establish whether the branded desktop client process is running or whether the user is signed in; do not use `pgrep` or guessed app/executable names to claim either state. Follow the returned hint, then retry the export. Never substitute `swp_csrf_token` for `_csrf_token`.
 
 ## Safety
 

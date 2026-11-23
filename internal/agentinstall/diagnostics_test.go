@@ -27,6 +27,8 @@ var legacySkillNames = []string{
 	"ixf-okr-writer",
 	"ixf-messenger-reader",
 	"ixf-messenger-writer",
+	"ixf-servicedesk-reader",
+	"ixf-servicedesk-writer",
 }
 
 func fixtureOptions(t *testing.T, codexJSON, claudeJSON string) agentinstall.Options {

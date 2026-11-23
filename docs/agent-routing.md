@@ -16,17 +16,17 @@ history.
 ## Natural User Prompts
 
 Users do not need to name skills explicitly. They can paste an authorized
-document, sheet, OKR, or Messenger request and describe the desired outcome in
+document, sheet, OKR, Messenger, or ServiceDesk request and describe the desired outcome in
 ordinary language. `using-ixf-toolbox` performs background routing to the
 correct domain skill.
 
 ## Decision Rules
 
-1. Classify the domain: docs, sheets, bitable, OKR, or Messenger.
+1. Classify the domain: docs, sheets, bitable, OKR, Messenger, or ServiceDesk.
 2. Classify the intent: read-only or write.
 3. Default ambiguous intent to read-only.
 4. For writes, confirm the exact target and content.
-5. Use dry-run-first workflows before any remote mutation or message send.
+5. Use dry-run-first workflows before any remote mutation, ticket create/withdraw, or message send.
 6. Run `ixf doctor --json` when the installed routing or local auth state is unclear; `ixf doctor --json` exposes `agentRouting` for machine-readable verification.
 7. For docs publish readiness, inspect `cookies.ok`, `capabilities.docsPublish`, and `docs.defaultBaseURL`; do not treat top-level `doctor.ok=false` alone as an auth failure.
 
@@ -70,6 +70,46 @@ and requires confirmed `ixf deps install --apply`; never invoke it silently.
 Canonical skill sources live under `skills/*/SKILL.md`; generated host copies live
 under `plugins/codex/ixf-toolbox/skills/` and
 `plugins/claude/ixf-toolbox/skills/`.
+
+## ServiceDesk Boundary
+
+Use `ixf-servicedesk-reader` for the supported profile list, live form inspection,
+profile validation, the current user's todo list, unfinished submitted-ticket list,
+contextual candidate search, and one-ticket status reads. Map “待我处理” to
+`list --role todo`, “我提交但未完成” to `list --role submitted --state open`,
+and a contextual single-ticket request to `search --role any`. The Agent selects
+the most semantically relevant credible candidate and uses most-recently-updated as
+the tie-breaker, then calls `get` with that candidate's actual business and internal
+IDs. A `REQ...` display number is an exact search clue, not the internal ID. A
+detail URL or explicit business/internal ID pair goes directly to `get`.
+
+List and search span the discovered business scopes. `complete:false` and
+`failedScopes` mean the result is partial; the Agent must disclose that limitation
+and must not call the list exhaustive. `query_failed` means no usable scope
+returned data, not that the user has no matching tickets. These reads need no confirmation. Use
+`ixf-servicedesk-writer` only after the user explicitly asks to submit/create/report
+a repair ticket or withdraw one.
+
+The Agent chooses a semantic profile from the Registry description, intended use,
+examples, and exclusions. The CLI does not score keywords, resolve natural
+language, or invent missing business facts. A sentence such as “服务器硬盘坏了，
+帮我分析原因” is fault analysis, not a ticket action. “提单报修一下这个硬盘”
+is an action intent and enters the writer workflow.
+
+For create, inspect the live form, reuse facts already established in the current
+conversation, ask only for missing required facts, run `ixf servicedesk create
+--dry-run`, show the exact service/title/fact summary, obtain fresh confirmation,
+then use `--apply` and require readback. For withdraw, use submitted-open list or
+contextual search only to identify a candidate, semantically narrow to one unique
+target, run withdraw dry-run, obtain a new withdraw-specific confirmation, apply,
+and require `verify.stateWithdrawn:true`. If candidate results are partial or
+multiple targets remain plausible, ask the user instead of claiming uniqueness.
+
+Each user supplies their own API Key through `IXF_SERVICEDESK_API_KEY`,
+`--api-key-file`, or the private default credential file. Keys never belong in
+profiles, prompts, logs, or command arguments. Registry profiles contain business
+semantics only; live ServiceDesk metadata remains authoritative for backend field
+keys and current input shape.
 
 ## Local Markdown Boundary
 

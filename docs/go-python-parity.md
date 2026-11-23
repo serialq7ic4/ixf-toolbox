@@ -31,6 +31,8 @@ Go binary that executes all business workflows. Canonical skill sources live at
 | `deps install` | Owned | Dry-runs or, with explicit `--apply`, installs optional Mermaid rendering dependencies; desktop/browser login dependencies remain diagnostic-only. |
 | `update check` | Owned | Checks the latest GitHub Release without mutating local files. |
 | `update self` | Owned | Plans or applies local binary/package replacement with explicit `--apply`. |
+| `servicedesk profile/template/list/get` | Owned | Reads shared semantic profiles, live form contracts, and the current user's tickets through the API-only ServiceDesk client. |
+| `servicedesk create/withdraw` | Owned | Plans or applies confirmed ticket creation/withdrawal with explicit `--apply`, stable JSON errors, and readback verification. |
 
 Markdown Mermaid image publishing remains in the Go CLI path. The Go runtime
 detects Mermaid fences, creates docx image blocks, and invokes external Mermaid
@@ -67,7 +69,7 @@ duplicate risk and are never deleted automatically.
 
 ## No Legacy Fallback
 
-All current docs, wiki, docx, sheets, bitable, OKR, cookie, dependency, update, and Messenger
+All current docs, wiki, docx, sheets, bitable, OKR, cookie, dependency, update, Messenger, and ServiceDesk
 workflows use Go `ixf` only. Do not use Python fallback, Python-compatible
 readers, Python-compatible writers, `ixfdoc`, or `ixfwrite`. Old changelog
 entries and `docs/superpowers/` implementation plans are historical records, not

@@ -24,6 +24,8 @@ var skillNames = []string{
 	"ixf-okr-writer",
 	"ixf-messenger-reader",
 	"ixf-messenger-writer",
+	"ixf-servicedesk-reader",
+	"ixf-servicedesk-writer",
 }
 
 type CommandRunner func(context.Context, string, ...string) ([]byte, error)

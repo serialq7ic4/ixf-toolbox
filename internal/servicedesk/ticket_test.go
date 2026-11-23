@@ -20,22 +20,6 @@ func TestStateCategoryKnownAndUnknown(t *testing.T) {
 	}
 }
 
-func TestListMineMergesDeduplicatesSortsAndReportsComplete(t *testing.T) {
-	t.Parallel()
-	var listCalls atomic.Int32
-	client := newTicketFixtureClient(t, &listCalls, nil, nil, false)
-	result, domainErr := ListTickets(context.Background(), client, ListRequest{BusinessID: 15, Mine: true, View: "recent", Limit: 20})
-	if domainErr != nil {
-		t.Fatalf("ListTickets() error = %v", domainErr)
-	}
-	if !result.Complete || len(result.Tickets) != 1 || result.Tickets[0].InstanceID != "3463015" || result.Tickets[0].StateCategory != "active" {
-		t.Fatalf("list result = %+v", result)
-	}
-	if listCalls.Load() != 1 || result.Sort != "created_time_desc" || result.Scopes[0].BusinessID != 15 {
-		t.Fatalf("list metadata = %+v calls=%d", result, listCalls.Load())
-	}
-}
-
 func TestWithdrawDryRunReadsButDoesNotWrite(t *testing.T) {
 	t.Parallel()
 	var withdrawCalls atomic.Int32

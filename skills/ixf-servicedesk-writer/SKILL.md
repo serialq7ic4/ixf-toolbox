@@ -48,15 +48,19 @@ Use this skill only when the user expresses a ticket action such as creating/sub
 
 ## Withdraw Workflow
 
-1. Resolve an explicit business ID from configured doctor output or a selected profile, then list the user's open tickets:
-   `ixf servicedesk list --mine --business-id <id> --view open --json`
-2. Match the user's business description against ticket titles, services, state, and current conversation context using Agent semantic judgment. If zero or multiple plausible tickets remain, ask the user instead of guessing.
-3. Run a dry-run against the unique detail URL:
-   `ixf servicedesk withdraw --url <detail-url> --reason <reason> --dry-run --json`
-4. Show ticket number, title, service, current state, and reason. Obtain new explicit confirmation specifically for withdrawing this ticket.
-5. Apply with the same URL and reason using `--apply --json`.
-6. Claim success only when `applied:true` and `verify.stateWithdrawn:true` after readback.
+1. If the user supplies a detail URL or explicit business/internal ID pair, use it as the candidate. Otherwise identify candidates from the current conversation with:
+   `ixf servicedesk search --mine --role any --query <text> --json`
+   For a broad request about the user's unfinished submissions, use:
+   `ixf servicedesk list --mine --role submitted --state open --json`
+2. Match the user's business description against ticket titles, services, state, update time, and current conversation context using Agent semantic judgment. Search and list are read-only candidate discovery, not authorization to withdraw. If zero or multiple plausible tickets remain, ask the user instead of guessing. When `complete:false`, disclose `failedScopes` and do not infer that the candidate set is exhaustive or unique. Stop on `query_failed`; it is not an empty candidate list.
+3. Use the candidate's actual `businessId` and internal `id`, not its `REQ...` display number or the bootstrap business ID. Inspect the exact candidate before planning the write:
+   `ixf servicedesk get --business-id <ticket.businessId> --ticket-id <ticket.id> --json`
+4. Run a dry-run against the same exact target:
+   `ixf servicedesk withdraw --business-id <ticket.businessId> --ticket-id <ticket.id> --reason <reason> --dry-run --json`
+5. Show ticket number, title, service, current state, and reason. Obtain new explicit confirmation specifically for withdrawing this ticket.
+6. Apply with the same business ID, internal ID, and reason using `--apply --json`.
+7. Claim success only when `applied:true` and `verify.stateWithdrawn:true` after readback.
 
 ## Authentication And Safety
 
-Never ask the user to paste an API Key into chat or put it in a CLI argument. Never print private input payloads unnecessarily, store credentials in a profile, retry an unknown create outcome, or use a revoke/terminate endpoint as a substitute for withdrawal. Design approval, a prior create confirmation, or a general “continue” is not confirmation for a later create or withdrawal mutation.
+Never ask the user to paste an API Key into chat or put it in a CLI argument. Never print private input payloads unnecessarily, store credentials in a profile, retry an unknown create outcome, or use a revoke/terminate endpoint as a substitute for withdrawal. Design approval, read-only candidate selection, a prior create confirmation, or a general “continue” is not fresh confirmation for a later create or withdrawal mutation.

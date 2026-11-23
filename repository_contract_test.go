@@ -281,15 +281,58 @@ var routingTriggers = []string{
 
 func TestServiceDeskSkillsAreCanonicalAndGenerated(t *testing.T) {
 	for _, skillName := range []string{"ixf-servicedesk-reader", "ixf-servicedesk-writer"} {
-		for _, skillRoot := range []string{"skills", "plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
-			path := filepath.Join(repoRoot(t), skillRoot, skillName, "SKILL.md")
-			content := readRepoFile(t, filepath.ToSlash(filepath.Join(skillRoot, skillName, "SKILL.md")))
-			for _, expected := range []string{"ixf servicedesk", "Runtime Boundary", "explicit confirmation"} {
-				if !strings.Contains(content, expected) {
-					t.Fatalf("%s missing %q", path, expected)
-				}
+		canonicalPath := filepath.ToSlash(filepath.Join("skills", skillName, "SKILL.md"))
+		canonical := readRepoFile(t, canonicalPath)
+		for _, expected := range []string{"ixf servicedesk", "Runtime Boundary", "explicit confirmation"} {
+			if !strings.Contains(canonical, expected) {
+				t.Fatalf("%s missing %q", canonicalPath, expected)
 			}
 		}
+		for _, skillRoot := range []string{"plugins/codex/ixf-toolbox/skills", "plugins/claude/ixf-toolbox/skills"} {
+			generatedPath := filepath.ToSlash(filepath.Join(skillRoot, skillName, "SKILL.md"))
+			if generated := readRepoFile(t, generatedPath); generated != canonical {
+				t.Fatalf("%s differs from canonical %s", generatedPath, canonicalPath)
+			}
+		}
+	}
+}
+
+func TestServiceDeskReaderDocumentsAtomicQueryModes(t *testing.T) {
+	reader := readRepoFile(t, "skills/ixf-servicedesk-reader/SKILL.md")
+	for _, expected := range []string{
+		"--role todo",
+		"--role submitted --state open",
+		"ixf servicedesk search --mine --role any",
+		"most semantically relevant",
+		"most recently updated",
+		"ixf servicedesk get",
+		"actual business/internal ID",
+		"REQ...",
+		"complete:false",
+		"query_failed",
+	} {
+		if !strings.Contains(reader, expected) {
+			t.Fatalf("canonical ServiceDesk reader missing %q:\n%s", expected, reader)
+		}
+	}
+	if strings.Contains(strings.ToLower(reader), "browser cookie") {
+		t.Fatalf("canonical ServiceDesk reader must remain API Key-only:\n%s", reader)
+	}
+
+	writer := readRepoFile(t, "skills/ixf-servicedesk-writer/SKILL.md")
+	for _, expected := range []string{
+		"--role submitted --state open",
+		"ixf servicedesk search --mine --role any",
+		"ixf servicedesk get --business-id",
+		"If zero or multiple plausible tickets remain, ask the user",
+		"fresh confirmation",
+	} {
+		if !strings.Contains(writer, expected) {
+			t.Fatalf("canonical ServiceDesk writer missing %q:\n%s", expected, writer)
+		}
+	}
+	if strings.Contains(strings.ToLower(writer), "browser cookie") {
+		t.Fatalf("canonical ServiceDesk writer must remain API Key-only:\n%s", writer)
 	}
 }
 

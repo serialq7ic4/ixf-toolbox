@@ -1,6 +1,6 @@
 ---
 name: ixf-servicedesk-reader
-description: Use when listing supported ServiceDesk ticket types, inspecting a live ticket form, validating a shared profile, listing the current user's recent or unfinished tickets, or checking a ticket's current status without creating or withdrawing it.
+description: Use when listing supported ServiceDesk ticket types, inspecting a live ticket form, validating a shared profile, listing the current user's todo or submitted tickets, searching contextual ticket candidates, or checking a ticket's current status without creating or withdrawing it.
 ---
 
 # ixf ServiceDesk Reader
@@ -37,13 +37,19 @@ Use `ixf deps install`, not bootstrap, for Mermaid dependencies. Never invoke de
    `ixf servicedesk profile show <name> --json`
 5. Inspect its current live input contract with:
    `ixf servicedesk template inspect --profile <name> --json`
-6. To list the current user's tickets, obtain an explicit business ID from configured doctor output or the selected profile, then run:
-   `ixf servicedesk list --mine --business-id <id> --view recent|open --json`
-7. Report `complete:false` and `failedScopes` as partial results. An unknown state remains visible in the open view and must be described as unknown.
-8. Query one known ticket with:
-   `ixf servicedesk get --url <detail-url> --json`
+6. For tickets currently waiting on the user to process, run:
+   `ixf servicedesk list --mine --role todo --json`
+7. For unfinished tickets submitted by the user, run:
+   `ixf servicedesk list --mine --role submitted --state open --json`
+8. For a contextual single-ticket request, extract a concise title, asset, or ticket-number clue from the current conversation and run:
+   `ixf servicedesk search --mine --role any --query <text> --json`
+9. For a read-only contextual lookup, automatically choose the most semantically relevant credible candidate. If relevance is tied, choose the most recently updated candidate. Then read its current detail using the candidate's actual business/internal ID, not the bootstrap ID or display number:
+   `ixf servicedesk get --business-id <ticket.businessId> --ticket-id <ticket.id> --json`
+10. Treat a display ticket number such as `REQ...` as an exact search clue. It is not the internal ticket ID. When the user supplies a detail URL or explicit business/internal ID pair, skip search and call `ixf servicedesk get` directly.
+11. Report `complete:false`, `failedScopes`, and `hasMore:null` as partial results. Never describe a partial result as complete, conclude that no matching ticket exists from it, or hide an unknown ticket state.
+12. A `query_failed` error means no usable scope returned data. Report the failure and its safe diagnostics; do not reinterpret it as an empty ticket list or fall back to UI automation.
 
-Use `recent` for “最近提了哪些工单” and `open` for “哪些工单还没完成”. Include the ticket number, title, service, state, current step or processors, creation time, and detail URL when available.
+Include the ticket number, title, service, state, current step or processors, creation time, update time, and detail URL when available. Read-only list, search, and get operations do not require confirmation.
 
 ## Authentication
 

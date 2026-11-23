@@ -21,7 +21,7 @@
 - `ixf-okr-writer`: 写入，先 dry-run，再创建或修改经过确认的 Objective / Key Result。
 - `ixf-messenger-reader`: 只读，检查 Messenger 自动化就绪状态，读取最近或未读会话。
 - `ixf-messenger-writer`: 写入，先 dry-run，再在目标验证和 fresh-session 复核后发送确认消息。
-- `ixf-servicedesk-reader`: 只读，查看支持的工单类型、实时表单、本人近期/未完成工单和流转状态。
+- `ixf-servicedesk-reader`: 只读，查看支持的工单类型、实时表单、本人待办/已提交未完成工单、上下文候选和流转状态。
 - `ixf-servicedesk-writer`: 写入，处理明确提出的提单/报修/撤回请求，先 dry-run，再确认、apply 和回读。
 
 项目刻意保持本地化和窄边界。它不是浏览器扩展、常驻 daemon、同步服务、批量迁移工具，也不替代组织的数据权限和审批流程。
@@ -113,7 +113,11 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 
 > 撤回刚才那个硬盘报修工单，先让我确认。
 
-> 看下我最近提了哪些工单，还有哪些没有完成。
+> 看下当前有哪些工单待我处理。
+
+> 看下我提交的工单里，还有哪些没有完成。
+
+> 查一下刚才提到的硬盘报修单现在处理到哪了。
 
 ### 本地 Markdown 路由边界
 
@@ -170,8 +174,10 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf servicedesk profile list\|show <name> --json` | 列出或查看共享的 ServiceDesk 业务语义 profile |
 | `ixf servicedesk template inspect --profile <name> --json` | 读取当前 ServiceDesk 表单的实时输入契约 |
 | `ixf servicedesk create --profile <name> --input row.json --dry-run\|--apply --json` | 规划或确认后创建 ServiceDesk 工单，并在 apply 后回读 |
-| `ixf servicedesk list --mine --business-id <id> --view recent\|open --json` | 查询本人近期或未完成工单 |
-| `ixf servicedesk get --url <detail-url> --json` | 查询单个工单当前状态、步骤和处理人 |
+| `ixf servicedesk list --mine --role todo [--business-id <id>] --json` | 查询当前流程待本人处理的工单 |
+| `ixf servicedesk list --mine --role submitted --state open [--business-id <id>] --json` | 查询本人提交且尚未完成的工单 |
+| `ixf servicedesk search --mine --role any --query <text> [--business-id <id>] --json` | 跨本人提交和待办工单搜索候选，供 Agent 选择最相关且最近的一条 |
+| `ixf servicedesk get (--url <detail-url>\|--business-id <id> --ticket-id <internal-id>) --json` | 查询单个工单当前状态、步骤和处理人 |
 | `ixf servicedesk withdraw --url <detail-url> --reason <text> --dry-run\|--apply --json` | 规划或确认后撤回本人可撤回工单，并回读 `WITHDRAWN` |
 | `ixf cookies export` | 从本机桌面端会话导出 cookie |
 | `ixf doctor --json` | 只读检查 runtime、原生 plugin、legacy skill、cookie 和全功能依赖元数据，不打印 cookie 值 |
@@ -643,7 +649,7 @@ dry-run 的 `apply.blocked` 直接说明 apply 是否会被拒绝，`apply.requi
 - 简单表格、任务列表、代码块语言、富文本链接、图片块下载、直接 sheets 读取、嵌入 sheet 展开、sheets 更新 dry-run/apply 和安全资源清理。
 - 本地 Markdown 显式分块、artifact 生成、发布和测试；普通本地 Markdown 阅读由宿主文件系统完成。
 - 授权 OKR 页面读取、指定 Objective 更新/创建、按 Objective 文本写入多个 Objective、KR 创建/修改/排序、显式 prune 和发布。
-- API-only ServiceDesk 支持工单类型/profile 查询、实时表单检查、本人近期/未完成工单读取、工单状态查询，以及确认后的创建和撤回回读。
+- API-only ServiceDesk 支持工单类型/profile 查询、实时表单检查、本人待办与已提交未完成工单读取、上下文候选搜索、单个工单状态查询，以及确认后的创建和撤回回读。
 - Messenger 自动化就绪诊断、profile 发现、profile 安全克隆（cloned profile）、dry-run 打开规划、显式 --apply 打开并验证目标会话、只读读取最近/未读会话，以及确认后的消息发送和 fresh-session 复核。
 - 本机 macOS / Windows 桌面端 cookie 导出、原生 plugin 诊断和确认后的用户目录 runtime bootstrap。
 

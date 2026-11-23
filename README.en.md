@@ -21,7 +21,7 @@ Let Codex, Claude Code, and other local coding agents read and publish authorize
 - `ixf-okr-writer`: dry-run-first creation or update of confirmed Objective / Key Result content.
 - `ixf-messenger-reader`: read-only Messenger readiness checks plus recent or unread conversation extraction.
 - `ixf-messenger-writer`: dry-run-first approved sends with target verification and fresh-session post-send verification.
-- `ixf-servicedesk-reader`: read-only supported ticket types, live forms, the user's recent/open tickets, and ticket status.
+- `ixf-servicedesk-reader`: read-only supported ticket types, live forms, todo/submitted-open tickets, contextual candidates, and ticket status.
 - `ixf-servicedesk-writer`: explicit ticket create/repair-report/withdraw workflows with dry-run, confirmation, apply, and readback.
 
 This project is intentionally local and narrow. It is not a browser extension, daemon, sync service, bulk migration tool, or substitute for organizational data-access rules.
@@ -117,7 +117,11 @@ After installing the skills, ask your agent to work with authorized links, local
 
 > Withdraw the disk repair ticket I just created, but show me the plan first.
 
-> Show my recent tickets and which ones are still unfinished.
+> Show the tickets currently waiting for me to process.
+
+> Show which tickets I submitted are still unfinished.
+
+> Check the current status of the disk repair ticket we just discussed.
 
 ### Local Markdown Routing Boundary
 
@@ -168,8 +172,10 @@ Before the first private remote read or write, make sure the local i讯飞/LarkS
 | `ixf servicedesk profile list\|show <name> --json` | List or inspect shared ServiceDesk semantic profiles |
 | `ixf servicedesk template inspect --profile <name> --json` | Read the current live ServiceDesk input contract |
 | `ixf servicedesk create --profile <name> --input row.json --dry-run\|--apply --json` | Plan or confirm creation and verify the created ticket |
-| `ixf servicedesk list --mine --business-id <id> --view recent\|open --json` | List the current user's recent or unfinished tickets |
-| `ixf servicedesk get --url <detail-url> --json` | Read one ticket's current state, step, and processors |
+| `ixf servicedesk list --mine --role todo [--business-id <id>] --json` | List tickets currently waiting for the user to process |
+| `ixf servicedesk list --mine --role submitted --state open [--business-id <id>] --json` | List unfinished tickets submitted by the user |
+| `ixf servicedesk search --mine --role any --query <text> [--business-id <id>] --json` | Search submitted and todo candidates for Agent semantic selection |
+| `ixf servicedesk get (--url <detail-url>\|--business-id <id> --ticket-id <internal-id>) --json` | Read one ticket's current state, step, and processors |
 | `ixf servicedesk withdraw --url <detail-url> --reason <text> --dry-run\|--apply --json` | Plan or confirm withdrawal and verify `WITHDRAWN` |
 | `ixf cookies export` | Export cookies from the local desktop session |
 | `ixf doctor --json` | Read-only inspection of runtime, native plugins, legacy skills, cookies, and full dependency metadata without printing cookie values |
@@ -574,7 +580,7 @@ Toolbox currently supports:
 - Simple tables, task lists, code languages, rich-text links, image block download, direct sheets reads, embedded sheet expansion, sheets update dry-run/apply, and safe artifact cleanup.
 - Explicit local Markdown chunking, artifact generation, publishing, and test workflows; ordinary local Markdown reading uses the host filesystem.
 - Authorized OKR reading, selected Objective update/create, multi-Objective writes by Objective text, KR create/update/order, explicit prune, and publish-after-edit.
-- API-only ServiceDesk profile/type discovery, live form inspection, current-user recent/open ticket reads, ticket status queries, and confirmed create/withdraw with readback.
+- API-only ServiceDesk profile/type discovery, live form inspection, current-user todo and submitted-open reads, contextual candidate search, ticket status queries, and confirmed create/withdraw with readback.
 - Messenger readiness diagnostics, profile discovery, safe cloned profile usage, dry-run open planning, explicit --apply target verification, read-only recent/unread extraction, and approved sends with fresh-session verification.
 - macOS and experimental Windows desktop-session cookie export, native plugin diagnostics, and confirmed user-local runtime bootstrap.
 

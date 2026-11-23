@@ -74,9 +74,21 @@ under `plugins/codex/ixf-toolbox/skills/` and
 ## ServiceDesk Boundary
 
 Use `ixf-servicedesk-reader` for the supported profile list, live form inspection,
-profile validation, the current user's recent/open ticket list, and one-ticket
-status reads. Use `ixf-servicedesk-writer` only after the user explicitly asks to
-submit/create/report a repair ticket or withdraw one.
+profile validation, the current user's todo list, unfinished submitted-ticket list,
+contextual candidate search, and one-ticket status reads. Map “待我处理” to
+`list --role todo`, “我提交但未完成” to `list --role submitted --state open`,
+and a contextual single-ticket request to `search --role any`. The Agent selects
+the most semantically relevant credible candidate and uses most-recently-updated as
+the tie-breaker, then calls `get` with that candidate's actual business and internal
+IDs. A `REQ...` display number is an exact search clue, not the internal ID. A
+detail URL or explicit business/internal ID pair goes directly to `get`.
+
+List and search span the discovered business scopes. `complete:false` and
+`failedScopes` mean the result is partial; the Agent must disclose that limitation
+and must not call the list exhaustive. `query_failed` means no usable scope
+returned data, not that the user has no matching tickets. These reads need no confirmation. Use
+`ixf-servicedesk-writer` only after the user explicitly asks to submit/create/report
+a repair ticket or withdraw one.
 
 The Agent chooses a semantic profile from the Registry description, intended use,
 examples, and exclusions. The CLI does not score keywords, resolve natural
@@ -87,9 +99,11 @@ is an action intent and enters the writer workflow.
 For create, inspect the live form, reuse facts already established in the current
 conversation, ask only for missing required facts, run `ixf servicedesk create
 --dry-run`, show the exact service/title/fact summary, obtain fresh confirmation,
-then use `--apply` and require readback. For withdraw, list the user's open tickets,
-semantically narrow to one unique candidate, run withdraw dry-run, obtain a new
-withdraw-specific confirmation, apply, and require `verify.stateWithdrawn:true`.
+then use `--apply` and require readback. For withdraw, use submitted-open list or
+contextual search only to identify a candidate, semantically narrow to one unique
+target, run withdraw dry-run, obtain a new withdraw-specific confirmation, apply,
+and require `verify.stateWithdrawn:true`. If candidate results are partial or
+multiple targets remain plausible, ask the user instead of claiming uniqueness.
 
 Each user supplies their own API Key through `IXF_SERVICEDESK_API_KEY`,
 `--api-key-file`, or the private default credential file. Keys never belong in

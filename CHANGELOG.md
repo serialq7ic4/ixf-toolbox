@@ -4,8 +4,8 @@
 
 ## 3.32.0 - 2026-11-20
 
-- Added the Go-native, API-only `ixf servicedesk` command family for ServiceDesk readiness, live form/profile inspection, validated ticket creation, current-user recent/open ticket listing, ticket status reads, and confirmed withdrawal with readback verification.
-- Added shared semantic ServiceDesk reader/writer skills and Claude routing for explicit ticket intents. Fault descriptions without a ticket action remain ordinary analysis requests; profile selection stays with the Agent rather than a CLI keyword scorer.
+- Added the Go-native, API-only `ixf servicedesk` command family for ServiceDesk readiness, live form/profile inspection, validated ticket creation, role-aware todo and submitted-open ticket listing, contextual ticket search, ticket status reads, and confirmed withdrawal with readback verification.
+- Added shared semantic ServiceDesk reader/writer skills and Claude routing for explicit ticket intents. The Agent distinguishes todo work from unfinished submissions, selects the most relevant and recently updated contextual search candidate before reading details, and keeps ambiguous withdrawal targets behind user choice and fresh confirmation. Fault descriptions without a ticket action remain ordinary analysis requests; profile and candidate selection stay with the Agent rather than a CLI keyword scorer.
 - Added dynamic live-template validation, Registry overlay drift checks, stable JSON contracts, explicit dry-run/apply gates, unknown-create-outcome handling, owner/state checks, and API Key diagnostics without secret output.
 
 ## 3.31.3 - 2026-11-19

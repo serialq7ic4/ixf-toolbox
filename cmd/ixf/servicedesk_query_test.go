@@ -143,12 +143,16 @@ func TestServiceDeskQueryBusinessIDPrecedence(t *testing.T) {
 	}
 }
 
-func TestServiceDeskQueryMissingBusinessIDUsesJSONFailure(t *testing.T) {
+func TestServiceDeskQueryMissingBusinessIDUsesAutomaticDiscovery(t *testing.T) {
 	home := t.TempDir()
 	setServiceDeskQueryTestHome(t, home)
 	setOptionalEnvironment(t, "IXF_SERVICEDESK_BUSINESS_ID", nil)
 	for _, command := range []string{"list", "search"} {
 		t.Run(command, func(t *testing.T) {
+			var captured ixfsd.QueryRequest
+			installServiceDeskQueryTestDoubles(t, func(request ixfsd.QueryRequest) {
+				captured = request
+			})
 			args := []string{"servicedesk", command, "--mine", "--json"}
 			if command == "list" {
 				args = append(args, "--role", "submitted")
@@ -156,14 +160,17 @@ func TestServiceDeskQueryMissingBusinessIDUsesJSONFailure(t *testing.T) {
 				args = append(args, "--query", "disk")
 			}
 			stdout, stderr, code := runCLITest(t, args...)
-			if code != 1 || stderr != "" {
+			if code != 0 || stderr != "" {
 				t.Fatalf("exit code=%d stderr=%q stdout=%q", code, stderr, stdout)
+			}
+			if captured.BootstrapBusinessID != 0 {
+				t.Fatalf("bootstrap business ID = %d, want automatic discovery", captured.BootstrapBusinessID)
 			}
 			var envelope serviceDeskEnvelope
 			if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
 				t.Fatalf("decode output: %v", err)
 			}
-			if envelope.OK || envelope.Operation != "servicedesk_"+command || envelope.Error == nil || envelope.Error.Code != "invalid_request" {
+			if !envelope.OK || envelope.Operation != "servicedesk_"+command || envelope.Error != nil {
 				t.Fatalf("envelope = %+v", envelope)
 			}
 			if strings.Contains(stdout, home) {

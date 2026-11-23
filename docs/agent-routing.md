@@ -86,7 +86,10 @@ detail URL or explicit business/internal ID pair goes directly to `get`.
 List and search span the discovered business scopes. `complete:false` and
 `failedScopes` mean the result is partial; the Agent must disclose that limitation
 and must not call the list exhaustive. `query_failed` means no usable scope
-returned data, not that the user has no matching tickets. These reads need no confirmation. Use
+returned data, not that the user has no matching tickets. With an API Key, list,
+search, and doctor discover accessible scopes through headerless userinfo; do not
+ask the user to configure a bootstrap business ID. `--business-id` is an optional
+compatibility and diagnostic override. These reads need no confirmation. Use
 `ixf-servicedesk-writer` only after the user explicitly asks to submit/create/report
 a repair ticket or withdraw one.
 

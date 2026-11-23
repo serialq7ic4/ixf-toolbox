@@ -12,7 +12,9 @@ Linux desktop-session export and Messenger automation are not supported because 
 ServiceDesk uses its own API Key and fixed ServiceDesk HTTPS API; it does not
 depend on the desktop cookie export or browser automation. The Go client reads
 the user's API Key from the documented local sources and performs live metadata,
-ticket, and readback requests directly.
+ticket, and readback requests directly. Read queries and ServiceDesk diagnostics
+discover accessible business scopes from userinfo, so users do not need to
+configure a bootstrap business ID.
 
 ## Authentication Diagnosis
 

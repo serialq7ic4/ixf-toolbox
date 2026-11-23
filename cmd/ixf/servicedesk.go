@@ -135,12 +135,10 @@ func serviceDeskDiagnostics(explicitBusinessID int, apiKeyFile string) map[strin
 		result["reason"] = "invalid_business_id"
 		return result
 	}
-	if !configured {
-		result["reason"] = "business_id_unconfigured"
-		return result
+	if configured {
+		result["businessId"] = businessID
+		result["businessIdSource"] = source
 	}
-	result["businessId"] = businessID
-	result["businessIdSource"] = source
 	result["probeSkipped"] = false
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

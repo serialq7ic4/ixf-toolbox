@@ -253,7 +253,15 @@ func newDirectHTTPClient(timeout time.Duration) *http.Client {
 
 func (c *Client) UserInfo(ctx context.Context, businessID int) (UserInfo, error) {
 	var response UserInfo
-	err := c.do(ctx, http.MethodGet, "/api/user/v3/userinfo/", nil, businessID, nil, &response, nil, true)
+	if businessID < 0 {
+		return response, invalidRequest("ServiceDesk business ID must not be negative")
+	}
+	var err error
+	if businessID == 0 {
+		err = c.doRequest(ctx, http.MethodGet, "/api/user/v3/userinfo/", nil, 0, nil, &response, nil, true)
+	} else {
+		err = c.do(ctx, http.MethodGet, "/api/user/v3/userinfo/", nil, businessID, nil, &response, nil, true)
+	}
 	return response, err
 }
 
@@ -401,7 +409,20 @@ func (c *Client) do(
 	if businessID <= 0 {
 		return invalidRequest("ServiceDesk business ID must be positive")
 	}
+	return c.doRequest(ctx, method, path, query, businessID, payload, dataTarget, metaTarget, retryable)
+}
 
+func (c *Client) doRequest(
+	ctx context.Context,
+	method string,
+	path string,
+	query url.Values,
+	businessID int,
+	payload any,
+	dataTarget any,
+	metaTarget any,
+	retryable bool,
+) error {
 	var body io.Reader
 	if payload != nil {
 		encoded, err := json.Marshal(payload)
@@ -418,7 +439,9 @@ func (c *Client) do(
 	if err != nil {
 		return &APIError{Code: "invalid_request", Message: "ServiceDesk request could not be created", Cause: safeCause(err, c.credential.APIKey)}
 	}
-	request.Header.Set("businessId", strconv.Itoa(businessID))
+	if businessID > 0 {
+		request.Header.Set("businessId", strconv.Itoa(businessID))
+	}
 	request.Header.Set("apikey", c.credential.APIKey)
 	request.Header.Set("Content-Type", "application/json")
 

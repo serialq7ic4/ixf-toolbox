@@ -170,7 +170,7 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf messenger read --scope unread\|recent --apply --json` | 启动克隆 profile 的浏览器并读取会话片段，不发送消息 |
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --dry-run --json` | 规划发送消息，不启动浏览器、不回显完整消息正文 |
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --apply --json` | 发送确认消息，并通过 fresh-session 复核后报告成功 |
-| `ixf servicedesk doctor --business-id <id> --json` | 只读检查 ServiceDesk API Key 和 userinfo 探测状态 |
+| `ixf servicedesk doctor [--business-id <id>] --json` | 只读检查 ServiceDesk API Key 和 userinfo 探测状态，默认自动发现可访问业务域 |
 | `ixf servicedesk profile list\|show <name> --json` | 列出或查看共享的 ServiceDesk 业务语义 profile |
 | `ixf servicedesk template inspect --profile <name> --json` | 读取当前 ServiceDesk 表单的实时输入契约 |
 | `ixf servicedesk create --profile <name> --input row.json --dry-run\|--apply --json` | 规划或确认后创建 ServiceDesk 工单，并在 apply 后回读 |
@@ -185,6 +185,8 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf deps install --apply --json` | 显式安装 Mermaid CLI / Puppeteer 浏览器依赖，不改 Messenger 桌面环境 |
 | `ixf update check --json` | 检查最新 GitHub Release |
 | `ixf update self --json` | 规划或执行 Toolbox 自升级 |
+
+ServiceDesk 的 `doctor`、`list` 和 `search` 只要求 API Key：CLI 默认调用无 `businessId` header 的 userinfo 自动发现当前用户可访问的业务域，再以各业务域的实际 ID 查询列表。`--business-id`、`IXF_SERVICEDESK_BUSINESS_ID` 和 `~/.config/ixf-toolbox/servicedesk-business-id` 仅保留为兼容和诊断覆盖，不是安装或使用前置配置，Agent 不应要求用户提供一个入口 business ID。
 
 ### 当前运行边界
 

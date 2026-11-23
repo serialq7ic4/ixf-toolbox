@@ -43,7 +43,7 @@ Use `ixf deps install`, not bootstrap, for Mermaid dependencies. Never invoke de
    `ixf servicedesk list --mine --role submitted --state open --json`
 8. For a contextual single-ticket request, extract a concise title, asset, or ticket-number clue from the current conversation and run:
    `ixf servicedesk search --mine --role any --query <text> --json`
-9. For a read-only contextual lookup, automatically choose the most semantically relevant credible candidate. If relevance is tied, choose the most recently updated candidate. Then read its current detail using the candidate's actual business/internal ID, not the bootstrap ID or display number:
+9. For a read-only contextual lookup, automatically choose the most semantically relevant credible candidate. If relevance is tied, choose the most recently updated candidate. Then read its current detail using the candidate's actual business/internal ID, not the display number:
    `ixf servicedesk get --business-id <ticket.businessId> --ticket-id <ticket.id> --json`
 10. Treat a display ticket number such as `REQ...` as an exact search clue. It is not the internal ticket ID. When the user supplies a detail URL or explicit business/internal ID pair, skip search and call `ixf servicedesk get` directly.
 11. Report `complete:false`, `failedScopes`, and `hasMore:null` as partial results. Never describe a partial result as complete, conclude that no matching ticket exists from it, or hide an unknown ticket state.
@@ -54,6 +54,8 @@ Include the ticket number, title, service, state, current step or processors, cr
 ## Authentication
 
 Run `ixf servicedesk doctor --json` when readiness is unclear. Never ask the user to paste an API Key into chat or pass it as a command-line value. The CLI reads `IXF_SERVICEDESK_API_KEY`, `--api-key-file`, or the private default credential file and never prints the key or its length.
+
+With an API Key, `list`, `search`, and `doctor` automatically discover accessible business scopes through userinfo. Do not ask the user to provide or configure a bootstrap business ID. `--business-id` is an optional compatibility and diagnostic override, not a normal setup requirement. A candidate's returned `businessId` is still required for the subsequent `get` call.
 
 ## Safety
 

@@ -209,6 +209,48 @@ func TestClientEndpointRequests(t *testing.T) {
 	}
 }
 
+func TestClientUserInfoBusinessIDHeader(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		businessID int
+		wantHeader string
+	}{
+		{name: "automatic discovery omits header", businessID: 0, wantHeader: ""},
+		{name: "explicit business preserves header", businessID: 15, wantHeader: "15"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			client := newFixedHostTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				if got := request.Header.Get("businessId"); got != test.wantHeader {
+					t.Errorf("businessId header = %q, want %q", got, test.wantHeader)
+				}
+				_, _ = io.WriteString(w, `{"result":true,"data":{"username":"fixture.user","business":[]}}`)
+			}))
+
+			if _, err := client.UserInfo(context.Background(), test.businessID); err != nil {
+				t.Fatalf("UserInfo() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestClientUserInfoRejectsNegativeBusinessID(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient(Credential{APIKey: testAPIKey}, ClientOptions{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			t.Fatal("negative business ID reached the transport")
+			return nil, nil
+		}),
+	})
+	_, err := client.UserInfo(context.Background(), -1)
+	assertAPIError(t, err, "invalid_request", 0, false)
+}
+
 func TestClientListUsesRequestedFlowType(t *testing.T) {
 	t.Parallel()
 	for _, flowType := range []string{"apply", "wait"} {

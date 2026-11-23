@@ -175,16 +175,19 @@ search 使用 `role=any,state=open` 时，open 只过滤 submitted 分支；todo
 
 ### 身份探测 business ID
 
-`list` 和 `search` 需要一个当前用户可访问的 business ID 调用 `userinfo`。来源优先级为：
+`list` 和 `search` 默认只携带 API Key 调用 `userinfo`，不发送 `businessId` header。userinfo 返回
+当前用户可访问的 business 列表后，CLI 再以每个业务域的实际 ID 查询工单列表。
+
+为兼容既有诊断流程，仍可显式覆盖 userinfo 请求的 business ID，来源优先级为：
 
 1. `--business-id`。
 2. `IXF_SERVICEDESK_BUSINESS_ID`。
 3. `~/.config/ixf-toolbox/servicedesk-business-id`。
 
-这个值只用于身份探测，不能限制最终查询 scope，也不能改写候选工单自身的 business ID。
-本设计将原先仅供 doctor 使用的 ambient business ID 扩展到只读 list/search；create、get、
-withdraw 和 profile validate 仍必须使用显式目标。输出必须明确区分 `bootstrapBusinessId` 和实际查询过的 `scopes`，防止 Agent 把入口值解释为
-结果范围。未配置入口 business ID 时失败并给出可执行提示，不遍历猜测常见 ID。
+这个可选值只覆盖身份探测，不能限制最终查询 scope，也不能改写候选工单自身的 business ID。
+create、get、withdraw 和 profile validate 仍必须使用显式目标。输出继续区分
+`bootstrapBusinessId` 和实际查询过的 `scopes`；自动发现时前者为 `0`。未配置入口 business ID
+不再失败，也不遍历猜测常见 ID。
 
 ### 单张工单详情
 
@@ -279,7 +282,7 @@ ServiceDesk reader skill 根据用户意图区分：
 
 沿用稳定 DomainError 分类。新增或明确以下情况：
 
-- `invalid_request`：role/state 组合非法、query 为空或 business ID 未配置。
+- `invalid_request`：role/state 组合非法、query 为空或显式 business ID 覆盖非法。
 - `authentication_failed` / `permission_denied`：API Key 无效或 scope 不可访问。
 - `invalid_response`：列表记录或分页结构不兼容。
 - scope 局部失败不使整个命令 envelope `ok=false`，但 result 必须 `complete=false`。

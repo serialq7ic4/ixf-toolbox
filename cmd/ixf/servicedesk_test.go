@@ -334,6 +334,57 @@ func TestServiceDeskDoctorProbesInjectedClient(t *testing.T) {
 	}
 }
 
+func TestServiceDeskDoctorAutomaticallyDiscoversBusinessScopes(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	setOptionalEnvironment(t, "IXF_SERVICEDESK_BUSINESS_ID", nil)
+	t.Setenv("IXF_SERVICEDESK_API_KEY", "fixture-key")
+
+	var headers []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/user/v3/userinfo/" {
+			http.NotFound(w, request)
+			return
+		}
+		headers = append(headers, request.Header.Get("businessId"))
+		writeTestJSON(t, w, readServiceDeskFixture(t, "userinfo.json"))
+	}))
+	defer server.Close()
+
+	original := serviceDeskClientForCredential
+	serviceDeskClientForCredential = func(credential ixfsd.Credential) *ixfsd.Client {
+		return ixfsd.NewClient(credential, ixfsd.ClientOptions{Transport: serviceDeskRewriteTransport(server.URL)})
+	}
+	t.Cleanup(func() { serviceDeskClientForCredential = original })
+
+	stdout, stderr, code := runCLITest(t, "servicedesk", "doctor", "--json")
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr=%q stdout=%q", code, stderr, stdout)
+	}
+	var standalone map[string]any
+	if err := json.Unmarshal([]byte(stdout), &standalone); err != nil {
+		t.Fatalf("decode doctor result: %v; stdout=%q", err, stdout)
+	}
+	assertServiceDeskReadyWithoutBusinessID(t, standalone)
+
+	root := serviceDeskRootDiagnostics()
+	assertServiceDeskReadyWithoutBusinessID(t, root)
+	if len(headers) != 2 || headers[0] != "" || headers[1] != "" {
+		t.Fatalf("userinfo businessId headers = %q, want two empty headers", headers)
+	}
+}
+
+func assertServiceDeskReadyWithoutBusinessID(t *testing.T, result map[string]any) {
+	t.Helper()
+	if result["status"] != "ready" || result["authenticated"] != true || result["apiReachable"] != true || result["probeSkipped"] != false {
+		t.Fatalf("doctor result = %+v", result)
+	}
+	if _, exists := result["businessId"]; exists {
+		t.Fatalf("automatic doctor result reported a configured business ID: %+v", result)
+	}
+}
+
 func readServiceDeskFixture(t *testing.T, name string) map[string]any {
 	t.Helper()
 	path := filepath.Join("..", "..", "internal", "servicedesk", "testdata", name)

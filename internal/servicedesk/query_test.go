@@ -20,7 +20,7 @@ func TestQueryTicketsValidatesRoleStateAndMine(t *testing.T) {
 		return nil, nil
 	})})
 	tests := []QueryRequest{
-		{BootstrapBusinessID: 0, Mine: true, Role: QueryRoleSubmitted, State: QueryStateAll},
+		{BootstrapBusinessID: -1, Mine: true, Role: QueryRoleSubmitted, State: QueryStateAll},
 		{BootstrapBusinessID: 9, Mine: false, Role: QueryRoleSubmitted, State: QueryStateAll},
 		{BootstrapBusinessID: 9, Mine: true, Role: "", State: QueryStateAll},
 		{BootstrapBusinessID: 9, Mine: true, Role: "unknown", State: QueryStateAll},
@@ -31,6 +31,53 @@ func TestQueryTicketsValidatesRoleStateAndMine(t *testing.T) {
 		if _, domainErr := QueryTickets(context.Background(), client, request); domainErr == nil || domainErr.Code != "invalid_request" {
 			t.Errorf("QueryTickets(%+v) error = %+v, want invalid_request", request, domainErr)
 		}
+	}
+}
+
+func TestQueryTicketsAutomaticallyDiscoversBusinessScopes(t *testing.T) {
+	t.Parallel()
+
+	var listMu sync.Mutex
+	listRequests := make(map[int]int)
+	client := NewClient(Credential{APIKey: testAPIKey}, ClientOptions{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/api/user/v3/userinfo/":
+			if got := request.Header.Get("businessId"); got != "" {
+				t.Errorf("userinfo businessId header = %q, want empty", got)
+			}
+			businesses := []Business{{BusinessID: 1, Name: "Aggregate"}, {BusinessID: 9, Name: "Dedicated"}}
+			return fixtureHTTPResponse(queryEnvelope(t, UserInfo{Username: "fixture.user", Business: businesses}, nil)), nil
+		case "/api/taskflow3/v3/taskflow/":
+			businessID, err := strconv.Atoi(request.Header.Get("businessId"))
+			if err != nil || (businessID != 1 && businessID != 9) {
+				t.Errorf("list businessId header = %q, want 1 or 9", request.Header.Get("businessId"))
+			}
+			listMu.Lock()
+			listRequests[businessID]++
+			listMu.Unlock()
+			return fixtureHTTPResponse(queryPage(t, nil, 0, nil)), nil
+		default:
+			return nil, fmt.Errorf("unexpected path %s", request.URL.Path)
+		}
+	})})
+
+	result, domainErr := QueryTickets(context.Background(), client, QueryRequest{
+		BootstrapBusinessID: 0,
+		Mine:                true,
+		Role:                QueryRoleSubmitted,
+		State:               QueryStateAll,
+		Limit:               20,
+	})
+	if domainErr != nil {
+		t.Fatalf("QueryTickets() error = %+v", domainErr)
+	}
+	if result.BootstrapBusinessID != 0 || len(result.Scopes) != 2 {
+		t.Fatalf("result = %+v", result)
+	}
+	listMu.Lock()
+	defer listMu.Unlock()
+	if listRequests[1] != 1 || listRequests[9] != 1 || len(listRequests) != 2 {
+		t.Fatalf("list requests by business = %v, want map[1:1 9:1]", listRequests)
 	}
 }
 

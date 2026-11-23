@@ -97,8 +97,9 @@ type StartResponse struct {
 }
 
 type ListQuery struct {
-	Limit  int
-	Offset int
+	FlowType string
+	Limit    int
+	Offset   int
 }
 
 type PageMeta struct {
@@ -275,9 +276,12 @@ func (c *Client) Start(ctx context.Context, businessID int, payload StartPayload
 }
 
 func (c *Client) List(ctx context.Context, businessID int, query ListQuery) (TicketPage, error) {
+	if query.FlowType != "apply" && query.FlowType != "wait" {
+		return TicketPage{}, invalidRequest("ServiceDesk list flow type must be apply or wait")
+	}
 	values := url.Values{
 		"key":       {"request"},
-		"flow_type": {"apply"},
+		"flow_type": {query.FlowType},
 		"limit":     {strconv.Itoa(query.Limit)},
 		"offset":    {strconv.Itoa(query.Offset)},
 	}

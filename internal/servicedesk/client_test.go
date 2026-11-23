@@ -132,7 +132,7 @@ func TestClientEndpointRequests(t *testing.T) {
 		{
 			name: "list", method: http.MethodGet, path: "/api/taskflow3/v3/taskflow/", rawQuery: "flow_type=apply&key=request&limit=20&offset=40", fixture: "list.json",
 			call: func(ctx context.Context, client *Client) error {
-				got, err := client.List(ctx, 15, ListQuery{Limit: 20, Offset: 40})
+				got, err := client.List(ctx, 15, ListQuery{FlowType: "apply", Limit: 20, Offset: 40})
 				if err == nil && (len(got.Data) != 1 || got.Data[0].InstanceID != "3463015" || got.Data[0].Step != "Fixture review" || got.Meta.TotalCount != 1) {
 					return fmt.Errorf("ticket page = %+v", got)
 				}
@@ -204,6 +204,45 @@ func TestClientEndpointRequests(t *testing.T) {
 
 			if err := test.call(context.Background(), client); err != nil {
 				t.Fatalf("client call: %v", err)
+			}
+		})
+	}
+}
+
+func TestClientListUsesRequestedFlowType(t *testing.T) {
+	t.Parallel()
+	for _, flowType := range []string{"apply", "wait"} {
+		flowType := flowType
+		t.Run(flowType, func(t *testing.T) {
+			t.Parallel()
+			client := newFixedHostTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				if request.URL.RawQuery != "flow_type="+flowType+"&key=request&limit=20&offset=40" {
+					t.Errorf("query = %q", request.URL.RawQuery)
+				}
+				_, _ = w.Write(mustReadFixture(t, "list.json"))
+			}))
+			if _, err := client.List(context.Background(), 9, ListQuery{FlowType: flowType, Limit: 20, Offset: 40}); err != nil {
+				t.Fatalf("List() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestClientListRejectsUnsupportedFlowTypeBeforeTransport(t *testing.T) {
+	t.Parallel()
+	for _, flowType := range []string{"", "any", "unknown"} {
+		flowType := flowType
+		t.Run(flowType, func(t *testing.T) {
+			t.Parallel()
+			var calls atomic.Int32
+			client := NewClient(Credential{APIKey: testAPIKey}, ClientOptions{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				calls.Add(1)
+				return nil, errors.New("transport should not be called")
+			})})
+			_, err := client.List(context.Background(), 9, ListQuery{FlowType: flowType, Limit: 20})
+			assertAPIError(t, err, "invalid_request", 0, false)
+			if calls.Load() != 0 {
+				t.Fatalf("transport calls = %d, want 0", calls.Load())
 			}
 		})
 	}
@@ -307,7 +346,7 @@ func TestClientListNormalizesAndRejectsTicketFieldVariants(t *testing.T) {
 			client := newFixedHostTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				_, _ = io.WriteString(w, body)
 			}))
-			page, err := client.List(context.Background(), 9, ListQuery{Limit: 20})
+			page, err := client.List(context.Background(), 9, ListQuery{FlowType: "apply", Limit: 20})
 			if test.wantErrorCode != "" {
 				assertAPIError(t, err, test.wantErrorCode, http.StatusOK, false)
 				return

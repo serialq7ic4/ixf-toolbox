@@ -92,7 +92,7 @@ func ListTickets(ctx context.Context, client *Client, request ListRequest) (List
 		scope := ScopeResult{BusinessID: business.BusinessID, Name: business.Name, Complete: true}
 		offset := 0
 		for {
-			page, pageErr := client.List(ctx, business.BusinessID, ListQuery{Limit: 100, Offset: offset})
+			page, pageErr := client.List(ctx, business.BusinessID, ListQuery{FlowType: "apply", Limit: 100, Offset: offset})
 			if pageErr != nil {
 				scope.Complete = false
 				scope.Error = ClassifyError("list", pageErr).Code

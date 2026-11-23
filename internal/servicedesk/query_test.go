@@ -300,6 +300,42 @@ func TestQueryTicketsAnyMergesRolesAndDuplicatePrecedence(t *testing.T) {
 	}
 }
 
+func TestQueryTicketsDeduplicatesBeforeStateAndSearchFilters(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		state QueryStateFilter
+		query string
+	}{
+		{name: "newer terminal duplicate controls open filter", state: QueryStateOpen},
+		{name: "newer nonmatching duplicate controls search filter", state: QueryStateAll, query: "old-match"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			client := queryFixtureClient(t, []Business{{BusinessID: 1, Name: "Aggregate"}, {BusinessID: 9, Name: "Dedicated"}}, func(request *http.Request) []byte {
+				requestBusinessID, _ := strconv.Atoi(request.Header.Get("businessId"))
+				candidate := queryTicket(9, "206", "RUNNING", "fixture.user", "2026-11-20 10:00:00")
+				candidate.Title = "old-match"
+				if requestBusinessID == 9 {
+					candidate.State = "FINISHED"
+					candidate.UpdateTime = "2026-11-20 11:00:00"
+					candidate.Title = "new-record"
+				}
+				return queryPage(t, []TicketResponse{candidate}, 0, nil)
+			})
+			result, domainErr := QueryTickets(context.Background(), client, QueryRequest{BootstrapBusinessID: 9, Mine: true, Role: QueryRoleSubmitted, State: test.state, Query: test.query, Limit: 20})
+			if domainErr != nil {
+				t.Fatalf("QueryTickets() error = %+v", domainErr)
+			}
+			if len(result.Tickets) != 0 {
+				t.Fatalf("tickets = %+v, want duplicate removed by post-dedup filter", result.Tickets)
+			}
+		})
+	}
+}
+
 func TestQueryTicketsAnyOpenFiltersOnlySubmitted(t *testing.T) {
 	t.Parallel()
 	client := queryFixtureClient(t, []Business{{BusinessID: 9, Name: "Fixture"}}, func(request *http.Request) []byte {
@@ -349,6 +385,25 @@ func TestQueryTicketsPartialResultHasUnknownMore(t *testing.T) {
 	}
 	if len(result.FailedScopes) != 2 || result.FailedScopes[0].FlowType != "apply" || result.FailedScopes[0].Error != "timeout" || result.Scopes[0].TicketCount != 1 {
 		t.Fatalf("failed scopes = %+v scopes=%+v", result.FailedScopes, result.Scopes)
+	}
+}
+
+func TestQueryTicketsPartialRecoveredFilteredDataStaysSuccessful(t *testing.T) {
+	t.Parallel()
+	client := queryResponderClient(t, []Business{{BusinessID: 9, Name: "Partial"}}, func(request *http.Request) (*http.Response, error) {
+		offset, _ := strconv.Atoi(request.URL.Query().Get("offset"))
+		if offset == 0 {
+			next := "/api/taskflow3/v3/taskflow/?offset=100"
+			return fixtureHTTPResponse(queryPage(t, []TicketResponse{queryTicket(9, "402", "RUNNING", "fixture.user", "2026-11-20 10:00:00")}, 0, &next)), nil
+		}
+		return nil, context.DeadlineExceeded
+	})
+	result, domainErr := QueryTickets(context.Background(), client, QueryRequest{BootstrapBusinessID: 9, Mine: true, Role: QueryRoleSubmitted, State: QueryStateAll, Query: "does-not-match", Limit: 20})
+	if domainErr != nil {
+		t.Fatalf("QueryTickets() error = %+v", domainErr)
+	}
+	if result.Complete || result.HasMore != nil || len(result.Tickets) != 0 || len(result.FailedScopes) != 1 || result.Scopes[0].TicketCount != 1 {
+		t.Fatalf("result = %+v", result)
 	}
 }
 

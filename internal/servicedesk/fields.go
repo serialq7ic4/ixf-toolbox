@@ -553,7 +553,19 @@ func matchInputColumn(name string, columns []TableColumn, public map[string]Reso
 		return resolved.LiveIndex, resolved.PublicName, true, false
 	}
 	if profileMode {
-		return 0, name, false, false
+		matches := make([]int, 0, 1)
+		for index, column := range columns {
+			if profileColumnMapped(index, public) {
+				continue
+			}
+			if column.Name == name {
+				matches = append(matches, index)
+			}
+		}
+		if len(matches) != 1 {
+			return 0, name, false, len(matches) > 1
+		}
+		return matches[0], columns[matches[0]].Name, true, false
 	}
 	for index, column := range columns {
 		if column.BackendKey == name {
@@ -570,6 +582,15 @@ func matchInputColumn(name string, columns []TableColumn, public map[string]Reso
 		return 0, name, false, len(matches) > 1
 	}
 	return matches[0], name, true, false
+}
+
+func profileColumnMapped(index int, public map[string]ResolvedColumn) bool {
+	for _, resolved := range public {
+		if resolved.LiveIndex == index {
+			return true
+		}
+	}
+	return false
 }
 
 func columnPublicName(column TableColumn, public map[string]ResolvedColumn) string {

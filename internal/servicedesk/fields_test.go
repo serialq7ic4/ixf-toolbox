@@ -168,6 +168,37 @@ func TestNormalizeTableColumnsToBackendKeys(t *testing.T) {
 	}
 }
 
+func TestNormalizeProfileAcceptsAdvertisedUnmappedTableColumn(t *testing.T) {
+	t.Parallel()
+	field := Field{BackendKey: "f_devices", StableID: "devices", Name: "Devices", Type: "extend_table", Required: true, Supported: true, TableColumns: []TableColumn{
+		{BackendKey: "host_name", Name: "Host name", Type: "input", Required: true, Supported: true},
+		{BackendKey: "component", Name: "Component", Type: "input", Required: true, Supported: true},
+	}}
+	resolved := &ResolvedOverlay{Fields: map[string]ResolvedField{
+		"devices": {
+			PublicName: "devices",
+			Field:      field,
+			Columns: map[string]ResolvedColumn{
+				"hostName": {PublicName: "hostName", Column: field.TableColumns[0], LiveIndex: 0},
+			},
+		},
+	}, Aliases: map[string]string{"devices": "devices"}}
+	input := TicketInput{"devices": []any{map[string]any{"hostName": "server-01", "Component": "disk"}}}
+	got, issues := NormalizeInput(Template{Fields: []Field{field}}, resolved, input)
+	if len(issues) != 0 {
+		t.Fatalf("NormalizeInput() issues = %#v", issues)
+	}
+	row := got.Inputs["f_devices"].([]any)[0].(map[string]any)
+	if row["host_name"] != "server-01" || row["component"] != "disk" {
+		t.Fatalf("normalized row = %#v", row)
+	}
+
+	_, issues = NormalizeInput(Template{Fields: []Field{field}}, resolved, TicketInput{"devices": []any{map[string]any{"hostName": "server-01", "component": "disk"}}})
+	if !hasFieldIssue(issues, "unknown_column", "devices") {
+		t.Fatalf("backend column was accepted: %#v", issues)
+	}
+}
+
 func TestNormalizeProfileRejectsBackendAndUnmappedLiveNames(t *testing.T) {
 	t.Parallel()
 

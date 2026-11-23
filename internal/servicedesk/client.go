@@ -154,22 +154,36 @@ func (response *TicketResponse) UnmarshalJSON(data []byte) error {
 
 func decodeTicketInstanceID(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return "", nil
+		return "", errors.New("must be a positive integer")
 	}
 	var text string
 	if err := json.Unmarshal(raw, &text); err == nil {
+		if !isPositiveDecimal(text) {
+			return "", errors.New("must be a positive integer")
+		}
 		return text, nil
 	}
-	number := bytes.TrimSpace(raw)
-	if len(number) == 0 || number[0] == '0' {
-		return "", errors.New("must be a string or positive integer")
+	number := string(bytes.TrimSpace(raw))
+	if !isPositiveDecimal(number) {
+		return "", errors.New("must be a positive integer")
 	}
-	for _, digit := range number {
+	return number, nil
+}
+
+func isPositiveDecimal(value string) bool {
+	nonzero := false
+	if value == "" {
+		return false
+	}
+	for _, digit := range value {
 		if digit < '0' || digit > '9' {
-			return "", errors.New("must be a string or positive integer")
+			return false
+		}
+		if digit != '0' {
+			nonzero = true
 		}
 	}
-	return string(number), nil
+	return nonzero
 }
 
 func decodeTicketStep(raw json.RawMessage) (string, error) {
@@ -279,6 +293,9 @@ func (c *Client) List(ctx context.Context, businessID int, query ListQuery) (Tic
 	if query.FlowType != "apply" && query.FlowType != "wait" {
 		return TicketPage{}, invalidRequest("ServiceDesk list flow type must be apply or wait")
 	}
+	if query.Limit <= 0 || query.Offset < 0 {
+		return TicketPage{}, invalidRequest("ServiceDesk list pagination must use a positive limit and nonnegative offset")
+	}
 	values := url.Values{
 		"key":       {"request"},
 		"flow_type": {query.FlowType},
@@ -287,7 +304,18 @@ func (c *Client) List(ctx context.Context, businessID int, query ListQuery) (Tic
 	}
 	var response TicketPage
 	err := c.do(ctx, http.MethodGet, "/api/taskflow3/v3/taskflow/", values, businessID, nil, &response.Data, &response.Meta, true)
-	return response, err
+	if err != nil {
+		return response, err
+	}
+	if response.Meta.Limit <= 0 || response.Meta.Offset < 0 || response.Meta.TotalCount < 0 {
+		return TicketPage{}, &APIError{Code: "invalid_response", Status: http.StatusOK, Message: "ServiceDesk pagination metadata is incomplete or inconsistent"}
+	}
+	for _, ticket := range response.Data {
+		if ticket.BusinessID <= 0 {
+			return TicketPage{}, &APIError{Code: "invalid_response", Status: http.StatusOK, Message: "ServiceDesk ticket record is missing a valid business ID"}
+		}
+	}
+	return response, nil
 }
 
 func (c *Client) Get(ctx context.Context, target DetailTarget) (TicketResponse, error) {
@@ -297,7 +325,51 @@ func (c *Client) Get(ctx context.Context, target DetailTarget) (TicketResponse, 
 	}
 	path := "/api/taskflow3/v3/taskflow/" + target.TicketID + "/"
 	err := c.do(ctx, http.MethodGet, path, nil, target.BusinessID, nil, &response, nil, true)
+	if err == nil {
+		return response, nil
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != "permission_denied" {
+		return response, err
+	}
+
+	visible, found, fallbackErr := c.findVisibleTicket(ctx, target)
+	if fallbackErr != nil {
+		return response, fallbackErr
+	}
+	if found {
+		return visible, nil
+	}
 	return response, err
+}
+
+func (c *Client) findVisibleTicket(ctx context.Context, target DetailTarget) (TicketResponse, bool, error) {
+	for _, flowType := range []string{"apply", "wait"} {
+		offset := 0
+		for {
+			page, err := c.List(ctx, target.BusinessID, ListQuery{FlowType: flowType, Limit: 100, Offset: offset})
+			if err != nil {
+				return TicketResponse{}, false, err
+			}
+			for _, ticket := range page.Data {
+				if ticket.BusinessID == target.BusinessID && ticket.InstanceID == target.TicketID {
+					return ticket, true, nil
+				}
+			}
+			if page.Meta.Next == nil || strings.TrimSpace(*page.Meta.Next) == "" {
+				break
+			}
+			next := page.Meta.Offset + page.Meta.Limit
+			if next <= offset {
+				next = offset + len(page.Data)
+			}
+			if next <= offset {
+				return TicketResponse{}, false, &APIError{Code: "invalid_response", Status: http.StatusOK, Message: "ServiceDesk pagination did not advance"}
+			}
+			offset = next
+		}
+	}
+	return TicketResponse{}, false, nil
 }
 
 func (c *Client) Withdraw(ctx context.Context, businessID int, payload WithdrawPayload) error {

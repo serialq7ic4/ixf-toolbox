@@ -228,6 +228,32 @@ func TestClientListUsesRequestedFlowType(t *testing.T) {
 	}
 }
 
+func TestClientListRejectsMalformedTicketAndPagination(t *testing.T) {
+	t.Parallel()
+	validMeta := `{"limit":100,"offset":0,"next":null,"previous":null,"total_count":1}`
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "missing ticket ID", body: `{"result":true,"data":[{"business_id":9}],"meta":` + validMeta + `}`},
+		{name: "null ticket ID", body: `{"result":true,"data":[{"business_id":9,"instance_id":null}],"meta":` + validMeta + `}`},
+		{name: "nonnumeric ticket ID", body: `{"result":true,"data":[{"business_id":9,"instance_id":"REQ123"}],"meta":` + validMeta + `}`},
+		{name: "invalid business ID", body: `{"result":true,"data":[{"business_id":0,"instance_id":"123"}],"meta":` + validMeta + `}`},
+		{name: "missing pagination fields", body: `{"result":true,"data":[],"meta":{}}`},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			client := newFixedHostTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, test.body)
+			}))
+			_, err := client.List(context.Background(), 9, ListQuery{FlowType: "apply", Limit: 100})
+			assertAPIError(t, err, "invalid_response", http.StatusOK, false)
+		})
+	}
+}
+
 func TestClientListRejectsUnsupportedFlowTypeBeforeTransport(t *testing.T) {
 	t.Parallel()
 	for _, flowType := range []string{"", "any", "unknown"} {
@@ -246,6 +272,110 @@ func TestClientListRejectsUnsupportedFlowTypeBeforeTransport(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClientGetFallsBackToVisibleSubmittedTicketWhenDetailIsForbidden(t *testing.T) {
+	t.Parallel()
+	var detailCalls, applyCalls, waitCalls atomic.Int32
+	client := newFixedHostTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/taskflow3/v3/taskflow/123/":
+			detailCalls.Add(1)
+			w.WriteHeader(http.StatusForbidden)
+		case "/api/taskflow3/v3/taskflow/":
+			switch request.URL.Query().Get("flow_type") {
+			case "apply":
+				applyCalls.Add(1)
+				writeClientListPage(t, w, 0, nil, clientListTicketJSON("123"))
+			case "wait":
+				waitCalls.Add(1)
+				writeClientListPage(t, w, 0, nil)
+			default:
+				t.Fatalf("unexpected flow_type %q", request.URL.Query().Get("flow_type"))
+			}
+		default:
+			t.Fatalf("unexpected path %q", request.URL.Path)
+		}
+	}))
+
+	got, err := client.Get(context.Background(), DetailTarget{BusinessID: 9, TicketID: "123"})
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.InstanceID != "123" || got.BusinessID != 9 || got.State != "RUNNING" {
+		t.Fatalf("Get() = %+v", got)
+	}
+	if detailCalls.Load() != 1 || applyCalls.Load() != 1 || waitCalls.Load() != 0 {
+		t.Fatalf("calls detail=%d apply=%d wait=%d", detailCalls.Load(), applyCalls.Load(), waitCalls.Load())
+	}
+}
+
+func TestClientGetFallbackPaginatesAndSearchesTodoTickets(t *testing.T) {
+	t.Parallel()
+	var waitOffsets []string
+	client := newFixedHostTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/taskflow3/v3/taskflow/456/" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if request.URL.Path != "/api/taskflow3/v3/taskflow/" {
+			t.Fatalf("unexpected path %q", request.URL.Path)
+		}
+		flowType := request.URL.Query().Get("flow_type")
+		offset := request.URL.Query().Get("offset")
+		switch {
+		case flowType == "apply":
+			writeClientListPage(t, w, 0, nil)
+		case flowType == "wait" && offset == "0":
+			waitOffsets = append(waitOffsets, offset)
+			next := "/api/taskflow3/v3/taskflow/?offset=100"
+			writeClientListPage(t, w, 0, &next, clientListTicketJSON("111"))
+		case flowType == "wait" && offset == "100":
+			waitOffsets = append(waitOffsets, offset)
+			writeClientListPage(t, w, 100, nil, clientListTicketJSON("456"))
+		default:
+			t.Fatalf("unexpected list query %q", request.URL.RawQuery)
+		}
+	}))
+
+	got, err := client.Get(context.Background(), DetailTarget{BusinessID: 9, TicketID: "456"})
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.InstanceID != "456" || fmt.Sprint(waitOffsets) != "[0 100]" {
+		t.Fatalf("Get() = %+v, wait offsets = %v", got, waitOffsets)
+	}
+}
+
+func TestClientGetPreservesPermissionErrorWhenTicketIsNotVisible(t *testing.T) {
+	t.Parallel()
+	client := newFixedHostTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/taskflow3/v3/taskflow/789/" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		writeClientListPage(t, w, 0, nil)
+	}))
+
+	_, err := client.Get(context.Background(), DetailTarget{BusinessID: 9, TicketID: "789"})
+	assertAPIError(t, err, "permission_denied", http.StatusForbidden, false)
+}
+
+func writeClientListPage(t *testing.T, w http.ResponseWriter, offset int, next *string, tickets ...string) {
+	t.Helper()
+	nextJSON := "null"
+	if next != nil {
+		encoded, err := json.Marshal(*next)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nextJSON = string(encoded)
+	}
+	_, _ = fmt.Fprintf(w, `{"result":true,"data":[%s],"meta":{"limit":100,"offset":%d,"next":%s,"previous":null,"total_count":%d}}`, strings.Join(tickets, ","), offset, nextJSON, len(tickets))
+}
+
+func clientListTicketJSON(instanceID string) string {
+	return fmt.Sprintf(`{"business_id":9,"instance_id":"%s","name":"REQ-FIXTURE","title":"Fixture","service_id":1,"service_name":"Fixture","state":"RUNNING","step":"Review","creator":"fixture.user","created_time":"2026-11-23 10:00:00","update_time":"2026-11-23 11:00:00"}`, instanceID)
 }
 
 func TestDefaultHTTPClientDoesNotInheritProxyEnvironment(t *testing.T) {
@@ -342,7 +472,7 @@ func TestClientListNormalizesAndRejectsTicketFieldVariants(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			body := fmt.Sprintf(`{"result":true,"data":[{"instance_id":%s,"step":%s}],"meta":{"limit":20,"offset":0,"next":null,"previous":null,"total_count":1}}`, test.instanceID, test.step)
+			body := fmt.Sprintf(`{"result":true,"data":[{"business_id":9,"instance_id":%s,"step":%s}],"meta":{"limit":20,"offset":0,"next":null,"previous":null,"total_count":1}}`, test.instanceID, test.step)
 			client := newFixedHostTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				_, _ = io.WriteString(w, body)
 			}))

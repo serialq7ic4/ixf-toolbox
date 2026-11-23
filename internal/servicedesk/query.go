@@ -83,7 +83,7 @@ type queryTicketCandidate struct {
 
 type mergedQueryTicket struct {
 	Candidate queryTicketCandidate
-	Roles     map[QueryRole]struct{}
+	Roles     map[QueryRole]queryTicketCandidate
 }
 
 func QueryTickets(ctx context.Context, client *Client, request QueryRequest) (QueryResult, *DomainError) {
@@ -139,6 +139,7 @@ func QueryTickets(ctx context.Context, client *Client, request QueryRequest) (Qu
 	outcomes := queryServiceDeskScopes(ctx, client, scopes)
 	all := make(map[string]mergedQueryTicket)
 	completedScopeCount := 0
+	recoveredTicketCount := 0
 	for _, outcome := range outcomes {
 		result.Scopes = append(result.Scopes, outcome.Scope)
 		if !outcome.Scope.Complete {
@@ -147,23 +148,21 @@ func QueryTickets(ctx context.Context, client *Client, request QueryRequest) (Qu
 		} else {
 			completedScopeCount++
 		}
+		recoveredTicketCount += len(outcome.Tickets)
 		for _, candidate := range outcome.Tickets {
 			ticket := candidate.Ticket
-			if candidate.Role == QueryRoleSubmitted && request.State == QueryStateOpen && ticket.StateCategory == "terminal" {
-				continue
-			}
-			if !matchesTicketQuery(ticket, result.Query) {
-				continue
-			}
 			if ticket.InstanceID == "" || ticket.BusinessID <= 0 {
 				continue
 			}
 			key := fmt.Sprintf("%d:%s", ticket.BusinessID, ticket.InstanceID)
 			merged, exists := all[key]
 			if !exists {
-				merged = mergedQueryTicket{Candidate: candidate, Roles: make(map[QueryRole]struct{}, 2)}
+				merged = mergedQueryTicket{Candidate: candidate, Roles: make(map[QueryRole]queryTicketCandidate, 2)}
 			}
-			merged.Roles[candidate.Role] = struct{}{}
+			roleCandidate, roleExists := merged.Roles[candidate.Role]
+			if !roleExists || preferQueryCandidate(candidate, roleCandidate) {
+				merged.Roles[candidate.Role] = candidate
+			}
 			if exists && preferQueryCandidate(candidate, merged.Candidate) {
 				merged.Candidate = candidate
 			}
@@ -173,11 +172,17 @@ func QueryTickets(ctx context.Context, client *Client, request QueryRequest) (Qu
 	tickets := make([]Ticket, 0, len(all))
 	for _, merged := range all {
 		ticket := merged.Candidate.Ticket
-		if _, exists := merged.Roles[QueryRoleSubmitted]; exists {
+		if !matchesTicketQuery(ticket, result.Query) {
+			continue
+		}
+		if submitted, exists := merged.Roles[QueryRoleSubmitted]; exists && !(request.State == QueryStateOpen && submitted.Ticket.StateCategory == "terminal") {
 			ticket.RoleMatches = append(ticket.RoleMatches, string(QueryRoleSubmitted))
 		}
 		if _, exists := merged.Roles[QueryRoleTodo]; exists {
 			ticket.RoleMatches = append(ticket.RoleMatches, string(QueryRoleTodo))
+		}
+		if len(ticket.RoleMatches) == 0 {
+			continue
 		}
 		tickets = append(tickets, ticket)
 	}
@@ -197,7 +202,7 @@ func QueryTickets(ctx context.Context, client *Client, request QueryRequest) (Qu
 		}
 		return tickets[left].InstanceID < tickets[right].InstanceID
 	})
-	if len(scopes) != 0 && completedScopeCount == 0 && len(tickets) == 0 {
+	if len(scopes) != 0 && completedScopeCount == 0 && recoveredTicketCount == 0 {
 		return result, &DomainError{Code: "query_failed", Message: "ServiceDesk ticket query did not return a usable scope", Action: actionForCode("query_failed")}
 	}
 	if result.Complete {

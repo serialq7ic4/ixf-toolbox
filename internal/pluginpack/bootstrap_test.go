@@ -645,11 +645,18 @@ func TestClaudeUserPromptSubmitHookRoutesServiceDeskActionButNotFaultAnalysis(t 
 		`{"prompt":"我要提单报修服务器上的硬盘"}`,
 		`{"prompt":"帮我撤回刚才的工单"}`,
 		`{"prompt":"看一下我最近的工单状态"}`,
+		`{"prompt":"我有哪些待办工单"}`,
+		`{"prompt":"我提交的单还有哪些没完成"}`,
 		`{"prompt":"Check the ServiceDesk ticket status"}`,
+		`{"prompt":"Use ServiceDesk to withdraw ticket"}`,
 	} {
 		output := runUserPromptSubmit(t, pluginRoot, prompt)
 		if len(bytes.TrimSpace(output)) == 0 || !bytes.Contains(output, []byte("ixf-toolbox:using-ixf-toolbox")) {
 			t.Fatalf("ServiceDesk prompt was not routed: %s", output)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(output, &payload); err != nil {
+			t.Fatalf("ServiceDesk prompt produced invalid hook JSON: prompt=%q err=%v output=%s", prompt, err, output)
 		}
 	}
 	for _, prompt := range []string{

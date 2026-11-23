@@ -83,9 +83,9 @@ func runServiceDeskQueryCommand(command string, args []string, stdout, stderr io
 		return serviceDeskUsageError(stderr, fmt.Errorf("--limit must be positive"))
 	}
 	operation := "servicedesk_" + command
-	resolvedBusinessID, _, configured, err := (ixfsd.BusinessIDLoader{}).Load(*businessID)
-	if err != nil || !configured {
-		domainErr := &ixfsd.DomainError{Code: "invalid_request", Message: "ServiceDesk bootstrap business ID is not configured", Action: "set --business-id, IXF_SERVICEDESK_BUSINESS_ID, or the private default business ID file"}
+	resolvedBusinessID, _, _, err := (ixfsd.BusinessIDLoader{}).Load(*businessID)
+	if err != nil {
+		domainErr := &ixfsd.DomainError{Code: "invalid_request", Message: "ServiceDesk business ID override is invalid", Action: "remove or correct --business-id, IXF_SERVICEDESK_BUSINESS_ID, or the private default business ID file"}
 		return writeServiceDeskResult(stdout, stderr, *asJSON, operation, nil, domainErr)
 	}
 	client, domainErr := serviceDeskClientLoader(*apiKeyFile)

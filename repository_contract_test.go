@@ -310,6 +310,9 @@ func TestServiceDeskReaderDocumentsAtomicQueryModes(t *testing.T) {
 		"REQ...",
 		"complete:false",
 		"query_failed",
+		"automatically discover accessible business scopes",
+		"Do not ask the user to provide or configure a bootstrap business ID",
+		"`--business-id` is an optional compatibility and diagnostic override",
 	} {
 		if !strings.Contains(reader, expected) {
 			t.Fatalf("canonical ServiceDesk reader missing %q:\n%s", expected, reader)

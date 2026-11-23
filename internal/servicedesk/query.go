@@ -99,8 +99,11 @@ func QueryTickets(ctx context.Context, client *Client, request QueryRequest) (Qu
 		Sort:                "update_time_desc",
 		Complete:            true,
 	}
-	if client == nil || request.BootstrapBusinessID <= 0 {
-		return result, &DomainError{Code: "invalid_request", Message: "ServiceDesk query requires a positive bootstrap business ID", Action: "configure or provide a bootstrap business ID"}
+	if client == nil {
+		return result, &DomainError{Code: "invalid_request", Message: "ServiceDesk query requires a client", Action: "configure ServiceDesk credentials"}
+	}
+	if request.BootstrapBusinessID < 0 {
+		return result, &DomainError{Code: "invalid_request", Message: "ServiceDesk bootstrap business ID must not be negative", Action: "remove or correct the business ID override"}
 	}
 	if !request.Mine {
 		return result, &DomainError{Code: "invalid_request", Message: "ServiceDesk query only supports --mine", Action: "use the mine scope"}

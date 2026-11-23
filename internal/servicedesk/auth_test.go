@@ -228,6 +228,22 @@ func TestLoadBusinessIDPrecedence(t *testing.T) {
 	}
 }
 
+func TestBusinessIDLoaderTreatsUnavailableHomeAsUnconfigured(t *testing.T) {
+	loader := BusinessIDLoader{
+		LookupEnv: func(string) (string, bool) { return "", false },
+		ResolveHomeDir: func() (string, error) {
+			return "", errors.New("home directory unavailable")
+		},
+	}
+	id, source, configured, err := loader.Load(0)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+	if id != 0 || source != "" || configured {
+		t.Fatalf("Load() = (%d, %q, %t), want (0, empty, false)", id, source, configured)
+	}
+}
+
 type stubFileInfo struct {
 	mode    fs.FileMode
 	regular bool

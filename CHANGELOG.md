@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 3.32.1 - 2026-11-23
+
+- Fixed `ixf servicedesk list`, `search`, and `doctor` requiring users to configure an unrelated bootstrap business ID before they could query their own tickets. The ServiceDesk userinfo endpoint accepts API Key-only requests and returns the caller's accessible business scopes, so these commands now discover scopes automatically and send each discovered ID only to the list requests that require it.
+- Kept `--business-id`, `IXF_SERVICEDESK_BUSINESS_ID`, and the private default business ID file as optional compatibility and diagnostic overrides. Explicit invalid values still fail closed, targeted `get`/create/withdraw operations still require the ticket or profile's actual business ID, and automatic discovery remains represented as `bootstrapBusinessId: 0` in JSON contract v1.
+- Root and standalone ServiceDesk doctor now perform the read-only userinfo probe whenever an API Key is configured, instead of reporting `business_id_unconfigured` and skipping authentication diagnosis.
+
 ## 3.32.0 - 2026-11-20
 
 - Added the Go-native, API-only `ixf servicedesk` command family for ServiceDesk readiness, live form/profile inspection, validated ticket creation, role-aware todo and submitted-open ticket listing, contextual ticket search, ticket status reads, and confirmed withdrawal with readback verification.

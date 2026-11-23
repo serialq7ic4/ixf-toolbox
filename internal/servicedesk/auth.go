@@ -94,9 +94,10 @@ func (l CredentialLoader) credentialPath(explicitFile string) (string, error) {
 }
 
 type BusinessIDLoader struct {
-	LookupEnv func(string) (string, bool)
-	ReadFile  func(string) ([]byte, error)
-	HomeDir   string
+	LookupEnv      func(string) (string, bool)
+	ReadFile       func(string) ([]byte, error)
+	HomeDir        string
+	ResolveHomeDir func() (string, error)
 }
 
 func (l BusinessIDLoader) Load(explicit int) (id int, source string, configured bool, err error) {
@@ -119,9 +120,15 @@ func (l BusinessIDLoader) Load(explicit int) (id int, source string, configured 
 		return id, "environment", true, nil
 	}
 
-	home, err := loaderHomeDir(l.HomeDir)
+	resolveHomeDir := l.ResolveHomeDir
+	if resolveHomeDir == nil {
+		resolveHomeDir = func() (string, error) {
+			return loaderHomeDir(l.HomeDir)
+		}
+	}
+	home, err := resolveHomeDir()
 	if err != nil {
-		return 0, "", false, err
+		return 0, "", false, nil
 	}
 	path := filepath.Join(home, ".config", "ixf-toolbox", serviceDeskBusinessIDFile)
 	readFile := l.ReadFile

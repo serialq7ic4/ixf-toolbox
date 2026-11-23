@@ -103,7 +103,7 @@ func TestServiceDeskQueryRejectsInvalidContractsBeforeCredentialLookup(t *testin
 
 func TestServiceDeskQueryBusinessIDPrecedence(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setServiceDeskQueryTestHome(t, home)
 	configDir := filepath.Join(home, ".config", "ixf-toolbox")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -145,7 +145,7 @@ func TestServiceDeskQueryBusinessIDPrecedence(t *testing.T) {
 
 func TestServiceDeskQueryMissingBusinessIDUsesJSONFailure(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setServiceDeskQueryTestHome(t, home)
 	setOptionalEnvironment(t, "IXF_SERVICEDESK_BUSINESS_ID", nil)
 	for _, command := range []string{"list", "search"} {
 		t.Run(command, func(t *testing.T) {
@@ -171,6 +171,12 @@ func TestServiceDeskQueryMissingBusinessIDUsesJSONFailure(t *testing.T) {
 			}
 		})
 	}
+}
+
+func setServiceDeskQueryTestHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 }
 
 func installServiceDeskQueryTestDoubles(t *testing.T, capture func(ixfsd.QueryRequest)) {

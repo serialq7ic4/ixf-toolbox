@@ -452,6 +452,7 @@ func discoverOverlayWithin(t *testing.T, template Template, name string) Overlay
 
 func replaceOverlayText(t *testing.T, input, old, replacement string) string {
 	t.Helper()
+	input = strings.ReplaceAll(input, "\r\n", "\n")
 	old = strings.ReplaceAll(old, `\n`, "\n")
 	replacement = strings.ReplaceAll(replacement, `\n`, "\n")
 	if !strings.Contains(input, old) {

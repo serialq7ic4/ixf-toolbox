@@ -34,15 +34,6 @@ type QueryRequest struct {
 	Limit               int
 }
 
-// ListRequest keeps the unreleased CLI buildable until its parser migrates to QueryRequest.
-type ListRequest struct {
-	BusinessID int
-	Mine       bool
-	View       string
-	Limit      int
-	Cursor     string
-}
-
 type ScopeResult struct {
 	BusinessID  int    `json:"businessId"`
 	Name        string `json:"name,omitempty"`
@@ -251,24 +242,6 @@ func preferQueryCandidate(candidate, current queryTicketCandidate) bool {
 		return candidateWait
 	}
 	return candidate.ScopeBusinessID < current.ScopeBusinessID
-}
-
-func ListTickets(ctx context.Context, client *Client, request ListRequest) (QueryResult, *DomainError) {
-	state := QueryStateAll
-	switch strings.ToLower(strings.TrimSpace(request.View)) {
-	case "", "recent":
-	case "open":
-		state = QueryStateOpen
-	default:
-		return QueryResult{}, &DomainError{Code: "invalid_request", Message: "ServiceDesk list view must be recent or open", Action: "choose a supported view"}
-	}
-	return QueryTickets(ctx, client, QueryRequest{
-		BootstrapBusinessID: request.BusinessID,
-		Mine:                request.Mine,
-		Role:                QueryRoleSubmitted,
-		State:               state,
-		Limit:               request.Limit,
-	})
 }
 
 func queryServiceDeskScopes(ctx context.Context, client *Client, scopes []queryScope) []queryScopeOutcome {

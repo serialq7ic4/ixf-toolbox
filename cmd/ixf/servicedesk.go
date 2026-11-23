@@ -36,7 +36,8 @@ func runServiceDesk(args []string, stdout, stderr io.Writer) int {
 		{"template", "Inspect a live ServiceDesk form contract."},
 		{"profile", "Discover, validate, list, or show semantic profiles."},
 		{"create", "Dry-run or apply a validated ticket creation."},
-		{"list", "List the current user's recent or open tickets."},
+		{"list", "List the current user's todo or submitted tickets."},
+		{"search", "Search the current user's ticket candidates."},
 		{"get", "Read one ticket by detail URL or explicit IDs."},
 		{"withdraw", "Dry-run or apply withdrawal of the current user's ticket."},
 	}
@@ -60,6 +61,8 @@ func runServiceDesk(args []string, stdout, stderr io.Writer) int {
 		return runServiceDeskCreate(args[1:], stdout, stderr)
 	case "list":
 		return runServiceDeskList(args[1:], stdout, stderr)
+	case "search":
+		return runServiceDeskSearch(args[1:], stdout, stderr)
 	case "get":
 		return runServiceDeskGet(args[1:], stdout, stderr)
 	case "withdraw":
@@ -400,43 +403,6 @@ func runServiceDeskCreate(args []string, stdout, stderr io.Writer) int {
 	}
 	result, de := ixfsd.Create(context.Background(), ixfsd.Dependencies{Client: client, Registry: serviceDeskRegistryLoader()}, request)
 	return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_create", result, de)
-}
-
-func runServiceDeskList(args []string, stdout, stderr io.Writer) int {
-	if hasHelpArg(args) {
-		printUsageHelp(stdout, "ixf servicedesk list --mine --business-id ID [--view recent|open] [--limit N] [--json]", nil)
-		return 0
-	}
-	flags := flag.NewFlagSet("servicedesk list", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	mine := flags.Bool("mine", false, "")
-	businessID := flags.Int("business-id", 0, "")
-	view := flags.String("view", "recent", "")
-	limit := flags.Int("limit", 20, "")
-	cursor := flags.String("cursor", "", "")
-	apiKeyFile, asJSON := serviceDeskCommonFlags(flags)
-	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
-		return 2
-	}
-	if !*mine {
-		return serviceDeskUsageError(stderr, fmt.Errorf("--mine is required"))
-	}
-	if *businessID <= 0 {
-		return serviceDeskUsageError(stderr, fmt.Errorf("--business-id must be positive"))
-	}
-	if *limit <= 0 {
-		return serviceDeskUsageError(stderr, fmt.Errorf("--limit must be positive"))
-	}
-	viewName := strings.ToLower(strings.TrimSpace(*view))
-	if viewName != "recent" && viewName != "open" {
-		return serviceDeskUsageError(stderr, fmt.Errorf("--view must be recent or open"))
-	}
-	client, de := serviceDeskClientLoader(*apiKeyFile)
-	if de != nil {
-		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_list", nil, de)
-	}
-	result, de := ixfsd.ListTickets(context.Background(), client, ixfsd.ListRequest{BusinessID: *businessID, Mine: *mine, View: viewName, Limit: *limit, Cursor: *cursor})
-	return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_list", result, de)
 }
 
 func parseServiceDeskDetailTarget(urlValue string, businessID int, ticketID string) (ixfsd.DetailTarget, error) {

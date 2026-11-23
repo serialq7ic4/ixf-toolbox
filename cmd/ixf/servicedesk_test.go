@@ -21,7 +21,7 @@ func TestServiceDeskHelpListsCommandTree(t *testing.T) {
 	if code := run([]string{"servicedesk", "--help"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit code = %d, stderr=%q", code, stderr.String())
 	}
-	for _, expected := range []string{"doctor", "template", "profile", "create", "list", "get", "withdraw"} {
+	for _, expected := range []string{"doctor", "template", "profile", "create", "list", "search", "get", "withdraw"} {
 		if !strings.Contains(stdout.String(), expected) {
 			t.Fatalf("help missing %q: %s", expected, stdout.String())
 		}
@@ -119,31 +119,6 @@ func TestServiceDeskProfileShowRejectsInvalidArgumentsBeforeRegistryLookup(t *te
 			stdout, _, code := runCLITest(t, test.args...)
 			if code != 2 {
 				t.Fatalf("exit code = %d, want 2; stdout=%q", code, stdout)
-			}
-		})
-	}
-}
-
-func TestServiceDeskRejectsInvalidListContractBeforeCredentialLookup(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-		want string
-	}{
-		{name: "missing mine", args: []string{"servicedesk", "list", "--business-id", "15"}, want: "--mine"},
-		{name: "missing business id", args: []string{"servicedesk", "list", "--mine"}, want: "--business-id"},
-		{name: "nonpositive business id", args: []string{"servicedesk", "list", "--mine", "--business-id", "0"}, want: "positive"},
-		{name: "nonpositive limit", args: []string{"servicedesk", "list", "--mine", "--business-id", "15", "--limit", "0"}, want: "positive"},
-		{name: "unsupported view", args: []string{"servicedesk", "list", "--mine", "--business-id", "15", "--view", "all"}, want: "recent or open"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			if code := run(tt.args, &stdout, &stderr); code != 2 {
-				t.Fatalf("exit code = %d, want 2; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-			}
-			if !strings.Contains(stderr.String(), tt.want) {
-				t.Fatalf("stderr = %q, want %q", stderr.String(), tt.want)
 			}
 		})
 	}
@@ -311,7 +286,7 @@ func TestServiceDeskListUsesFixtureClient(t *testing.T) {
 	}
 	t.Cleanup(func() { serviceDeskClientLoader = original })
 
-	stdout, stderr, code := runCLITest(t, "servicedesk", "list", "--mine", "--business-id", "15", "--json")
+	stdout, stderr, code := runCLITest(t, "servicedesk", "list", "--mine", "--role", "submitted", "--business-id", "15", "--json")
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr=%q stdout=%q", code, stderr, stdout)
 	}

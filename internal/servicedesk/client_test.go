@@ -133,7 +133,7 @@ func TestClientEndpointRequests(t *testing.T) {
 			name: "list", method: http.MethodGet, path: "/api/taskflow3/v3/taskflow/", rawQuery: "flow_type=apply&key=request&limit=20&offset=40", fixture: "list.json",
 			call: func(ctx context.Context, client *Client) error {
 				got, err := client.List(ctx, 15, ListQuery{Limit: 20, Offset: 40})
-				if err == nil && (len(got.Data) != 1 || got.Meta.TotalCount != 1) {
+				if err == nil && (len(got.Data) != 1 || got.Data[0].InstanceID != "3463015" || got.Data[0].Step != "Fixture review" || got.Meta.TotalCount != 1) {
 					return fmt.Errorf("ticket page = %+v", got)
 				}
 				return err
@@ -278,6 +278,46 @@ func TestClientRejectsFalseAndMalformedEnvelopes(t *testing.T) {
 			}))
 			_, err := client.UserInfo(context.Background(), 15)
 			assertAPIError(t, err, test.code, http.StatusOK, false)
+		})
+	}
+}
+
+func TestClientListNormalizesAndRejectsTicketFieldVariants(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		instanceID    string
+		step          string
+		wantID        string
+		wantStep      string
+		wantErrorCode string
+	}{
+		{name: "large integer ID and multiple steps", instanceID: `123456789012345678901234567890`, step: `["review","approve"]`, wantID: "123456789012345678901234567890", wantStep: "review / approve"},
+		{name: "zero ID", instanceID: `0`, step: `"review"`, wantErrorCode: "invalid_response"},
+		{name: "negative ID", instanceID: `-1`, step: `"review"`, wantErrorCode: "invalid_response"},
+		{name: "fractional ID", instanceID: `1.5`, step: `"review"`, wantErrorCode: "invalid_response"},
+		{name: "null step element", instanceID: `1`, step: `["review",null]`, wantErrorCode: "invalid_response"},
+		{name: "mixed step element", instanceID: `1`, step: `["review",2]`, wantErrorCode: "invalid_response"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			body := fmt.Sprintf(`{"result":true,"data":[{"instance_id":%s,"step":%s}],"meta":{"limit":20,"offset":0,"next":null,"previous":null,"total_count":1}}`, test.instanceID, test.step)
+			client := newFixedHostTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, body)
+			}))
+			page, err := client.List(context.Background(), 9, ListQuery{Limit: 20})
+			if test.wantErrorCode != "" {
+				assertAPIError(t, err, test.wantErrorCode, http.StatusOK, false)
+				return
+			}
+			if err != nil {
+				t.Fatalf("List() error = %v", err)
+			}
+			if len(page.Data) != 1 || page.Data[0].InstanceID != test.wantID || page.Data[0].Step != test.wantStep {
+				t.Fatalf("ticket page = %+v", page)
+			}
 		})
 	}
 }

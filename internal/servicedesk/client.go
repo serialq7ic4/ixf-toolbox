@@ -127,6 +127,76 @@ type TicketResponse struct {
 	Inputs            map[string]any `json:"inputs"`
 }
 
+func (response *TicketResponse) UnmarshalJSON(data []byte) error {
+	type ticketResponseAlias TicketResponse
+	var wire struct {
+		ticketResponseAlias
+		InstanceID json.RawMessage `json:"instance_id"`
+		Step       json.RawMessage `json:"step"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	instanceID, err := decodeTicketInstanceID(wire.InstanceID)
+	if err != nil {
+		return fmt.Errorf("decode ServiceDesk ticket instance_id: %w", err)
+	}
+	step, err := decodeTicketStep(wire.Step)
+	if err != nil {
+		return fmt.Errorf("decode ServiceDesk ticket step: %w", err)
+	}
+	*response = TicketResponse(wire.ticketResponseAlias)
+	response.InstanceID = instanceID
+	response.Step = step
+	return nil
+}
+
+func decodeTicketInstanceID(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return "", nil
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text, nil
+	}
+	number := bytes.TrimSpace(raw)
+	if len(number) == 0 || number[0] == '0' {
+		return "", errors.New("must be a string or positive integer")
+	}
+	for _, digit := range number {
+		if digit < '0' || digit > '9' {
+			return "", errors.New("must be a string or positive integer")
+		}
+	}
+	return string(number), nil
+}
+
+func decodeTicketStep(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return "", nil
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text, nil
+	}
+	var rawValues []json.RawMessage
+	if err := json.Unmarshal(raw, &rawValues); err != nil {
+		return "", errors.New("must be a string or string array")
+	}
+	values := make([]string, 0, len(rawValues))
+	for _, rawValue := range rawValues {
+		if bytes.Equal(bytes.TrimSpace(rawValue), []byte("null")) {
+			return "", errors.New("must be a string or string array")
+		}
+		var value string
+		if err := json.Unmarshal(rawValue, &value); err != nil {
+			return "", errors.New("must be a string or string array")
+		}
+		values = append(values, value)
+	}
+	return strings.Join(values, " / "), nil
+}
+
 type TicketPage struct {
 	Data []TicketResponse `json:"data"`
 	Meta PageMeta         `json:"meta"`

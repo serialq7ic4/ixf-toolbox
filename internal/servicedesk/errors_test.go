@@ -39,3 +39,10 @@ func TestDomainErrorUnwrapDoesNotExposeRawCredential(t *testing.T) {
 		t.Fatalf("error exposed credential: %+v", err)
 	}
 }
+
+func TestQueryFailedHasStableAction(t *testing.T) {
+	t.Parallel()
+	if got := actionForCode("query_failed"); got != "verify ServiceDesk access and retry the read-only query" {
+		t.Fatalf("actionForCode(query_failed) = %q", got)
+	}
+}

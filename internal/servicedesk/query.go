@@ -80,7 +80,19 @@ type queryScope struct {
 
 type queryScopeOutcome struct {
 	Scope   ScopeResult
-	Tickets []Ticket
+	Tickets []queryTicketCandidate
+}
+
+type queryTicketCandidate struct {
+	Ticket          Ticket
+	ScopeBusinessID int
+	Role            QueryRole
+	FlowType        string
+}
+
+type mergedQueryTicket struct {
+	Candidate queryTicketCandidate
+	Roles     map[QueryRole]struct{}
 }
 
 func QueryTickets(ctx context.Context, client *Client, request QueryRequest) (QueryResult, *DomainError) {
@@ -102,8 +114,8 @@ func QueryTickets(ctx context.Context, client *Client, request QueryRequest) (Qu
 	if !request.Mine {
 		return result, &DomainError{Code: "invalid_request", Message: "ServiceDesk query only supports --mine", Action: "use the mine scope"}
 	}
-	if request.Role != QueryRoleSubmitted && request.Role != QueryRoleTodo {
-		return result, &DomainError{Code: "invalid_request", Message: "ServiceDesk query role must be submitted or todo", Action: "choose a supported role"}
+	if request.Role != QueryRoleSubmitted && request.Role != QueryRoleTodo && request.Role != QueryRoleAny {
+		return result, &DomainError{Code: "invalid_request", Message: "ServiceDesk query role must be submitted, todo, or any", Action: "choose a supported role"}
 	}
 	if request.State != QueryStateAll && request.State != QueryStateOpen {
 		return result, &DomainError{Code: "invalid_request", Message: "ServiceDesk query state must be all or open", Action: "choose a supported state filter"}
@@ -111,9 +123,7 @@ func QueryTickets(ctx context.Context, client *Client, request QueryRequest) (Qu
 	if request.Role == QueryRoleTodo && request.State != QueryStateAll {
 		return result, &DomainError{Code: "invalid_request", Message: "ServiceDesk todo queries do not accept a state filter", Action: "remove the state filter"}
 	}
-	if strings.TrimSpace(request.Query) != "" {
-		return result, &DomainError{Code: "invalid_request", Message: "ServiceDesk contextual search is not available in this query mode", Action: "use an empty list query"}
-	}
+	result.Query = strings.TrimSpace(request.Query)
 	limit := request.Limit
 	if limit <= 0 {
 		limit = 20
@@ -122,38 +132,62 @@ func QueryTickets(ctx context.Context, client *Client, request QueryRequest) (Qu
 	if err != nil {
 		return result, ClassifyError("list", err)
 	}
-	flowType := "apply"
-	if request.Role == QueryRoleTodo {
-		flowType = "wait"
+	scopesPerBusiness := 1
+	if request.Role == QueryRoleAny {
+		scopesPerBusiness = 2
 	}
-	scopes := make([]queryScope, 0, len(userinfo.Business))
+	scopes := make([]queryScope, 0, len(userinfo.Business)*scopesPerBusiness)
 	for _, business := range userinfo.Business {
-		scopes = append(scopes, queryScope{Business: business, Role: request.Role, FlowType: flowType})
+		if request.Role == QueryRoleSubmitted || request.Role == QueryRoleAny {
+			scopes = append(scopes, queryScope{Business: business, Role: QueryRoleSubmitted, FlowType: "apply"})
+		}
+		if request.Role == QueryRoleTodo || request.Role == QueryRoleAny {
+			scopes = append(scopes, queryScope{Business: business, Role: QueryRoleTodo, FlowType: "wait"})
+		}
 	}
 	outcomes := queryServiceDeskScopes(ctx, client, scopes)
-	all := make(map[string]Ticket)
+	all := make(map[string]mergedQueryTicket)
+	completedScopeCount := 0
 	for _, outcome := range outcomes {
 		result.Scopes = append(result.Scopes, outcome.Scope)
 		if !outcome.Scope.Complete {
 			result.Complete = false
 			result.FailedScopes = append(result.FailedScopes, FailedScope{BusinessID: outcome.Scope.BusinessID, FlowType: outcome.Scope.FlowType, Error: outcome.Scope.Error})
+		} else {
+			completedScopeCount++
 		}
-		for _, ticket := range outcome.Tickets {
-			if request.Role == QueryRoleSubmitted && request.State == QueryStateOpen && ticket.StateCategory == "terminal" {
+		for _, candidate := range outcome.Tickets {
+			ticket := candidate.Ticket
+			if candidate.Role == QueryRoleSubmitted && request.State == QueryStateOpen && ticket.StateCategory == "terminal" {
+				continue
+			}
+			if !matchesTicketQuery(ticket, result.Query) {
 				continue
 			}
 			if ticket.InstanceID == "" || ticket.BusinessID <= 0 {
 				continue
 			}
-			ticket.RoleMatches = []string{string(request.Role)}
 			key := fmt.Sprintf("%d:%s", ticket.BusinessID, ticket.InstanceID)
-			if _, exists := all[key]; !exists {
-				all[key] = ticket
+			merged, exists := all[key]
+			if !exists {
+				merged = mergedQueryTicket{Candidate: candidate, Roles: make(map[QueryRole]struct{}, 2)}
 			}
+			merged.Roles[candidate.Role] = struct{}{}
+			if exists && preferQueryCandidate(candidate, merged.Candidate) {
+				merged.Candidate = candidate
+			}
+			all[key] = merged
 		}
 	}
 	tickets := make([]Ticket, 0, len(all))
-	for _, ticket := range all {
+	for _, merged := range all {
+		ticket := merged.Candidate.Ticket
+		if _, exists := merged.Roles[QueryRoleSubmitted]; exists {
+			ticket.RoleMatches = append(ticket.RoleMatches, string(QueryRoleSubmitted))
+		}
+		if _, exists := merged.Roles[QueryRoleTodo]; exists {
+			ticket.RoleMatches = append(ticket.RoleMatches, string(QueryRoleTodo))
+		}
 		tickets = append(tickets, ticket)
 	}
 	sort.SliceStable(tickets, func(left, right int) bool {
@@ -172,6 +206,9 @@ func QueryTickets(ctx context.Context, client *Client, request QueryRequest) (Qu
 		}
 		return tickets[left].InstanceID < tickets[right].InstanceID
 	})
+	if len(scopes) != 0 && completedScopeCount == 0 && len(tickets) == 0 {
+		return result, &DomainError{Code: "query_failed", Message: "ServiceDesk ticket query did not return a usable scope", Action: actionForCode("query_failed")}
+	}
 	if result.Complete {
 		hasMore := len(tickets) > limit
 		result.HasMore = &hasMore
@@ -181,6 +218,39 @@ func QueryTickets(ctx context.Context, client *Client, request QueryRequest) (Qu
 	}
 	result.Tickets = tickets
 	return result, nil
+}
+
+func matchesTicketQuery(ticket Ticket, query string) bool {
+	tokens := strings.Fields(strings.ToLower(query))
+	if len(tokens) == 0 {
+		return true
+	}
+	searchable := strings.ToLower(strings.Join([]string{ticket.Name, ticket.Title, ticket.ServiceName}, " "))
+	for _, token := range tokens {
+		if !strings.Contains(searchable, token) {
+			return false
+		}
+	}
+	return true
+}
+
+func preferQueryCandidate(candidate, current queryTicketCandidate) bool {
+	candidateUpdate := parseTicketTime(candidate.Ticket.UpdateTime)
+	currentUpdate := parseTicketTime(current.Ticket.UpdateTime)
+	if !candidateUpdate.Equal(currentUpdate) {
+		return candidateUpdate.After(currentUpdate)
+	}
+	candidateDedicated := candidate.ScopeBusinessID == candidate.Ticket.BusinessID
+	currentDedicated := current.ScopeBusinessID == current.Ticket.BusinessID
+	if candidateDedicated != currentDedicated {
+		return candidateDedicated
+	}
+	candidateWait := candidate.FlowType == "wait"
+	currentWait := current.FlowType == "wait"
+	if candidateWait != currentWait {
+		return candidateWait
+	}
+	return candidate.ScopeBusinessID < current.ScopeBusinessID
 }
 
 func ListTickets(ctx context.Context, client *Client, request ListRequest) (QueryResult, *DomainError) {
@@ -240,7 +310,12 @@ func queryServiceDeskScope(ctx context.Context, client *Client, scope queryScope
 			return outcome
 		}
 		for _, raw := range page.Data {
-			outcome.Tickets = append(outcome.Tickets, normalizeTicket(raw))
+			outcome.Tickets = append(outcome.Tickets, queryTicketCandidate{
+				Ticket:          normalizeTicket(raw),
+				ScopeBusinessID: scope.Business.BusinessID,
+				Role:            scope.Role,
+				FlowType:        scope.FlowType,
+			})
 		}
 		outcome.Scope.TicketCount += len(page.Data)
 		if page.Meta.Next == nil || strings.TrimSpace(*page.Meta.Next) == "" {

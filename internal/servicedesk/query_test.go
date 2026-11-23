@@ -203,20 +203,181 @@ func TestQueryTicketsBoundsScopeConcurrency(t *testing.T) {
 		t.Fatalf("scopes = %+v", result.Scopes)
 	}
 	for index, scope := range result.Scopes {
-		if scope.BusinessID != index+1 {
+		if scope.BusinessID != index+1 || !scope.Complete {
 			t.Fatalf("scope order = %+v", result.Scopes)
 		}
 	}
 }
 
+func TestMatchesTicketQueryUsesUnicodeCasefoldWhitespaceAndAllTokens(t *testing.T) {
+	t.Parallel()
+	ticket := Ticket{Name: "REQ-ABC", Title: "Server-01 硬盘故障", ServiceName: "Hardware Repair"}
+	for _, query := range []string{"", "req-abc", "SERVER-01\tREPAIR", "server-01\u3000硬盘故障 hardware"} {
+		if !matchesTicketQuery(ticket, query) {
+			t.Errorf("matchesTicketQuery(%q) = false, want true", query)
+		}
+	}
+	if matchesTicketQuery(ticket, "server-01 missing") {
+		t.Fatal("query with an absent token matched")
+	}
+}
+
+func TestQueryTicketsSearchFiltersAfterFullPagination(t *testing.T) {
+	t.Parallel()
+	client := queryFixtureClient(t, []Business{{BusinessID: 9, Name: "Fixture"}}, func(request *http.Request) []byte {
+		if request.URL.Query().Has("q") {
+			t.Fatalf("query parameter q must not be sent: %s", request.URL.RawQuery)
+		}
+		offset, _ := strconv.Atoi(request.URL.Query().Get("offset"))
+		if offset == 0 {
+			next := "/api/taskflow3/v3/taskflow/?offset=100"
+			return queryPage(t, []TicketResponse{queryTicket(9, "101", "RUNNING", "fixture.user", "2026-11-20 10:00:00")}, 0, &next)
+		}
+		match := queryTicket(9, "102", "RUNNING", "fixture.user", "2026-11-20 09:00:00")
+		match.ServiceName = "Storage Repair Service"
+		return queryPage(t, []TicketResponse{match}, 100, nil)
+	})
+	result, domainErr := QueryTickets(context.Background(), client, QueryRequest{BootstrapBusinessID: 9, Mine: true, Role: QueryRoleSubmitted, State: QueryStateAll, Query: "storage service", Limit: 20})
+	if domainErr != nil {
+		t.Fatalf("QueryTickets() error = %+v", domainErr)
+	}
+	if got := queryTicketIDs(result.Tickets); fmt.Sprint(got) != "[102]" {
+		t.Fatalf("ticket IDs = %v", got)
+	}
+}
+
+func TestQueryTicketsAnyMergesRolesAndDuplicatePrecedence(t *testing.T) {
+	t.Parallel()
+	client := queryFixtureClient(t, []Business{{BusinessID: 1, Name: "Aggregate"}, {BusinessID: 9, Name: "Dedicated"}}, func(request *http.Request) []byte {
+		requestBusinessID, _ := strconv.Atoi(request.Header.Get("businessId"))
+		flowType := request.URL.Query().Get("flow_type")
+		var tickets []TicketResponse
+		if flowType == "apply" {
+			newer := queryTicket(9, "201", "RUNNING", "fixture.user", "2026-11-20 10:00:00")
+			newer.Title = "older"
+			if requestBusinessID == 9 {
+				newer.UpdateTime = "2026-11-20 11:00:00"
+				newer.Title = "newer"
+			}
+			dedicated := queryTicket(9, "202", "RUNNING", "fixture.user", "2026-11-20 10:00:00")
+			dedicated.Title = "aggregate"
+			if requestBusinessID == 9 {
+				dedicated.Title = "dedicated"
+			}
+			waitTie := queryTicket(9, "203", "RUNNING", "fixture.user", "2026-11-20 10:00:00")
+			waitTie.Title = "apply"
+			lowerScope := queryTicket(99, "204", "RUNNING", "fixture.user", "2026-11-20 10:00:00")
+			lowerScope.Title = fmt.Sprintf("scope-%d", requestBusinessID)
+			invalidTime := queryTicket(9, "205", "RUNNING", "fixture.user", "invalid")
+			invalidTime.Title = "invalid-time"
+			if requestBusinessID == 9 {
+				invalidTime.UpdateTime = "2026-11-20 10:00:00"
+				invalidTime.Title = "valid-time"
+			}
+			tickets = []TicketResponse{newer, dedicated, waitTie, lowerScope, invalidTime}
+		} else {
+			shared := queryTicket(9, "203", "RUNNING", "fixture.user", "2026-11-20 10:00:00")
+			shared.Title = "wait"
+			tickets = []TicketResponse{shared}
+		}
+		return queryPage(t, tickets, 0, nil)
+	})
+	result, domainErr := QueryTickets(context.Background(), client, QueryRequest{BootstrapBusinessID: 9, Mine: true, Role: QueryRoleAny, State: QueryStateAll, Limit: 20})
+	if domainErr != nil {
+		t.Fatalf("QueryTickets() error = %+v", domainErr)
+	}
+	byID := make(map[string]Ticket, len(result.Tickets))
+	for _, ticket := range result.Tickets {
+		byID[ticket.InstanceID] = ticket
+	}
+	for id, wantTitle := range map[string]string{"201": "newer", "202": "dedicated", "203": "wait", "204": "scope-1", "205": "valid-time"} {
+		if byID[id].Title != wantTitle {
+			t.Errorf("ticket %s title = %q, want %q", id, byID[id].Title, wantTitle)
+		}
+	}
+	if fmt.Sprint(byID["203"].RoleMatches) != "[submitted todo]" {
+		t.Fatalf("role matches = %v", byID["203"].RoleMatches)
+	}
+}
+
+func TestQueryTicketsAnyOpenFiltersOnlySubmitted(t *testing.T) {
+	t.Parallel()
+	client := queryFixtureClient(t, []Business{{BusinessID: 9, Name: "Fixture"}}, func(request *http.Request) []byte {
+		if request.URL.Query().Get("flow_type") == "apply" {
+			return queryPage(t, []TicketResponse{
+				queryTicket(9, "301", "FINISHED", "fixture.user", "2026-11-20 10:00:00"),
+				queryTicket(9, "302", "RUNNING", "fixture.user", "2026-11-20 11:00:00"),
+				queryTicket(9, "303", "FINISHED", "fixture.user", "2026-11-20 12:00:00"),
+			}, 0, nil)
+		}
+		return queryPage(t, []TicketResponse{
+			queryTicket(9, "303", "FINISHED", "fixture.user", "2026-11-20 12:00:00"),
+			queryTicket(9, "304", "FINISHED", "other.user", "2026-11-20 13:00:00"),
+		}, 0, nil)
+	})
+	result, domainErr := QueryTickets(context.Background(), client, QueryRequest{BootstrapBusinessID: 9, Mine: true, Role: QueryRoleAny, State: QueryStateOpen, Limit: 20})
+	if domainErr != nil {
+		t.Fatalf("QueryTickets() error = %+v", domainErr)
+	}
+	if got := queryTicketIDs(result.Tickets); fmt.Sprint(got) != "[304 303 302]" {
+		t.Fatalf("ticket IDs = %v", got)
+	}
+	for _, ticket := range result.Tickets {
+		if ticket.InstanceID == "303" && fmt.Sprint(ticket.RoleMatches) != "[todo]" {
+			t.Fatalf("shared terminal roles = %v", ticket.RoleMatches)
+		}
+	}
+}
+
+func TestQueryTicketsPartialResultHasUnknownMore(t *testing.T) {
+	t.Parallel()
+	client := queryResponderClient(t, []Business{{BusinessID: 1, Name: "Partial"}, {BusinessID: 9, Name: "Failed"}}, func(request *http.Request) (*http.Response, error) {
+		businessID, _ := strconv.Atoi(request.Header.Get("businessId"))
+		offset, _ := strconv.Atoi(request.URL.Query().Get("offset"))
+		if businessID == 1 && offset == 0 {
+			next := "/api/taskflow3/v3/taskflow/?offset=100"
+			return fixtureHTTPResponse(queryPage(t, []TicketResponse{queryTicket(1, "401", "RUNNING", "fixture.user", "2026-11-20 10:00:00")}, 0, &next)), nil
+		}
+		return nil, context.DeadlineExceeded
+	})
+	result, domainErr := QueryTickets(context.Background(), client, QueryRequest{BootstrapBusinessID: 9, Mine: true, Role: QueryRoleSubmitted, State: QueryStateAll, Limit: 20})
+	if domainErr != nil {
+		t.Fatalf("QueryTickets() error = %+v", domainErr)
+	}
+	if result.Complete || result.HasMore != nil || fmt.Sprint(queryTicketIDs(result.Tickets)) != "[401]" {
+		t.Fatalf("result = %+v", result)
+	}
+	if len(result.FailedScopes) != 2 || result.FailedScopes[0].FlowType != "apply" || result.FailedScopes[0].Error != "timeout" || result.Scopes[0].TicketCount != 1 {
+		t.Fatalf("failed scopes = %+v scopes=%+v", result.FailedScopes, result.Scopes)
+	}
+}
+
+func TestQueryTicketsReturnsQueryFailedWithoutUsableScope(t *testing.T) {
+	t.Parallel()
+	client := queryResponderClient(t, []Business{{BusinessID: 1, Name: "One"}, {BusinessID: 9, Name: "Nine"}}, func(*http.Request) (*http.Response, error) {
+		return nil, context.DeadlineExceeded
+	})
+	_, domainErr := QueryTickets(context.Background(), client, QueryRequest{BootstrapBusinessID: 9, Mine: true, Role: QueryRoleSubmitted, State: QueryStateAll, Limit: 20})
+	if domainErr == nil || domainErr.Code != "query_failed" {
+		t.Fatalf("error = %+v, want query_failed", domainErr)
+	}
+}
+
 func queryFixtureClient(t *testing.T, businesses []Business, list func(*http.Request) []byte) *Client {
+	t.Helper()
+	return queryResponderClient(t, businesses, func(request *http.Request) (*http.Response, error) {
+		return fixtureHTTPResponse(list(request)), nil
+	})
+}
+
+func queryResponderClient(t *testing.T, businesses []Business, list func(*http.Request) (*http.Response, error)) *Client {
 	t.Helper()
 	return NewClient(Credential{APIKey: testAPIKey}, ClientOptions{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		switch request.URL.Path {
 		case "/api/user/v3/userinfo/":
 			return fixtureHTTPResponse(queryEnvelope(t, UserInfo{Username: "fixture.user", DisplayName: "Fixture User", Business: businesses}, nil)), nil
 		case "/api/taskflow3/v3/taskflow/":
-			return fixtureHTTPResponse(list(request)), nil
+			return list(request)
 		default:
 			return nil, fmt.Errorf("unexpected path %s", request.URL.Path)
 		}
@@ -225,6 +386,9 @@ func queryFixtureClient(t *testing.T, businesses []Business, list func(*http.Req
 
 func queryPage(t *testing.T, tickets []TicketResponse, offset int, next *string) []byte {
 	t.Helper()
+	if tickets == nil {
+		tickets = []TicketResponse{}
+	}
 	return queryEnvelope(t, tickets, &PageMeta{Limit: 100, Offset: offset, Next: next, TotalCount: len(tickets)})
 }
 

@@ -34,6 +34,8 @@ func actionForCode(code string) string {
 		return "correct the request and run dry-run again"
 	case "registry_error", "profile_invalid", "stale_registry", "destructive_drift":
 		return "refresh or revalidate the ServiceDesk profile"
+	case "query_failed":
+		return "verify ServiceDesk access and retry the read-only query"
 	default:
 		return "inspect the error and retry only when it is safe"
 	}

@@ -504,3 +504,17 @@ Expected: 全部退出 0；`git diff --check` 无输出。
 git add pkg/servicedeskprofile/README.md CHANGELOG.md docs/go-python-parity.md docs/superpowers/plans/2026-11-24-servicedesk-profile-package.md
 git commit -m "docs: record ServiceDesk profile package"
 ```
+
+## Implementation Record
+
+Implemented on `feat/servicedesk-profile-package` on 2026-11-24:
+
+- `3dfebfe` extracts the shared profile and metadata contract.
+- `c9602c3` adds canonical encoding and verified Registry reads.
+- `2b634ba` adds deterministic rebase with structured unresolved output.
+- A read-only compatibility probe against the Registry on 43 reported
+  `index compatible` and `profile compatible`; no downloaded Registry data was
+  added to the repository.
+- `go test ./...`, targeted race tests, `go vet ./...`, plugin package checks,
+  a `CGO_ENABLED=0` build, and the binary smoke test all passed before the
+  documentation commit.

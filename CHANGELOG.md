@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added the public `pkg/servicedeskprofile` Go contract for ServiceDesk profile producers and consumers. It provides strict profile and Registry validation, deterministic encoding, read-only metadata and Registry clients, drift classification, and deterministic rebase with explicit unresolved customization.
+- Moved the `ixf` ServiceDesk profile runtime onto the shared contract without changing CLI JSON or cache fallback behavior. The public package does not read local credentials, environment configuration, or caches, and does not expose ticket instance or write operations.
+
 ## 3.32.1 - 2026-11-23
 
 - Fixed `ixf servicedesk list`, `search`, and `doctor` requiring users to configure an unrelated bootstrap business ID before they could query their own tickets. The ServiceDesk userinfo endpoint accepts API Key-only requests and returns the caller's accessible business scopes, so these commands now discover scopes automatically and send each discovered ID only to the list requests that require it.

@@ -1,4 +1,4 @@
-package servicedesk
+package servicedeskprofile
 
 import (
 	"bytes"
@@ -250,6 +250,17 @@ func (value *optionalValue[T]) UnmarshalJSON(data []byte) error {
 }
 
 func DecodeOverlay(data []byte) (Overlay, error) {
+	overlay, err := DecodeOverlayDraft(data)
+	if err != nil {
+		return Overlay{}, err
+	}
+	if err := ValidateOverlaySchema(overlay); err != nil {
+		return Overlay{}, err
+	}
+	return overlay, nil
+}
+
+func DecodeOverlayDraft(data []byte) (Overlay, error) {
 	var wire overlayWire
 	if err := decodeStrictJSON(data, &wire); err != nil {
 		return Overlay{}, fmt.Errorf("decode ServiceDesk overlay: %w", err)
@@ -298,10 +309,27 @@ func DecodeOverlay(data []byte) (Overlay, error) {
 		Baseline:      baseline,
 		Fields:        fields,
 	}
-	if err := ValidateOverlaySchema(overlay); err != nil {
+	if err := validateDraftFingerprints(overlay.Baseline); err != nil {
 		return Overlay{}, err
 	}
 	return overlay, nil
+}
+
+func validateDraftFingerprints(baseline Baseline) error {
+	if !hashPattern.MatchString(baseline.MetadataHash) {
+		return errors.New("ServiceDesk overlay baseline metadataHash must be a sha256 digest")
+	}
+	for fieldIndex, field := range baseline.Fields {
+		if field.ChoiceHash != "" && !hashPattern.MatchString(field.ChoiceHash) {
+			return fmt.Errorf("ServiceDesk overlay baseline field %d has invalid choiceHash", fieldIndex)
+		}
+		for columnIndex, column := range field.Columns {
+			if column.ChoiceHash != "" && !hashPattern.MatchString(column.ChoiceHash) {
+				return fmt.Errorf("ServiceDesk overlay baseline field %d column %d has invalid choiceHash", fieldIndex, columnIndex)
+			}
+		}
+	}
+	return nil
 }
 
 func overlayColumnsFromWire(fieldName string, wire optionalValue[map[string]overlayColumnWire]) (map[string]OverlayColumn, error) {
@@ -835,9 +863,11 @@ func allStrings(values []any) bool {
 	return true
 }
 
-func tableFieldType(fieldType string) bool {
+func IsTableFieldType(fieldType string) bool {
 	return strings.EqualFold(fieldType, "basis_table") || strings.EqualFold(fieldType, "extend_table")
 }
+
+func tableFieldType(fieldType string) bool { return IsTableFieldType(fieldType) }
 
 func choiceFieldType(fieldType string) bool {
 	switch strings.ToLower(fieldType) {
@@ -913,12 +943,14 @@ func DiscoverOverlay(template Template, name string) Overlay {
 	return overlay
 }
 
-func preferredFieldName(field Field) string {
+func PreferredFieldName(field Field) string {
 	if field.StableID != "" {
 		return field.StableID
 	}
 	return field.Name
 }
+
+func preferredFieldName(field Field) string { return PreferredFieldName(field) }
 
 func uniqueTechnicalName(preferred, kind string, index int, used map[string]struct{}) string {
 	if validateRequiredName(preferred, kind) == nil {

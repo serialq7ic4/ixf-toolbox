@@ -1,4 +1,4 @@
-package servicedesk
+package servicedeskprofile
 
 import (
 	"bytes"
@@ -154,19 +154,23 @@ type rawLiveChoice struct {
 	Conditions   *rawConditionSet `json:"conditions_expression"`
 }
 
-func LoadTemplate(ctx context.Context, client *Client, target EditTarget) (Template, error) {
-	if client == nil {
+func LoadTemplate(ctx context.Context, source MetadataSource, target EditTarget) (Template, error) {
+	if source == nil {
 		return Template{}, invalidRequest("ServiceDesk client is required")
 	}
-	service, err := client.Service(ctx, target)
+	service, err := source.Service(ctx, target)
 	if err != nil {
 		return Template{}, err
 	}
-	lading, err := client.Lading(ctx, target, service.SnapshotID)
+	lading, err := source.Lading(ctx, target, service.SnapshotID)
 	if err != nil {
 		return Template{}, err
 	}
 
+	return BuildTemplate(target, service, lading)
+}
+
+func BuildTemplate(target EditTarget, service Service, lading Lading) (Template, error) {
 	fields, err := normalizeLading(lading)
 	if err != nil {
 		return Template{}, err

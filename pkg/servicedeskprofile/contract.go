@@ -1,4 +1,4 @@
-package servicedesk
+package servicedeskprofile
 
 import (
 	"context"
@@ -139,11 +139,17 @@ func (contract ResolvedContract) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func Inspect(ctx context.Context, client *Client, request InspectRequest) (ResolvedContract, error) {
-	template, err := LoadTemplate(ctx, client, request.Target)
+func Inspect(ctx context.Context, source MetadataSource, request InspectRequest) (ResolvedContract, error) {
+	template, err := LoadTemplate(ctx, source, request.Target)
 	if err != nil {
 		return ResolvedContract{}, err
 	}
+	return InspectTemplate(template, request.Profile)
+}
+
+func InspectTemplate(template Template, profile *ProfileContext) (ResolvedContract, error) {
+	request := InspectRequest{Target: template.Target, Profile: profile}
+	var err error
 	contract := ResolvedContract{
 		ContractVersion: ContractVersion,
 		Target: ResolvedTarget{
@@ -161,7 +167,7 @@ func Inspect(ctx context.Context, client *Client, request InspectRequest) (Resol
 		if resolveErr != nil {
 			return ResolvedContract{}, resolveErr
 		}
-		contract.InputContract, err = resolveProfileInputContract(template.Fields, resolved)
+		contract.InputContract, err = ResolveProfileInputContract(template.Fields, resolved)
 		contract.Profile = &ResolvedProfile{
 			Name:   resolved.Overlay.Name,
 			Source: request.Profile.Source,
@@ -169,7 +175,7 @@ func Inspect(ctx context.Context, client *Client, request InspectRequest) (Resol
 		}
 		contract.TemplateDrift = resolved.Drift.Changed
 		contract.DriftClassification = resolved.Drift.Classification
-		projectedDrift, projectErr := projectProfileDrift(resolved.Drift, template.Fields, contract.InputContract)
+		projectedDrift, projectErr := ProjectProfileDrift(resolved.Drift, template.Fields, contract.InputContract)
 		if projectErr != nil {
 			return ResolvedContract{}, projectErr
 		}
@@ -186,7 +192,7 @@ func Inspect(ctx context.Context, client *Client, request InspectRequest) (Resol
 	return contract, nil
 }
 
-func resolveProfileInputContract(fields []Field, overlay ResolvedOverlay) (InputContract, error) {
+func ResolveProfileInputContract(fields []Field, overlay ResolvedOverlay) (InputContract, error) {
 	contract, err := resolveURLInputContract(fields)
 	if err != nil {
 		return InputContract{}, err
@@ -267,7 +273,7 @@ func resolveProfileInputContract(fields []Field, overlay ResolvedOverlay) (Input
 	return contract, nil
 }
 
-func projectProfileDrift(report DriftReport, fields []Field, profile InputContract) (DriftReport, error) {
+func ProjectProfileDrift(report DriftReport, fields []Field, profile InputContract) (DriftReport, error) {
 	urlContract, err := resolveURLInputContract(fields)
 	if err != nil {
 		return DriftReport{}, fmt.Errorf("ServiceDesk drift could not be projected safely")

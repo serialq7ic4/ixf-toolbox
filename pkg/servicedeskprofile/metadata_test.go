@@ -1,4 +1,4 @@
-package servicedesk
+package servicedeskprofile
 
 import (
 	"context"
@@ -500,7 +500,7 @@ func loadSyntheticTemplate(t *testing.T, lading map[string]any) Template {
 	return template
 }
 
-func newTemplateFixtureClient(t *testing.T, lading []byte) *Client {
+func newTemplateFixtureClient(t *testing.T, lading []byte) *MetadataClient {
 	t.Helper()
 	service := mustReadFixture(t, "service-4003.json")
 	return newFixedHostTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {

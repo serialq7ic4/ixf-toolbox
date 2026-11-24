@@ -1,9 +1,11 @@
 package servicedesk
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -260,7 +262,15 @@ func (l RegistryLoader) fetch(ctx context.Context, target string) ([]byte, error
 
 func decodeRegistry(data []byte) (Registry, error) {
 	var wire registryWire
-	if err := decodeStrictJSON(data, &wire); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&wire); err != nil {
+		return Registry{}, fmt.Errorf("decode ServiceDesk registry index: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = errors.New("unexpected trailing JSON value")
+		}
 		return Registry{}, fmt.Errorf("decode ServiceDesk registry index: %w", err)
 	}
 	if wire.SchemaVersion == nil || wire.UpdatedAt == nil || wire.Profiles == nil {

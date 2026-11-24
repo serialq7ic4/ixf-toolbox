@@ -12,22 +12,9 @@ const (
 	serviceDeskHost   = "servicedesk.iflytek.com"
 )
 
-type EditTarget struct {
-	BusinessID int
-	ServiceID  int
-}
-
 type DetailTarget struct {
 	BusinessID int
 	TicketID   string
-}
-
-func ParseEditURL(raw string) (EditTarget, error) {
-	businessID, serviceID, err := parseServiceDeskURL(raw, "/order/order-edit/", "service_id")
-	if err != nil {
-		return EditTarget{}, fmt.Errorf("invalid ServiceDesk edit URL: %w", err)
-	}
-	return EditTarget{BusinessID: businessID, ServiceID: serviceID}, nil
 }
 
 func ParseDetailURL(raw string) (DetailTarget, error) {

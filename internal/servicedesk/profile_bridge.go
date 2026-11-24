@@ -39,6 +39,8 @@ type InputField = sdp.InputField
 type InputContract = sdp.InputContract
 type ResolvedProfile = sdp.ResolvedProfile
 type ResolvedContract = sdp.ResolvedContract
+type Registry = sdp.Registry
+type RegistryEntry = sdp.RegistryEntry
 
 const (
 	OverlaySchemaVersion = sdp.OverlaySchemaVersion

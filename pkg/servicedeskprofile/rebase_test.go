@@ -312,6 +312,24 @@ func TestRebaseOverlayDropsRequiredFalseOverride(t *testing.T) {
 	}
 }
 
+func TestRebaseOverlayDoesNotRetargetTableDefaultToNewColumn(t *testing.T) {
+	previous := decodeFixtureOverlay(t)
+	devices := previous.Fields["devices"]
+	devices.Default = mustJSONValue(t, []any{map[string]any{"hostName": "host-1", "part": "old value"}})
+	previous.Fields["devices"] = devices
+	template := overlayValidationTemplate()
+	template.Fields[0].TableColumns[1] = TableColumn{BackendKey: "new-column", Name: "part", Type: "input"}
+
+	result, err := RebaseOverlay(previous, template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Overlay.Fields["devices"].Default != nil {
+		t.Fatal("default for a removed column was retargeted to a new column")
+	}
+	assertRebaseUnresolved(t, result.Unresolved, "default_invalid", "devices", "", "default")
+}
+
 func TestRebaseOverlayIsDeterministicWithManyFields(t *testing.T) {
 	template := overlayValidationTemplate()
 	for index := 0; index < 80; index++ {

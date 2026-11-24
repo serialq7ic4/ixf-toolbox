@@ -85,3 +85,26 @@ func TestContentAddressedProfilePathValidatesInputs(t *testing.T) {
 		}
 	}
 }
+
+func TestEncodeRegistryEmptyProfiles(t *testing.T) {
+	registry := Registry{SchemaVersion: RegistrySchemaVersion, UpdatedAt: time.Now()}
+	for _, profiles := range [][]RegistryEntry{nil, {}} {
+		registry.Profiles = profiles
+		encoded, err := EncodeRegistry(registry)
+		if err != nil || !bytes.Contains(encoded, []byte(`"profiles": []`)) {
+			t.Fatalf("empty Registry = %s, %v", encoded, err)
+		}
+	}
+}
+
+func TestRegistryChecksNonAdjacentPathAncestors(t *testing.T) {
+	registry := Registry{SchemaVersion: RegistrySchemaVersion, UpdatedAt: time.Now()}
+	for i, path := range []string{"profiles/a", "profiles/a-backup", "profiles/a/v1.json"} {
+		registry.Profiles = append(registry.Profiles, RegistryEntry{
+			Name: []string{"first", "second", "third"}[i], Path: path, SHA256: strings.Repeat("a", 64),
+		})
+	}
+	if err := ValidateRegistry(registry); err == nil {
+		t.Fatal("an indexed file is also the parent directory of another indexed file")
+	}
+}

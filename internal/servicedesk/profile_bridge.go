@@ -61,11 +61,18 @@ var (
 )
 
 func LoadTemplate(ctx context.Context, client *Client, target EditTarget) (Template, error) {
-	return sdp.LoadTemplate(ctx, client, target)
+	return sdp.LoadTemplate(ctx, profileMetadataSource(client), target)
 }
 
 func Inspect(ctx context.Context, client *Client, request InspectRequest) (ResolvedContract, error) {
-	return sdp.Inspect(ctx, client, request)
+	return sdp.Inspect(ctx, profileMetadataSource(client), request)
+}
+
+func profileMetadataSource(client *Client) sdp.MetadataSource {
+	if client == nil {
+		return nil
+	}
+	return client
 }
 
 func resolveProfileInputContract(fields []Field, overlay ResolvedOverlay) (InputContract, error) {

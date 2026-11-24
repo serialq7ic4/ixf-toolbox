@@ -49,30 +49,31 @@ func EncodeRegistry(registry Registry) ([]byte, error) {
 	if registry.UpdatedAt.IsZero() {
 		return nil, fmt.Errorf("ServiceDesk registry updatedAt is required")
 	}
-	copyValue := registry
-	copyValue.UpdatedAt = copyValue.UpdatedAt.UTC().Truncate(time.Second)
-	copyValue.Profiles = append([]RegistryEntry(nil), registry.Profiles...)
-	if copyValue.Profiles == nil {
-		copyValue.Profiles = []RegistryEntry{}
-	}
-	sort.Slice(copyValue.Profiles, func(i, j int) bool { return copyValue.Profiles[i].Name < copyValue.Profiles[j].Name })
-	if err := ValidateRegistry(copyValue); err != nil {
+	if err := ValidateRegistry(registry); err != nil {
 		return nil, err
 	}
-	encoded, err := json.MarshalIndent(copyValue, "", "  ")
+	encoded, err := encodeRegistryUnchecked(registry)
 	if err != nil {
 		return nil, fmt.Errorf("encode ServiceDesk registry: %w", err)
 	}
-	encoded = append(encoded, '\n')
 	decoded, err := DecodeRegistry(encoded)
 	if err != nil {
 		return nil, fmt.Errorf("self-check encoded ServiceDesk registry: %w", err)
 	}
-	decoded.Profiles = append([]RegistryEntry(nil), decoded.Profiles...)
-	sort.Slice(decoded.Profiles, func(i, j int) bool { return decoded.Profiles[i].Name < decoded.Profiles[j].Name })
-	second, err := json.MarshalIndent(decoded, "", "  ")
-	if err != nil || !bytes.Equal(encoded, append(second, '\n')) {
+	second, err := encodeRegistryUnchecked(decoded)
+	if err != nil || !bytes.Equal(encoded, second) {
 		return nil, fmt.Errorf("encoded ServiceDesk registry is not deterministic")
 	}
 	return encoded, nil
+}
+
+func encodeRegistryUnchecked(registry Registry) ([]byte, error) {
+	registry.UpdatedAt = registry.UpdatedAt.UTC().Truncate(time.Second)
+	registry.Profiles = append(make([]RegistryEntry, 0, len(registry.Profiles)), registry.Profiles...)
+	sort.Slice(registry.Profiles, func(i, j int) bool { return registry.Profiles[i].Name < registry.Profiles[j].Name })
+	encoded, err := json.MarshalIndent(registry, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(encoded, '\n'), nil
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 )
@@ -201,11 +202,11 @@ func migrateRebaseField(result *RebaseResult, candidate rebaseFieldCandidate, li
 		}
 	}
 
-	resolvedColumns := map[string]ResolvedColumn{}
+	migratedColumns := map[string]ResolvedColumn{}
 	customColumnsMigrated := false
 	if tableFieldType(liveField.Type) {
 		var err error
-		migrated.Columns, resolvedColumns, customColumnsMigrated, err = migrateRebaseColumns(result, candidate, liveField.TableColumns)
+		migrated.Columns, migratedColumns, customColumnsMigrated, err = migrateRebaseColumns(result, candidate, liveField.TableColumns)
 		if err != nil {
 			return OverlayField{}, err
 		}
@@ -221,7 +222,7 @@ func migrateRebaseField(result *RebaseResult, candidate rebaseFieldCandidate, li
 				PublicName: candidate.publicName,
 				Field:      liveField,
 				Overlay:    migrated,
-				Columns:    resolvedColumns,
+				Columns:    migratedColumns,
 			}, liveField.TableColumns)
 		}
 		if valid == nil {
@@ -372,7 +373,7 @@ func migrateRebaseColumns(
 		publicName := uniqueTechnicalName(liveColumn.Name, "column", liveIndex, usedNames)
 		column := OverlayColumn{Match: liveColumnMatcher(liveColumn)}
 		migrated[publicName] = column
-		resolved[publicName] = ResolvedColumn{PublicName: publicName, Column: liveColumn, Overlay: column, LiveIndex: liveIndex}
+		// Do not let a newly added column inherit an old default row by name.
 		result.Added = append(result.Added, RebaseFieldChange{Field: fieldCandidate.publicName, Column: publicName})
 	}
 	if len(migrated) == 0 {
@@ -576,10 +577,7 @@ func cloneRouting(routing Routing) Routing {
 }
 
 func cloneStrings(values []string) []string {
-	if values == nil {
-		return nil
-	}
-	return append([]string(nil), values...)
+	return slices.Clone(values)
 }
 
 func cloneRaw(value json.RawMessage) json.RawMessage {

@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"path"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 )
@@ -79,7 +78,7 @@ func ValidateRegistry(registry Registry) error {
 		return errors.New("ServiceDesk registry updatedAt is required")
 	}
 	seen := make(map[string]struct{}, len(registry.Profiles))
-	paths := []string{"index.json"}
+	paths := map[string]struct{}{"index.json": {}}
 	for index, entry := range registry.Profiles {
 		if !IsValidProfileName(entry.Name) {
 			return fmt.Errorf("ServiceDesk registry profile %d has invalid name", index)
@@ -94,13 +93,16 @@ func ValidateRegistry(registry Registry) error {
 		if !lowerSHA256Pattern.MatchString(entry.SHA256) {
 			return fmt.Errorf("ServiceDesk registry profile %q has invalid sha256", entry.Name)
 		}
-		paths = append(paths, entry.Path)
+		if _, exists := paths[entry.Path]; exists {
+			return fmt.Errorf("ServiceDesk registry path %q is already in use", entry.Path)
+		}
+		paths[entry.Path] = struct{}{}
 	}
-	sort.Strings(paths)
-	for index := 1; index < len(paths); index++ {
-		previous, current := paths[index-1], paths[index]
-		if current == previous || strings.HasPrefix(current, previous+"/") {
-			return fmt.Errorf("ServiceDesk registry paths %q and %q cannot share a file path prefix", previous, current)
+	for _, entry := range registry.Profiles {
+		for parent := path.Dir(entry.Path); parent != "."; parent = path.Dir(parent) {
+			if _, exists := paths[parent]; exists {
+				return fmt.Errorf("ServiceDesk registry paths %q and %q cannot share a file path prefix", parent, entry.Path)
+			}
 		}
 	}
 	return nil

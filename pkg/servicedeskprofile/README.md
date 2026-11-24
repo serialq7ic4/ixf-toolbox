@@ -34,6 +34,9 @@ processing, or withdrawal. Those operations remain in the private
   manage profile documents.
 - `CompareBaseline` and `RebaseOverlay` identify drift and migrate approved
   business semantics without silently dropping unresolved customization.
+  Before publishing a rebased draft, also call `InspectTemplate` with its
+  profile context: it checks the final CLI input contract, including condition
+  reference conflicts that are not overlay matcher errors.
 - `DecodeRegistry`, `EncodeRegistry`, `ContentAddressedProfilePath`, and
   `RegistryFetcher` implement the shared Registry contract.
 - `InspectTemplate` and `ResolveProfileInputContract` produce the same input

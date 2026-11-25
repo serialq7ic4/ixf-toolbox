@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed ServiceDesk form inspection and profile discovery for forms such as service 463 that return string-valued option maps. Required fields with unverified submission behavior still block profile validation.
 - Added the public `pkg/servicedeskprofile` Go contract for ServiceDesk profile producers and consumers. It provides strict profile and Registry validation, deterministic encoding, read-only metadata and Registry clients, drift classification, and deterministic rebase with explicit unresolved customization.
 - Moved the `ixf` ServiceDesk profile runtime onto the shared contract without changing CLI JSON or cache fallback behavior. The public package does not read local credentials, environment configuration, or caches, and does not expose ticket instance or write operations.
 

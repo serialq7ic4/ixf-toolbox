@@ -164,10 +164,13 @@ func TestNormalizeStringChoiceMaps(t *testing.T) {
 			}
 			field := template.Fields[0]
 			want := []Choice{{Label: "First", Value: "2"}, {Label: "Second", Value: "10"}}
-			if fmt.Sprint(field.Choices) != fmt.Sprint(want) || field.ChoiceHash == "" {
-				t.Fatalf("choices = %+v, want %+v with fingerprint", field.Choices, want)
+			if fmt.Sprint(field.Choices) != fmt.Sprint(want) {
+				t.Fatalf("choices = %+v, want %+v", field.Choices, want)
 			}
 			overlay := DiscoverOverlay(template, "choice-map-test")
+			if got, want := overlay.Baseline.Fields[0].ChoiceHash != "", fieldType == "single_select"; got != want {
+				t.Fatalf("choice fingerprint present = %t, want %t for schema v1", got, want)
+			}
 			overlay.Routing = Routing{DisplayName: "Choice fixture", UseWhen: "Test choices", DoNotUseWhen: "Not a real ticket", Examples: []string{}}
 			if _, err := EncodeProfile(overlay); err != nil {
 				t.Fatalf("discovered profile cannot be encoded: %v", err)
@@ -176,6 +179,18 @@ func TestNormalizeStringChoiceMaps(t *testing.T) {
 				t.Fatal("reading checkbox choices must not enable unverified submission")
 			}
 		})
+	}
+}
+
+func TestStringChoiceMapOrderIsDeterministic(t *testing.T) {
+	t.Parallel()
+	raw := json.RawMessage(`{"10":"Ten","02":"Padded two","2":"Two","1a":"Alphanumeric"}`)
+	want := []Choice{{Label: "Padded two", Value: "02"}, {Label: "Two", Value: "2"}, {Label: "Ten", Value: "10"}, {Label: "Alphanumeric", Value: "1a"}}
+	for range 32 {
+		got, err := normalizeLiveChoices(raw)
+		if err != nil || fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Fatalf("choices = %+v, %v; want %+v", got, err, want)
+		}
 	}
 }
 

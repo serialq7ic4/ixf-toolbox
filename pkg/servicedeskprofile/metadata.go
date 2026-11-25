@@ -274,7 +274,8 @@ func normalizeLading(lading Lading) ([]Field, error) {
 				return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk lading metadata has invalid choices"}
 			}
 		}
-		if len(field.Choices) > 0 {
+		// Schema v1 only permits a choice hash for recognized choice types.
+		if len(field.Choices) > 0 && choiceFieldType(field.Type) {
 			field.ChoiceHash, _ = canonicalHash(field.Choices)
 		}
 		if raw.Conditions != nil {
@@ -427,9 +428,12 @@ func decodeLiveChoiceEntries(data json.RawMessage, allowStringValues bool) ([]ra
 			keys = append(keys, key)
 		}
 		sort.Slice(keys, func(left, right int) bool {
-			leftNumber, leftErr := strconv.Atoi(keys[left])
-			rightNumber, rightErr := strconv.Atoi(keys[right])
-			if leftErr == nil && rightErr == nil {
+			leftNumber, leftErr := strconv.ParseInt(keys[left], 10, 64)
+			rightNumber, rightErr := strconv.ParseInt(keys[right], 10, 64)
+			if (leftErr == nil) != (rightErr == nil) {
+				return leftErr == nil
+			}
+			if leftErr == nil && leftNumber != rightNumber {
 				return leftNumber < rightNumber
 			}
 			return keys[left] < keys[right]

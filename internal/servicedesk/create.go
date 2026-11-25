@@ -167,10 +167,6 @@ func Create(ctx context.Context, deps Dependencies, request CreateRequest) (Crea
 	if overlay == nil && request.Profile != "" {
 		return result, &DomainError{Code: "profile_invalid", Message: "ServiceDesk profile could not be resolved"}
 	}
-	if overlay != nil {
-		if overlay.FieldCount() == 0 { /* keep the resolved overlay available for normalization */
-		}
-	}
 	normalized, fieldIssues := NormalizeInput(template, overlay, request.Input)
 	conditions := EvaluateConditions(template, normalized)
 	issues := append([]FieldIssue{}, fieldIssues...)
@@ -325,6 +321,3 @@ func cloneInputs(inputs map[string]any) map[string]any {
 func domainFromAPIError(err error) *DomainError {
 	return ClassifyError("read", err)
 }
-
-// FieldCount keeps create planning independent of the overlay's private map shape.
-func (resolved ResolvedOverlay) FieldCount() int { return len(resolved.Fields) }

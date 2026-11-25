@@ -2,39 +2,21 @@ package servicedesk
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"os"
-	"path"
 	"path/filepath"
-	"regexp"
-	"sort"
 	"strings"
 	"time"
+
+	sdp "github.com/serialq7ic4/ixf-toolbox/pkg/servicedeskprofile"
 )
 
 const (
 	DefaultRegistryURL = "http://10.103.251.43/files/ixf-toolbox/servicedesk/v1/"
 	registryCacheAge   = 24 * time.Hour
-	maxRegistryBytes   = 8 << 20
 )
-
-type Registry struct {
-	SchemaVersion int             `json:"schemaVersion"`
-	UpdatedAt     time.Time       `json:"updatedAt"`
-	Profiles      []RegistryEntry `json:"profiles"`
-}
-
-type RegistryEntry struct {
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-}
 
 type RegistryStatus struct {
 	Source    string
@@ -61,18 +43,6 @@ type ProfileSummary struct {
 	Description string        `json:"description"`
 	Routing     Routing       `json:"routing"`
 	Target      OverlayTarget `json:"target"`
-}
-
-type registryWire struct {
-	SchemaVersion *int                 `json:"schemaVersion"`
-	UpdatedAt     *string              `json:"updatedAt"`
-	Profiles      *[]registryEntryWire `json:"profiles"`
-}
-
-type registryEntryWire struct {
-	Name   *string `json:"name"`
-	Path   *string `json:"path"`
-	SHA256 *string `json:"sha256"`
 }
 
 type loadedRegistry struct {
@@ -134,37 +104,24 @@ func (l RegistryLoader) now() time.Time {
 }
 
 func (l RegistryLoader) loadNetwork(ctx context.Context, fetchedAt time.Time) (loadedRegistry, error) {
-	indexBytes, err := l.fetch(ctx, DefaultRegistryURL+"index.json")
-	if err != nil {
-		return loadedRegistry{}, fmt.Errorf("fetch index: %w", err)
-	}
-	registry, err := decodeRegistry(indexBytes)
+	fetched, err := (sdp.RegistryFetcher{
+		HTTPClient: l.HTTPClient,
+		BaseURL:    DefaultRegistryURL,
+	}).Fetch(ctx)
 	if err != nil {
 		return loadedRegistry{}, err
 	}
 
 	loaded := loadedRegistry{
-		Registry: registry,
-		Overlays: make(map[string]Overlay, len(registry.Profiles)),
-		Bytes:    make(map[string][]byte, len(registry.Profiles)),
+		Registry: fetched.Registry,
+		Overlays: make(map[string]Overlay, len(fetched.Profiles)),
+		Bytes:    make(map[string][]byte, len(fetched.Profiles)),
 	}
-	for _, entry := range registry.Profiles {
-		profileURL, err := registryProfileURL(entry.Path)
-		if err != nil {
-			return loadedRegistry{}, err
-		}
-		profileBytes, err := l.fetch(ctx, profileURL)
-		if err != nil {
-			return loadedRegistry{}, fmt.Errorf("fetch profile %q: %w", entry.Name, err)
-		}
-		overlay, err := validateRegistryProfile(entry, profileBytes)
-		if err != nil {
-			return loadedRegistry{}, err
-		}
-		loaded.Overlays[entry.Name] = overlay
-		loaded.Bytes[entry.Path] = profileBytes
+	for _, profile := range fetched.Profiles {
+		loaded.Overlays[profile.Entry.Name] = profile.Overlay
+		loaded.Bytes[profile.Entry.Path] = profile.Bytes
 	}
-	if err := l.writeCache(loaded, indexBytes, fetchedAt); err != nil {
+	if err := l.writeCache(loaded, fetched.IndexBytes, fetchedAt); err != nil {
 		return loadedRegistry{}, fmt.Errorf("cache registry: %w", err)
 	}
 	return loaded, nil
@@ -223,148 +180,28 @@ func (l RegistryLoader) loadCache(now time.Time) (loadedRegistry, RegistryStatus
 	}, nil
 }
 
-func (l RegistryLoader) fetch(ctx context.Context, target string) ([]byte, error) {
-	client := l.HTTPClient
-	if client == nil {
-		client = newDirectHTTPClient(defaultTimeout)
-	} else {
-		clone := *client
-		client = &clone
-		if client.Transport == nil {
-			client.Transport = newDirectHTTPClient(defaultTimeout).Transport
-		}
-	}
-	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	if err != nil {
-		return nil, err
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("unexpected HTTP status %s", response.Status)
-	}
-	reader := io.LimitReader(response.Body, maxRegistryBytes+1)
-	body, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, err
-	}
-	if len(body) > maxRegistryBytes {
-		return nil, fmt.Errorf("response exceeds %d bytes", maxRegistryBytes)
-	}
-	return body, nil
-}
-
 func decodeRegistry(data []byte) (Registry, error) {
-	var wire registryWire
-	if err := decodeStrictJSON(data, &wire); err != nil {
-		return Registry{}, fmt.Errorf("decode ServiceDesk registry index: %w", err)
-	}
-	if wire.SchemaVersion == nil || wire.UpdatedAt == nil || wire.Profiles == nil {
-		return Registry{}, errors.New("ServiceDesk registry index is missing a required property")
-	}
-	if *wire.SchemaVersion != 1 {
-		return Registry{}, errors.New("ServiceDesk registry schemaVersion must be 1")
-	}
-	updatedAt, err := time.Parse(time.RFC3339, *wire.UpdatedAt)
-	if err != nil {
-		return Registry{}, fmt.Errorf("ServiceDesk registry updatedAt must be RFC3339: %w", err)
-	}
-	registry := Registry{SchemaVersion: *wire.SchemaVersion, UpdatedAt: updatedAt, Profiles: make([]RegistryEntry, 0, len(*wire.Profiles))}
-	seen := make(map[string]struct{}, len(*wire.Profiles))
-	for index, entry := range *wire.Profiles {
-		if entry.Name == nil || entry.Path == nil || entry.SHA256 == nil {
-			return Registry{}, fmt.Errorf("ServiceDesk registry profile %d is missing a required property", index)
-		}
-		if !IsValidProfileName(*entry.Name) {
-			return Registry{}, fmt.Errorf("ServiceDesk registry profile %d has invalid name", index)
-		}
-		if _, exists := seen[*entry.Name]; exists {
-			return Registry{}, fmt.Errorf("ServiceDesk registry contains duplicate profile name %q", *entry.Name)
-		}
-		seen[*entry.Name] = struct{}{}
-		if err := validateRegistryPath(*entry.Path); err != nil {
-			return Registry{}, fmt.Errorf("ServiceDesk registry profile %q: %w", *entry.Name, err)
-		}
-		if !lowerSHA256Pattern.MatchString(*entry.SHA256) {
-			return Registry{}, fmt.Errorf("ServiceDesk registry profile %q has invalid sha256", *entry.Name)
-		}
-		registry.Profiles = append(registry.Profiles, RegistryEntry{Name: *entry.Name, Path: *entry.Path, SHA256: *entry.SHA256})
-	}
-	if err := validateRegistryPaths(registry.Profiles); err != nil {
-		return Registry{}, err
-	}
-	return registry, nil
+	return sdp.DecodeRegistry(data)
 }
-
-var lowerSHA256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func validateRegistryProfile(entry RegistryEntry, data []byte) (Overlay, error) {
-	digest := sha256.Sum256(data)
-	if hex.EncodeToString(digest[:]) != entry.SHA256 {
-		return Overlay{}, fmt.Errorf("ServiceDesk profile %q sha256 does not match registry", entry.Name)
-	}
-	overlay, err := DecodeOverlay(data)
-	if err != nil {
-		return Overlay{}, fmt.Errorf("decode ServiceDesk profile %q: %w", entry.Name, err)
-	}
-	if err := ValidateOverlaySchema(overlay); err != nil {
-		return Overlay{}, fmt.Errorf("validate ServiceDesk profile %q: %w", entry.Name, err)
-	}
-	if overlay.Name != entry.Name {
-		return Overlay{}, fmt.Errorf("ServiceDesk profile name %q does not match registry entry %q", overlay.Name, entry.Name)
-	}
-	return overlay, nil
+	return sdp.ValidateRegistryProfile(entry, data)
 }
 
 func validateRegistryPath(raw string) error {
-	if raw == "" || strings.ContainsAny(raw, `\\?#`) || strings.HasPrefix(raw, "/") || path.Clean(raw) != raw {
-		return errors.New("path must be a clean relative slash path")
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.IsAbs() || parsed.Host != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != raw {
-		return errors.New("path must not contain a host, query, or fragment")
-	}
-	for _, segment := range strings.Split(raw, "/") {
-		if segment == "" || segment == "." || segment == ".." {
-			return errors.New("path must not contain empty, dot, or parent segments")
-		}
-	}
-	return nil
+	return sdp.ValidateRegistryPath(raw)
 }
 
 func validateRegistryPaths(entries []RegistryEntry) error {
-	paths := make([]string, 0, len(entries)+1)
-	paths = append(paths, "index.json")
-	for _, entry := range entries {
-		paths = append(paths, entry.Path)
-	}
-	sort.Strings(paths)
-	for index := 1; index < len(paths); index++ {
-		previous, current := paths[index-1], paths[index]
-		if current == previous || strings.HasPrefix(current, previous+"/") {
-			return fmt.Errorf("ServiceDesk registry paths %q and %q cannot share a file path prefix", previous, current)
-		}
-	}
-	return nil
+	return sdp.ValidateRegistry(Registry{
+		SchemaVersion: sdp.RegistrySchemaVersion,
+		UpdatedAt:     time.Unix(0, 0).UTC(),
+		Profiles:      entries,
+	})
 }
 
 func registryProfileURL(raw string) (string, error) {
-	if err := validateRegistryPath(raw); err != nil {
-		return "", err
-	}
-	base, err := url.Parse(DefaultRegistryURL)
-	if err != nil {
-		return "", err
-	}
-	profileURL, err := base.Parse(raw)
-	if err != nil || profileURL.Scheme != base.Scheme || profileURL.Host != base.Host || profileURL.RawQuery != "" || profileURL.Fragment != "" {
-		return "", errors.New("profile path resolves outside the registry root")
-	}
-	return profileURL.String(), nil
+	return sdp.ResolveRegistryURL(DefaultRegistryURL, raw)
 }
 
 func (l RegistryLoader) cacheDir() (string, error) {

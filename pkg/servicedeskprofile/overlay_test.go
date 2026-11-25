@@ -1,4 +1,4 @@
-package servicedesk
+package servicedeskprofile
 
 import (
 	"encoding/json"

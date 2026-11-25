@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	sdp "github.com/serialq7ic4/ixf-toolbox/pkg/servicedeskprofile"
 )
 
 const (
@@ -30,31 +32,7 @@ type Client struct {
 	credential Credential
 	httpClient *http.Client
 	now        func() time.Time
-}
-
-type APIError struct {
-	Code      string
-	Status    int
-	Retryable bool
-	Message   string
-	Cause     error
-}
-
-func (e *APIError) Error() string {
-	if e == nil {
-		return ""
-	}
-	if e.Message == "" {
-		return e.Code
-	}
-	return e.Code + ": " + e.Message
-}
-
-func (e *APIError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.Cause
+	metadata   *sdp.MetadataClient
 }
 
 type Business struct {
@@ -67,16 +45,6 @@ type UserInfo struct {
 	DisplayName string     `json:"display_name"`
 	Business    []Business `json:"business"`
 }
-
-type Service struct {
-	ID         int    `json:"id"`
-	BusinessID int    `json:"business_id"`
-	Key        string `json:"key"`
-	Name       string `json:"name"`
-	SnapshotID string `json:"snapshot_id"`
-}
-
-type Lading map[string]json.RawMessage
 
 type StartPayload struct {
 	SnapshotID     string         `json:"snapshot_id"`
@@ -242,7 +210,14 @@ func NewClient(credential Credential, options ClientOptions) *Client {
 	if now == nil {
 		now = time.Now
 	}
-	return &Client{credential: credential, httpClient: httpClient, now: now}
+	return &Client{
+		credential: credential,
+		httpClient: httpClient,
+		now:        now,
+		metadata: sdp.NewMetadataClient(credential.APIKey, sdp.ClientOptions{
+			HTTPClient: httpClient,
+		}),
+	}
 }
 
 func newDirectHTTPClient(timeout time.Duration) *http.Client {
@@ -266,29 +241,11 @@ func (c *Client) UserInfo(ctx context.Context, businessID int) (UserInfo, error)
 }
 
 func (c *Client) Service(ctx context.Context, target EditTarget) (Service, error) {
-	var response Service
-	if target.ServiceID <= 0 {
-		return response, invalidRequest("ServiceDesk service ID must be positive")
-	}
-	path := "/api/service/v3/service/" + strconv.Itoa(target.ServiceID) + "/"
-	err := c.do(ctx, http.MethodGet, path, nil, target.BusinessID, nil, &response, nil, true)
-	return response, err
+	return c.metadata.Service(ctx, target)
 }
 
 func (c *Client) Lading(ctx context.Context, target EditTarget, snapshotID string) (Lading, error) {
-	if target.ServiceID <= 0 {
-		return nil, invalidRequest("ServiceDesk service ID must be positive")
-	}
-	if strings.TrimSpace(snapshotID) == "" {
-		return nil, invalidRequest("ServiceDesk snapshot ID is required")
-	}
-	query := url.Values{
-		"service_id":  {strconv.Itoa(target.ServiceID)},
-		"snapshot_id": {snapshotID},
-	}
-	var response Lading
-	err := c.do(ctx, http.MethodGet, "/api/tasktmpl3/v3/lading/", query, target.BusinessID, nil, &response, nil, true)
-	return response, err
+	return c.metadata.Lading(ctx, target, snapshotID)
 }
 
 func (c *Client) Start(ctx context.Context, businessID int, payload StartPayload) (StartResponse, error) {

@@ -1,4 +1,4 @@
-package servicedesk
+package servicedeskprofile
 
 import (
 	"bytes"
@@ -10,8 +10,10 @@ import (
 )
 
 const (
-	driftNonDestructive = "non_destructive"
-	driftDestructive    = "destructive"
+	DriftNonDestructive = "non_destructive"
+	DriftDestructive    = "destructive"
+	driftNonDestructive = DriftNonDestructive
+	driftDestructive    = DriftDestructive
 )
 
 func CompareBaseline(baseline Baseline, template Template) DriftReport {

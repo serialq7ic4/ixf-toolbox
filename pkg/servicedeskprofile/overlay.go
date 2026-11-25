@@ -871,7 +871,7 @@ func tableFieldType(fieldType string) bool { return IsTableFieldType(fieldType) 
 
 func choiceFieldType(fieldType string) bool {
 	switch strings.ToLower(fieldType) {
-	case "select", "single_select", "radio", "checkbox", "multi_select", "multi_checkbox":
+	case "select", "single_select", "radio", "checkbox", "single_checkbox", "multi_select", "multi_checkbox":
 		return true
 	default:
 		return false

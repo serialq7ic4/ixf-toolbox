@@ -341,7 +341,7 @@ func normalizeRequired(primary, fallback *json.RawMessage) (bool, error) {
 }
 
 func normalizeLiveChoices(data json.RawMessage) ([]Choice, error) {
-	entries, err := decodeLiveChoiceEntries(data)
+	entries, err := decodeLiveChoiceEntries(data, true)
 	if err != nil {
 		return nil, err
 	}
@@ -358,7 +358,7 @@ func normalizeLiveChoices(data json.RawMessage) ([]Choice, error) {
 }
 
 func normalizeLiveColumns(data json.RawMessage) ([]TableColumn, error) {
-	entries, err := decodeLiveChoiceEntries(data)
+	entries, err := decodeLiveChoiceEntries(data, false)
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +411,7 @@ func normalizeLiveColumns(data json.RawMessage) ([]TableColumn, error) {
 	return columns, nil
 }
 
-func decodeLiveChoiceEntries(data json.RawMessage) ([]rawLiveChoice, error) {
+func decodeLiveChoiceEntries(data json.RawMessage, allowStringValues bool) ([]rawLiveChoice, error) {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return nil, nil
@@ -437,7 +437,13 @@ func decodeLiveChoiceEntries(data json.RawMessage) ([]rawLiveChoice, error) {
 		entries := make([]rawLiveChoice, 0, len(keys))
 		for _, key := range keys {
 			var entry rawLiveChoice
-			if err := decodeMetadataJSON(values[key], &entry); err != nil {
+			value := bytes.TrimSpace(values[key])
+			if allowStringValues && len(value) > 0 && value[0] == '"' {
+				entry.Key = key
+				if err := decodeMetadataJSON(value, &entry.Name); err != nil {
+					return nil, err
+				}
+			} else if err := decodeMetadataJSON(value, &entry); err != nil {
 				return nil, err
 			}
 			entries = append(entries, entry)

@@ -152,6 +152,65 @@ func TestNormalizeRejectsIncompleteServiceDeskWireField(t *testing.T) {
 	}
 }
 
+func TestNormalizeStringChoiceMaps(t *testing.T) {
+	t.Parallel()
+	for _, fieldType := range []string{"single_select", "single_checkbox"} {
+		t.Run(fieldType, func(t *testing.T) {
+			lading := Lading{"field_example": json.RawMessage(fmt.Sprintf(
+				`{"field_name":"Example","field_type":%q,"field_choice":{"10":"Second","2":"First"}}`, fieldType))}
+			template, err := BuildTemplate(EditTarget{BusinessID: 1, ServiceID: 1}, Service{Key: "request", SnapshotID: "test"}, lading)
+			if err != nil {
+				t.Fatal(err)
+			}
+			field := template.Fields[0]
+			want := []Choice{{Label: "First", Value: "2"}, {Label: "Second", Value: "10"}}
+			if fmt.Sprint(field.Choices) != fmt.Sprint(want) {
+				t.Fatalf("choices = %+v, want %+v", field.Choices, want)
+			}
+			overlay := DiscoverOverlay(template, "choice-map-test")
+			if got, want := overlay.Baseline.Fields[0].ChoiceHash != "", fieldType == "single_select"; got != want {
+				t.Fatalf("choice fingerprint present = %t, want %t for schema v1", got, want)
+			}
+			overlay.Routing = Routing{DisplayName: "Choice fixture", UseWhen: "Test choices", DoNotUseWhen: "Not a real ticket", Examples: []string{}}
+			if _, err := EncodeProfile(overlay); err != nil {
+				t.Fatalf("discovered profile cannot be encoded: %v", err)
+			}
+			if fieldType == "single_checkbox" && field.Supported {
+				t.Fatal("reading checkbox choices must not enable unverified submission")
+			}
+		})
+	}
+}
+
+func TestStringChoiceMapOrderIsDeterministic(t *testing.T) {
+	t.Parallel()
+	raw := json.RawMessage(`{"10":"Ten","02":"Padded two","2":"Two","1a":"Alphanumeric"}`)
+	want := []Choice{{Label: "Padded two", Value: "02"}, {Label: "Two", Value: "2"}, {Label: "Ten", Value: "10"}, {Label: "Alphanumeric", Value: "1a"}}
+	for range 32 {
+		got, err := normalizeLiveChoices(raw)
+		if err != nil || fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Fatalf("choices = %+v, %v; want %+v", got, err, want)
+		}
+	}
+}
+
+func TestStringChoiceMapsDoNotAcceptMalformedOptionsOrTableColumns(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{
+		`{"":"Option"}`,
+		`{"key":" "}`,
+		`{"key":null}`,
+		`["Option"]`,
+	} {
+		if _, err := normalizeLiveChoices(json.RawMessage(raw)); err == nil {
+			t.Errorf("malformed options accepted: %s", raw)
+		}
+	}
+	if _, err := normalizeLiveColumns(json.RawMessage(`{"key":"Column"}`)); err == nil {
+		t.Fatal("string option map was accepted as table column metadata")
+	}
+}
+
 func TestNormalizeNestedTableAndChoices(t *testing.T) {
 	t.Parallel()
 

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -135,6 +136,17 @@ type rawCondition struct {
 	Operator   string         `json:"operator"`
 	Value      any            `json:"value"`
 	Conditions []rawCondition `json:"conditions"`
+}
+
+type rawConditionGroup struct {
+	Relation string                       `json:"condition_relation"`
+	Fields   map[string]rawConditionField `json:"condition_fields_list_all_dict"`
+}
+
+type rawConditionField struct {
+	Field    string `json:"key"`
+	Operator string `json:"relation"`
+	Value    any    `json:"value"`
 }
 
 type rawLiveChoice struct {
@@ -275,7 +287,7 @@ func normalizeLading(lading Lading) ([]Field, error) {
 			}
 		}
 		// Schema v1 only permits a choice hash for recognized choice types.
-		if len(field.Choices) > 0 && choiceFieldType(field.Type) {
+		if len(field.Choices) > 0 && choiceHashFieldType(field.Type) {
 			field.ChoiceHash, _ = canonicalHash(field.Choices)
 		}
 		if raw.Conditions != nil {
@@ -507,17 +519,111 @@ func normalizeConditionSet(raw rawConditionSet) ConditionSet {
 		if len(groups) == 0 || bytes.Equal(groups, []byte("null")) {
 			return ConditionSet{Unsupported: true}
 		}
-		var object map[string]json.RawMessage
-		if err := decodeMetadataJSON(groups, &object); err != nil || len(object) != 0 {
+		var rawGroups map[string]json.RawMessage
+		if err := decodeMetadataJSON(groups, &rawGroups); err != nil {
 			return ConditionSet{Unsupported: true}
 		}
-		return ConditionSet{}
+		if len(rawGroups) == 0 {
+			return ConditionSet{}
+		}
+		parsed, err := parseLiveConditionGroups(groups, raw.GroupConditionRelation)
+		if err != nil {
+			return ConditionSet{Unsupported: true}
+		}
+		if raw.Hide != nil && *raw.Hide && raw.FieldDisplay != nil && *raw.FieldDisplay {
+			parsed.Conditions = negateConditions(parsed.Conditions)
+		}
+		return parsed
 	}
 	conditions := make([]Condition, 0, len(raw.Conditions))
 	for _, rawCondition := range raw.Conditions {
 		conditions = append(conditions, normalizeCondition(rawCondition))
 	}
 	return ConditionSet{Operator: raw.Operator, Conditions: conditions}
+}
+
+func parseLiveConditionGroups(data []byte, operator string) (ConditionSet, error) {
+	var groups map[string]rawConditionGroup
+	if err := decodeMetadataJSON(data, &groups); err != nil || len(groups) == 0 {
+		return ConditionSet{}, fmt.Errorf("live condition groups are not an object")
+	}
+	groupKeys := make([]string, 0, len(groups))
+	for key := range groups {
+		groupKeys = append(groupKeys, key)
+	}
+	sort.Strings(groupKeys)
+	parsed := ConditionSet{Source: "live", Operator: firstNonEmpty(operator, "and"), Conditions: make([]Condition, 0, len(groupKeys))}
+	for _, groupKey := range groupKeys {
+		group := groups[groupKey]
+		fieldKeys := make([]string, 0, len(group.Fields))
+		for key := range group.Fields {
+			fieldKeys = append(fieldKeys, key)
+		}
+		sort.Strings(fieldKeys)
+		if len(fieldKeys) == 0 {
+			return ConditionSet{}, fmt.Errorf("live condition group is empty")
+		}
+		conditionGroup := Condition{Operator: firstNonEmpty(group.Relation, "and"), Conditions: make([]Condition, 0, len(fieldKeys))}
+		for _, fieldKey := range fieldKeys {
+			field := group.Fields[fieldKey]
+			if strings.TrimSpace(field.Field) == "" || strings.TrimSpace(field.Operator) == "" {
+				return ConditionSet{}, fmt.Errorf("live condition field is incomplete")
+			}
+			conditionGroup.Conditions = append(conditionGroup.Conditions, Condition{Field: field.Field, Operator: field.Operator, Value: field.Value})
+		}
+		parsed.Conditions = append(parsed.Conditions, conditionGroup)
+	}
+	return parsed, nil
+}
+
+func negateConditions(conditions []Condition) []Condition {
+	negated := make([]Condition, len(conditions))
+	for index, condition := range conditions {
+		negated[index] = negateCondition(condition)
+	}
+	return negated
+}
+
+func negateCondition(condition Condition) Condition {
+	if len(condition.Conditions) > 0 {
+		if len(condition.Conditions) > 1 {
+			condition.Operator = negateLogicalOperator(condition.Operator)
+		}
+		condition.Conditions = negateConditions(condition.Conditions)
+		return condition
+	}
+	condition.Operator = negateComparisonOperator(condition.Operator)
+	return condition
+}
+
+func negateLogicalOperator(operator string) string {
+	if strings.EqualFold(operator, "or") {
+		return "and"
+	}
+	return "or"
+}
+
+func negateComparisonOperator(operator string) string {
+	switch strings.ToLower(strings.TrimSpace(operator)) {
+	case "==":
+		return "!="
+	case "!=":
+		return "=="
+	case "in":
+		return "notin"
+	case "notin":
+		return "in"
+	case ">":
+		return "<="
+	case "<":
+		return ">="
+	case ">=":
+		return "<"
+	case "<=":
+		return ">"
+	default:
+		return operator
+	}
 }
 
 func (raw rawConditionSet) liveConditionExpression() bool {
@@ -539,7 +645,8 @@ func supportedFieldType(fieldType string) bool {
 	switch strings.ToLower(fieldType) {
 	case "input", "multi_input", "textarea", "number", "date", "time", "only_time",
 		"date_time_range", "time_range", "select", "single_select", "radio", "checkbox",
-		"multi_select", "multi_checkbox", "switch", "basis_table", "extend_table", "tui_editor",
+		"multi_select", "multi_checkbox", "single_checkbox", "switch", "basis_table", "extend_table", "tui_editor",
+		"single_personnel", "script_field",
 		"hyperlink":
 		return true
 	default:
@@ -556,6 +663,10 @@ func supportedTableColumnType(fieldType string) bool {
 	default:
 		return false
 	}
+}
+
+func choiceHashFieldType(fieldType string) bool {
+	return choiceFieldType(fieldType) && strings.ToLower(fieldType) != "single_checkbox"
 }
 
 func displayOnlyFieldType(fieldType string) bool {

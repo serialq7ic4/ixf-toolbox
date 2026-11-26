@@ -191,7 +191,7 @@ func NormalizeInput(template Template, overlay *ResolvedOverlay, input TicketInp
 				issues = append(issues, fieldIssue(view, "unsupported_field", "required field type is not supported for writing"))
 				continue
 			}
-			if view.Field.Required && len(view.Field.Conditions.Conditions) == 0 && !view.Field.DisplayOnly {
+			if view.Field.Required && len(view.Field.Conditions.Conditions) == 0 && !view.Field.DisplayOnly && !autoResolvedFieldType(view.Field.Type) {
 				issues = append(issues, fieldIssue(view, "missing_required", "required field is missing"))
 			}
 			continue
@@ -348,7 +348,7 @@ func normalizeValue(value any, field Field, view fieldView, rowIndex int) (any, 
 			issue("invalid_type", "field requires a boolean")
 			return nil, issues
 		}
-	case "select", "single_select", "radio", "checkbox":
+	case "select", "single_select", "radio", "checkbox", "single_checkbox":
 		text, ok := value.(string)
 		if !ok {
 			issue("invalid_type", "field requires a choice string")
@@ -427,6 +427,15 @@ func normalizeValue(value any, field Field, view fieldView, rowIndex int) (any, 
 		value = converted
 	}
 	return value, issues
+}
+
+func autoResolvedFieldType(fieldType string) bool {
+	switch strings.ToLower(fieldType) {
+	case "single_personnel", "script_field":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeTableRow(row map[string]any, field Field, view fieldView, rowIndex int) (map[string]any, []FieldIssue) {

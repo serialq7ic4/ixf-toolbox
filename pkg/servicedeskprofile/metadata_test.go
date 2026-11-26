@@ -175,8 +175,8 @@ func TestNormalizeStringChoiceMaps(t *testing.T) {
 			if _, err := EncodeProfile(overlay); err != nil {
 				t.Fatalf("discovered profile cannot be encoded: %v", err)
 			}
-			if fieldType == "single_checkbox" && field.Supported {
-				t.Fatal("reading checkbox choices must not enable unverified submission")
+			if fieldType == "single_checkbox" && !field.Supported {
+				t.Fatal("single checkbox choices must support single-value submission")
 			}
 		})
 	}
@@ -461,6 +461,58 @@ func TestNormalizeLiveConditionExpressionMarksNonEmptyGroupsUnsupported(t *testi
 	conditions := template.Fields[0].Conditions
 	if !conditions.Unsupported {
 		t.Fatalf("non-empty live conditions = %+v, want unsupported", conditions)
+	}
+}
+
+func TestNormalizeLiveConditionExpressionParsesHiddenBranch(t *testing.T) {
+	t.Parallel()
+
+	template := loadSyntheticTemplate(t, map[string]any{
+		"field_details": map[string]any{
+			"field_unique_Identifier": "details",
+			"field_name":              "Details",
+			"field_type":              "tui_editor",
+			"field_required":          "OPTION",
+			"conditions_expression": map[string]any{
+				"hide": true, "field_display": true, "group_condition_relation": "and",
+				"condition_groups_list_all_dict": map[string]any{
+					"1": map[string]any{
+						"condition_relation": "and",
+						"condition_fields_list_all_dict": map[string]any{
+							"1": map[string]any{"field_type": "single_checkbox", "key": "category", "relation": "!=", "value": "server"},
+						},
+					},
+				},
+			},
+		},
+	})
+	conditions := template.Fields[0].Conditions
+	if conditions.Unsupported || conditions.Operator != "and" || len(conditions.Conditions) != 1 {
+		t.Fatalf("parsed conditions = %+v", conditions)
+	}
+	group := conditions.Conditions[0]
+	if group.Operator != "and" || len(group.Conditions) != 1 {
+		t.Fatalf("parsed group = %+v", group)
+	}
+	condition := group.Conditions[0]
+	if condition.Field != "category" || condition.Operator != "==" || condition.Value != "server" {
+		t.Fatalf("parsed hidden condition = %+v", condition)
+	}
+}
+
+func TestNormalizeAutoResolvedRequiredFields(t *testing.T) {
+	t.Parallel()
+	template := loadSyntheticTemplate(t, map[string]any{
+		"field_title": map[string]any{"field_unique_Identifier": "title", "field_name": "Title", "field_type": "input", "field_required": "REQUIRE"},
+		"field_owner": map[string]any{"field_unique_Identifier": "owner", "field_name": "Owner", "field_type": "single_personnel", "field_required": "REQUIRE"},
+		"field_line":  map[string]any{"field_unique_Identifier": "line", "field_name": "Business line", "field_type": "script_field", "field_required": "REQUIRE"},
+	})
+	contract, err := InspectTemplate(template, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contract.InputContract.UnsupportedRequiredFieldCount != 0 {
+		t.Fatalf("auto-resolved fields remain unsupported: %+v", contract.InputContract)
 	}
 }
 

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 func TestCreateDryRunPerformsNoWrite(t *testing.T) {
@@ -27,8 +26,8 @@ func TestCreateDryRunPerformsNoWrite(t *testing.T) {
 	if result.Applied || result.Outcome != "dry_run" || starts.Load() != 0 {
 		t.Fatalf("dry-run result = %+v, start calls = %d", result, starts.Load())
 	}
-	if result.Plan.Apply.Blocked {
-		t.Fatalf("valid dry-run unexpectedly blocked: %+v", result.Plan.Apply)
+	if !result.Plan.Apply.Blocked || result.Plan.Apply.BlockReason != "profile_required" {
+		t.Fatalf("URL dry-run did not require a built-in profile for apply: %+v", result.Plan.Apply)
 	}
 }
 
@@ -74,90 +73,14 @@ func TestCreateDryRunBuildsVerifiedRequestShape(t *testing.T) {
 	}
 }
 
-func TestCreateDryRunBlocksUnsupportedServiceKeyRequiredTypeConditionAndDestructiveDrift(t *testing.T) {
-	t.Parallel()
-
-	client := newTemplateFixtureClientWithStartCounter(t, mustReadFixture(t, "lading-4003.json"), nil)
-	template := Template{
-		Target: EditTarget{BusinessID: 15, ServiceID: 4003}, SnapshotID: "218527", ServiceKey: "unsupported", ServiceName: "Fixture",
-		Fields: []Field{
-			{BackendKey: "unsupported", StableID: "unsupported", Name: "Unsupported", Type: "script", Required: true, Supported: false},
-			{BackendKey: "conditional", StableID: "conditional", Name: "Conditional", Type: "input", Required: true, Supported: true, Conditions: ConditionSet{Operator: "and", Conditions: []Condition{{Field: "mode", Operator: "contains", Value: "active"}}}},
-		},
-	}
-	_ = template
-
-	profile := Overlay{
-		SchemaVersion: 1, Name: "fixture-server-hardware-repair", Description: "Fixture", Routing: Routing{DisplayName: "Fixture", UseWhen: "use", DoNotUseWhen: "avoid", Examples: []string{"example"}},
-		Target: OverlayTarget{BusinessID: 15, ServiceID: 4003}, Baseline: Baseline{SnapshotID: "old", ServiceKey: "request", MetadataHash: "sha256:" + strings.Repeat("a", 64)},
-		Fields: map[string]OverlayField{},
-	}
-	_ = profile
-
-	// The direct-target path proves the service-key and live required-type gates;
-	// a profile-specific drift case is exercised below with a validated registry fixture.
-	result, domainErr := Create(context.Background(), Dependencies{Client: client}, CreateRequest{Target: &EditTarget{BusinessID: 15, ServiceID: 4003}, Input: TicketInput{"title": "repair"}, Apply: true})
-	if domainErr == nil || !result.Plan.Apply.Blocked || result.Applied {
-		t.Fatalf("apply fail-closed result = %+v, error = %v", result, domainErr)
-	}
-}
-
-func TestCreateDryRunStaleRegistryReportsBlockedApply(t *testing.T) {
-	t.Parallel()
-
-	client := newTemplateFixtureClientWithStartCounter(t, mustReadFixture(t, "lading-4003.json"), nil)
-	profile := mustReadFixture(t, "profile-4003.json")
-	const profilePath = "profiles/fixture-server-hardware-repair.json"
-	server := registryServer(t, registryIndexJSON(t, "fixture-server-hardware-repair", profilePath, profile), map[string][]byte{profilePath: profile})
-	defer server.Close()
-	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
-	loader := registryLoaderFor(t, server.URL, t.TempDir(), now)
-	if _, _, err := loader.List(context.Background()); err != nil {
-		t.Fatalf("populate registry cache: %v", err)
-	}
-	server.Close()
-	loader.Now = func() time.Time { return now.Add(24 * time.Hour) }
-
-	result, domainErr := Create(context.Background(), Dependencies{Client: client, Registry: loader}, CreateRequest{Profile: "fixture-server-hardware-repair", Input: TicketInput{"title": "repair", "devices": []any{map[string]any{"hostName": "server-01", "part": "disk"}}}})
-	if domainErr != nil {
-		t.Fatalf("stale dry-run error = %v", domainErr)
-	}
-	if !result.Plan.Apply.Blocked || result.Plan.Apply.BlockReason != "stale_registry" || result.Plan.ProfileSource != "cache" {
-		t.Fatalf("stale dry-run plan = %+v", result.Plan)
-	}
-}
-
-func TestCreateDryRunDestructiveDriftBlocksApply(t *testing.T) {
-	t.Parallel()
-
-	client := newTemplateFixtureClientWithStartCounter(t, mustReadFixture(t, "lading-4003.json"), nil)
-	profile := mustReadFixture(t, "profile-4003.json")
-	profile = []byte(strings.Replace(string(profile), `"serviceKey": "request"`, `"serviceKey": "legacy"`, 1))
-	const profilePath = "profiles/fixture-server-hardware-repair.json"
-	server := registryServer(t, registryIndexJSON(t, "fixture-server-hardware-repair", profilePath, profile), map[string][]byte{profilePath: profile})
-	defer server.Close()
-	loader := registryLoaderFor(t, server.URL, t.TempDir(), time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC))
-
-	result, domainErr := Create(context.Background(), Dependencies{Client: client, Registry: loader}, CreateRequest{
-		Profile: "fixture-server-hardware-repair",
-		Input:   TicketInput{"title": "repair", "devices": []any{map[string]any{"hostName": "server-01", "part": "disk"}}},
-	})
-	if domainErr != nil {
-		t.Fatalf("destructive-drift dry-run error = %v", domainErr)
-	}
-	if !result.Plan.TemplateDrift || result.Plan.DriftClassification != driftDestructive || !result.Plan.Apply.Blocked || result.Plan.Apply.BlockReason != "destructive_drift" {
-		t.Fatalf("destructive-drift dry-run plan = %+v", result.Plan)
-	}
-}
-
 func TestCreateApplyRepeatsPreflightWritesOnceAndVerifiesReadback(t *testing.T) {
 	t.Parallel()
 	var serviceCalls, ladingCalls, starts, gets atomic.Int32
-	client := newApplyFixtureClient(t, &serviceCalls, &ladingCalls, &starts, &gets, false)
+	client := newApplyFixtureClient(t, &serviceCalls, &ladingCalls, &starts, &gets, false, false)
 	result, domainErr := Create(context.Background(), Dependencies{Client: client}, CreateRequest{
-		Target: &EditTarget{BusinessID: 15, ServiceID: 4003},
-		Input:  TicketInput{"title": "Fixture disk repair", "fault_type": "Disk", "devices": []any{map[string]any{"host_name": "server-01", "component": "disk"}}},
-		Apply:  true,
+		Profile: "server-repair",
+		Input:   repairFixtureInput(),
+		Apply:   true,
 	})
 	if domainErr != nil {
 		t.Fatalf("Create(apply) error = %v", domainErr)
@@ -176,11 +99,11 @@ func TestCreateApplyRepeatsPreflightWritesOnceAndVerifiesReadback(t *testing.T) 
 func TestCreateApplyTimeoutReturnsUnknownWithoutRetry(t *testing.T) {
 	t.Parallel()
 	var starts, gets atomic.Int32
-	client := newApplyFixtureClient(t, nil, nil, &starts, &gets, true)
+	client := newApplyFixtureClient(t, nil, nil, &starts, &gets, true, false)
 	result, domainErr := Create(context.Background(), Dependencies{Client: client}, CreateRequest{
-		Target: &EditTarget{BusinessID: 15, ServiceID: 4003},
-		Input:  TicketInput{"title": "Fixture disk repair", "fault_type": "Disk", "devices": []any{map[string]any{"host_name": "server-01", "component": "disk"}}},
-		Apply:  true,
+		Profile: "server-repair",
+		Input:   repairFixtureInput(),
+		Apply:   true,
 	})
 	if domainErr == nil || domainErr.Code != "unknown_outcome" || domainErr.Outcome != "unknown" {
 		t.Fatalf("timeout error = %+v, want unknown_outcome", domainErr)
@@ -188,7 +111,7 @@ func TestCreateApplyTimeoutReturnsUnknownWithoutRetry(t *testing.T) {
 	if result.Applied || result.Outcome != "unknown" || starts.Load() != 1 || gets.Load() != 0 {
 		t.Fatalf("timeout result = %+v, starts=%d gets=%d", result, starts.Load(), gets.Load())
 	}
-	if domainErr.Ticket == nil || domainErr.Ticket.Title != "Fixture disk repair" || domainErr.Ticket.DetailURL != "" {
+	if domainErr.Ticket == nil || domainErr.Ticket.Title != "Fixture repair" || domainErr.Ticket.DetailURL != "" {
 		t.Fatalf("unknown reconciliation reference = %+v", domainErr.Ticket)
 	}
 }
@@ -196,18 +119,133 @@ func TestCreateApplyTimeoutReturnsUnknownWithoutRetry(t *testing.T) {
 func TestCreateApplyReadbackFailureRetainsTicketReference(t *testing.T) {
 	t.Parallel()
 	var starts, gets atomic.Int32
-	client := newApplyFixtureClient(t, nil, nil, &starts, &gets, false)
-	client = newApplyFixtureClientWithReadbackFailure(t, &starts, &gets)
+	client := newApplyFixtureClient(t, nil, nil, &starts, &gets, false, true)
 	result, domainErr := Create(context.Background(), Dependencies{Client: client}, CreateRequest{
-		Target: &EditTarget{BusinessID: 15, ServiceID: 4003},
-		Input:  TicketInput{"title": "Fixture disk repair", "fault_type": "Disk", "devices": []any{map[string]any{"host_name": "server-01", "component": "disk"}}},
-		Apply:  true,
+		Profile: "server-repair",
+		Input:   repairFixtureInput(),
+		Apply:   true,
 	})
-	if domainErr == nil || domainErr.Code != "readback_failed" || result.Applied || starts.Load() != 1 || gets.Load() != 1 {
+	if domainErr == nil || domainErr.Code != "readback_failed" || result.Applied || result.Outcome != "created_unverified" || starts.Load() != 1 || gets.Load() != 1 {
 		t.Fatalf("readback result=%+v error=%+v starts=%d gets=%d", result, domainErr, starts.Load(), gets.Load())
 	}
-	if domainErr.Ticket == nil || domainErr.Ticket.InstanceID != "3463015" || domainErr.Ticket.DetailURL == "" {
+	if domainErr.Ticket == nil || domainErr.Ticket.InstanceID != "3463015" || domainErr.Ticket.DetailURL != "" {
 		t.Fatalf("readback ticket reference = %+v", domainErr.Ticket)
+	}
+}
+
+func TestCreateApplyReadsBackFrontendTicketID(t *testing.T) {
+	t.Parallel()
+	const matching = `{"instance_id":3463015,"business_id":9,"service_id":463,"title":"Fixture repair","state":"RUNNING"}`
+	const ambiguous = `{"instance_id":3463015,"business_id":15,"service_id":463,"title":"Fixture repair","state":"RUNNING"}`
+	const wrongTitle = `{"instance_id":3463015,"business_id":9,"service_id":463,"title":"Different title","state":"RUNNING"}`
+	const wrongService = `{"instance_id":3463015,"business_id":9,"service_id":4003,"title":"Fixture repair","state":"RUNNING"}`
+	const wrongID = `{"instance_id":3463016,"business_id":9,"service_id":463,"title":"Fixture repair","state":"RUNNING"}`
+	const canonical = `{"id":3463001,"instance_id":3463016,"business_id":9,"service_id":463,"name":"REQ123","title":"Fixture repair","state":"RUNNING"}`
+	const wrongName = `{"instance_id":3463016,"business_id":9,"service_id":463,"name":"REQ456","title":"Fixture repair","state":"RUNNING"}`
+	const duplicateName = `{"instance_id":3463017,"business_id":9,"service_id":463,"name":"REQ123","title":"Fixture repair","state":"RUNNING"}`
+	const startWithName = `{"id":3463015,"name":"REQ123"}`
+	for _, tt := range []struct {
+		name            string
+		startData       string
+		detailData      string
+		submittedRows   string
+		wantDetailScope string
+		wantInstanceID  string
+		wantCode        string
+	}{
+		{name: "explicit instance business", startData: `{"id":3463015,"business_id":9}`, wantDetailScope: "9"},
+		{name: "resolve from submitted tickets", startData: `{"id":3463015}`, submittedRows: matching, wantDetailScope: "1"},
+		{name: "response business points to form", startData: `{"id":3463015,"business_id":1}`, submittedRows: matching, wantDetailScope: "1"},
+		{name: "both ID fields agree", startData: `{"id":3463015,"instance_id":"3463015"}`, submittedRows: matching, wantDetailScope: "1"},
+		{name: "detail resolves canonical ID", startData: startWithName, detailData: canonical, wantDetailScope: "1", wantInstanceID: "3463016"},
+		{name: "submitted list resolves canonical ID", startData: startWithName, submittedRows: canonical, wantDetailScope: "1", wantInstanceID: "3463016"},
+		{name: "canonical ID requires matching ticket number", startData: startWithName, detailData: wrongName, wantDetailScope: "1", wantCode: "readback_mismatch"},
+		{name: "duplicate ticket number", startData: startWithName, submittedRows: canonical + "," + duplicateName, wantDetailScope: "1", wantCode: "readback_mismatch"},
+		{name: "missing ID", startData: `{"name":"REQ123"}`, wantCode: "unknown_outcome"},
+		{name: "missing data", startData: `null`, wantCode: "unknown_outcome"},
+		{name: "invalid ID", startData: `{"id":-1}`, wantCode: "unknown_outcome"},
+		{name: "conflicting IDs", startData: `{"id":3463015,"instance_id":"42"}`, wantCode: "unknown_outcome"},
+		{name: "no exact match", startData: `{"id":3463015}`, submittedRows: wrongTitle + "," + wrongService + "," + wrongID, wantDetailScope: "1", wantCode: "readback_failed"},
+		{name: "ambiguous match", startData: `{"id":3463015}`, submittedRows: matching + "," + ambiguous, wantDetailScope: "1", wantCode: "readback_mismatch"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var starts, details, lists atomic.Int32
+			client := newRepairFixtureClient(t, nil, func(req *http.Request) (*http.Response, error) {
+				switch req.URL.Path {
+				case "/api/tasktmpl3/v3/start/":
+					starts.Add(1)
+					if req.Method != http.MethodPost || req.Header.Get("businessId") != "1" {
+						t.Errorf("start used %s, businessId=%q", req.Method, req.Header.Get("businessId"))
+					}
+					return fixtureHTTPResponse([]byte(`{"result":true,"data":` + tt.startData + `}`)), nil
+				case "/api/taskflow3/v3/taskflow/3463015/":
+					details.Add(1)
+					scope := req.Header.Get("businessId")
+					if req.Method != http.MethodGet || scope != tt.wantDetailScope {
+						t.Errorf("detail used %s, businessId=%q, want GET %q", req.Method, scope, tt.wantDetailScope)
+					}
+					if tt.detailData != "" {
+						return fixtureHTTPResponse([]byte(`{"result":true,"data":` + tt.detailData + `}`)), nil
+					}
+					if scope == "9" {
+						return fixtureHTTPResponse([]byte(`{"result":true,"data":` + matching + `}`)), nil
+					}
+					response := fixtureHTTPResponse(nil)
+					response.StatusCode = http.StatusNotFound
+					return response, nil
+				case "/api/user/v3/userinfo/":
+					return fixtureHTTPResponse([]byte(`{"result":true,"data":{"business":[{"business_id":1},{"business_id":9}]}}`)), nil
+				case "/api/taskflow3/v3/taskflow/":
+					lists.Add(1)
+					if req.Method != http.MethodGet || req.URL.Query().Get("flow_type") != "apply" {
+						t.Errorf("unexpected submitted list request: %s %s", req.Method, req.URL)
+					}
+					// The submitted list can include an instance from another business.
+					rows := ""
+					if req.Header.Get("businessId") == "1" {
+						rows = tt.submittedRows
+					}
+					return fixtureHTTPResponse([]byte(`{"result":true,"data":[` + rows + `],"meta":{"limit":100,"offset":0}}`)), nil
+				default:
+					return nil, nil
+				}
+			})
+			result, domainErr := Create(context.Background(), Dependencies{Client: client}, CreateRequest{
+				Profile: "server-repair", Input: repairFixtureInput(), Apply: true,
+			})
+			if starts.Load() != 1 {
+				t.Fatalf("start calls = %d, want one", starts.Load())
+			}
+			switch tt.wantCode {
+			case "":
+				wantID := tt.wantInstanceID
+				wantDetailID := "3463001"
+				if wantID == "" {
+					wantID = "3463015"
+					wantDetailID = "3463015"
+				}
+				if domainErr != nil || !result.Applied || result.Outcome != "applied" || result.Verify == nil || !result.Verify.StateReadable ||
+					result.Ticket == nil || result.Ticket.BusinessID != 9 || result.Ticket.InstanceID != wantID ||
+					result.DetailURL != "https://servicedesk.iflytek.com/#/order/order-detail/1?id="+wantDetailID {
+					t.Fatalf("result = %+v, ticket = %+v, error = %v", result, result.Ticket, domainErr)
+				}
+				if details.Load() != 1 || (tt.submittedRows == "") != (lists.Load() == 0) {
+					t.Fatalf("readback calls: details=%d lists=%d", details.Load(), lists.Load())
+				}
+			case "unknown_outcome":
+				if domainErr == nil || domainErr.Code != tt.wantCode || domainErr.Retryable || domainErr.Outcome != "unknown" ||
+					result.Applied || result.Outcome != "unknown" || details.Load() != 0 || lists.Load() != 0 ||
+					domainErr.Ticket == nil || domainErr.Ticket.Title != "Fixture repair" || domainErr.Ticket.RequestStartedAt == "" {
+					t.Fatalf("result = %+v, error = %+v, details=%d lists=%d", result, domainErr, details.Load(), lists.Load())
+				}
+			default:
+				if domainErr == nil || domainErr.Code != tt.wantCode || domainErr.Retryable || result.Applied ||
+					result.Outcome != "created_unverified" || domainErr.Ticket == nil || domainErr.Ticket.InstanceID != "3463015" || domainErr.Ticket.DetailURL != "" {
+					t.Fatalf("result = %+v, error = %+v", result, domainErr)
+				}
+			}
+		})
 	}
 }
 
@@ -221,63 +259,43 @@ func TestDomainErrorsSerializeWithoutCredential(t *testing.T) {
 	}
 }
 
-func newApplyFixtureClient(t *testing.T, serviceCalls, ladingCalls, starts, gets *atomic.Int32, timeoutStart bool) *Client {
+func newApplyFixtureClient(t *testing.T, service, lading, starts, gets *atomic.Int32, timeoutStart, failReadback bool) *Client {
 	t.Helper()
-	service := mustReadFixture(t, "service-4003.json")
-	lading := mustReadFixture(t, "lading-4003.json")
-	start := mustReadFixture(t, "start.json")
-	ticket := mustReadFixture(t, "ticket-running.json")
-	return NewClient(Credential{APIKey: testAPIKey}, ClientOptions{HTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if request.URL.Path == "/api/service/v3/service/4003/" {
-			if serviceCalls != nil {
-				serviceCalls.Add(1)
+	return newRepairFixtureClient(t, nil, func(req *http.Request) (*http.Response, error) {
+		increment := func(counter *atomic.Int32) {
+			if counter != nil {
+				counter.Add(1)
 			}
-			return fixtureHTTPResponse(service), nil
 		}
-		if request.URL.Path == "/api/tasktmpl3/v3/lading/" {
-			if ladingCalls != nil {
-				ladingCalls.Add(1)
-			}
-			return fixtureHTTPResponse(lading), nil
-		}
-		if request.URL.Path == "/api/tasktmpl3/v3/start/" {
-			if starts != nil {
-				starts.Add(1)
-			}
+		switch req.URL.Path {
+		case "/api/service/v3/service/463/":
+			increment(service)
+		case "/api/tasktmpl3/v3/lading/":
+			increment(lading)
+		case "/api/tasktmpl3/v3/start/":
+			increment(starts)
 			if timeoutStart {
 				return nil, errors.New("connection reset after request dispatch")
 			}
-			return fixtureHTTPResponse(start), nil
-		}
-		if strings.HasPrefix(request.URL.Path, "/api/taskflow3/v3/taskflow/") {
-			if gets != nil {
-				gets.Add(1)
+			var payload StartPayload
+			if err := json.NewDecoder(req.Body).Decode(&payload); err != nil || payload.Inputs["branch-key"] != serverRepairBranch {
+				t.Errorf("unexpected start payload: %+v, %v", payload, err)
 			}
-			return fixtureHTTPResponse(ticket), nil
+			if failReadback {
+				return fixtureHTTPResponse([]byte(`{"result":true,"data":{"instance_id":"3463015","business_id":1}}`)), nil
+			}
+			return fixtureHTTPResponse(mustReadFixture(t, "start.json")), nil
+		case "/api/taskflow3/v3/taskflow/3463015/":
+			increment(gets)
+			if failReadback {
+				return fixtureHTTPResponse([]byte(`{"result":false,"data":{}}`)), nil
+			}
+			return fixtureHTTPResponse([]byte(`{"result":true,"data":{"instance_id":"3463015","service_id":463,"business_id":1,"title":"Fixture repair","state":"RUNNING"}}`)), nil
+		case "/api/user/v3/userinfo/":
+			return fixtureHTTPResponse([]byte(`{"result":true,"data":{"business":[]}}`)), nil
 		}
-		return nil, errors.New("unexpected fixture path")
-	})}})
-}
-
-func newApplyFixtureClientWithReadbackFailure(t *testing.T, starts, gets *atomic.Int32) *Client {
-	t.Helper()
-	service := mustReadFixture(t, "service-4003.json")
-	lading := mustReadFixture(t, "lading-4003.json")
-	start := mustReadFixture(t, "start.json")
-	return NewClient(Credential{APIKey: testAPIKey}, ClientOptions{HTTPClient: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		switch request.URL.Path {
-		case "/api/service/v3/service/4003/":
-			return fixtureHTTPResponse(service), nil
-		case "/api/tasktmpl3/v3/lading/":
-			return fixtureHTTPResponse(lading), nil
-		case "/api/tasktmpl3/v3/start/":
-			starts.Add(1)
-			return fixtureHTTPResponse(start), nil
-		default:
-			gets.Add(1)
-			return fixtureHTTPResponse([]byte(`{"result":false,"data":{"message":"private failure"}}`)), nil
-		}
-	})}})
+		return nil, nil
+	})
 }
 
 func fixtureHTTPResponse(body []byte) *http.Response {

@@ -74,7 +74,7 @@ under `plugins/codex/ixf-toolbox/skills/` and
 ## ServiceDesk Boundary
 
 Use `ixf-servicedesk-reader` for the supported profile list, live form inspection,
-profile validation, the current user's todo list, unfinished submitted-ticket list,
+the current user's todo list, unfinished submitted-ticket list,
 contextual candidate search, and one-ticket status reads. Map “待我处理” to
 `list --role todo`, “我提交但未完成” to `list --role submitted --state open`,
 and a contextual single-ticket request to `search --role any`. The Agent selects
@@ -93,7 +93,7 @@ compatibility and diagnostic override. These reads need no confirmation. Use
 `ixf-servicedesk-writer` only after the user explicitly asks to submit/create/report
 a repair ticket or withdraw one.
 
-The Agent chooses a semantic profile from the Registry description, intended use,
+The Agent chooses a built-in profile from its description, intended use,
 examples, and exclusions. The CLI does not score keywords, resolve natural
 language, or invent missing business facts. A sentence such as “服务器硬盘坏了，
 帮我分析原因” is fault analysis, not a ticket action. “提单报修一下这个硬盘”
@@ -110,9 +110,10 @@ multiple targets remain plausible, ask the user instead of claiming uniqueness.
 
 Each user supplies their own API Key through `IXF_SERVICEDESK_API_KEY`,
 `--api-key-file`, or the private default credential file. Keys never belong in
-profiles, prompts, logs, or command arguments. Registry profiles contain business
-semantics only; live ServiceDesk metadata remains authoritative for backend field
-keys and current input shape.
+profiles, prompts, logs, or command arguments. The built-in `server-repair`
+profile targets service 463 and fixes its catalog and repair branch. When both
+profiles and URLs are relevant, use URLs for read-only inspection and use a
+profile for creation. New profiles ship with a Toolbox release.
 
 ## Local Markdown Boundary
 

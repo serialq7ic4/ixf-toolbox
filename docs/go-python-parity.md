@@ -31,17 +31,12 @@ Go binary that executes all business workflows. Canonical skill sources live at
 | `deps install` | Owned | Dry-runs or, with explicit `--apply`, installs optional Mermaid rendering dependencies; desktop/browser login dependencies remain diagnostic-only. |
 | `update check` | Owned | Checks the latest GitHub Release without mutating local files. |
 | `update self` | Owned | Plans or applies local binary/package replacement with explicit `--apply`. |
-| `servicedesk profile/template/list/get` | Owned | Reads shared semantic profiles, live form contracts, and the current user's tickets through the API-only ServiceDesk client; list/search discover accessible business scopes from userinfo without requiring a configured bootstrap ID. |
+| `servicedesk profile/template/list/get` | Owned | Lists profiles built into the binary and reads live form contracts and tickets via API. List/search discover accessible business scopes from userinfo. |
 | `servicedesk create/withdraw` | Owned | Plans or applies confirmed ticket creation/withdrawal with explicit `--apply`, stable JSON errors, and readback verification. |
 
-ServiceDesk profile producers can import
-`github.com/serialq7ic4/ixf-toolbox/pkg/servicedeskprofile`. The public package
-owns the strict profile/Registry contract, canonical encoding, read-only form
-metadata loading, drift comparison, and deterministic rebase. It has no Python
-fallback, does not read local runtime configuration, and does not expose ticket
-instance reads or writes. External modules must pin a merged commit or release
-version; local development uses an uncommitted `go.work`, not a committed
-`replace` directive.
+Built-in ServiceDesk profiles ship with the Go binary. The
+`pkg/servicedeskprofile` package provides the live metadata client and shared
+form contracts. Ticket operations live in `internal/servicedesk`.
 
 Markdown Mermaid image publishing remains in the Go CLI path. The Go runtime
 detects Mermaid fences, creates docx image blocks, and invokes external Mermaid

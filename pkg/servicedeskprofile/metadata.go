@@ -58,6 +58,8 @@ type Field struct {
 	TableColumns     []TableColumn `json:"tableColumns,omitempty"`
 	Supported        bool          `json:"supported"`
 	DisplayOnly      bool          `json:"-"`
+	ScriptMultiple   string        `json:"-"`
+	ChoiceDictionary int           `json:"-"`
 }
 
 type Template struct {
@@ -97,19 +99,22 @@ type metadataColumnFingerprint struct {
 }
 
 type rawField struct {
-	StableID     string           `json:"field_unique_Identifier"`
-	Name         string           `json:"name"`
-	LiveName     string           `json:"field_name"`
-	Type         string           `json:"type"`
-	LiveType     string           `json:"field_type"`
-	Required     *json.RawMessage `json:"required"`
-	LiveRequired *json.RawMessage `json:"field_required"`
-	Default      *json.RawMessage `json:"default"`
-	LiveDefault  *json.RawMessage `json:"field_default"`
-	Choices      []Choice         `json:"choices"`
-	LiveChoices  json.RawMessage  `json:"field_choice"`
-	Conditions   *rawConditionSet `json:"conditions_expression"`
-	Columns      []rawTableColumn `json:"columns"`
+	StableID       string           `json:"field_unique_Identifier"`
+	Name           string           `json:"name"`
+	LiveName       string           `json:"field_name"`
+	Type           string           `json:"type"`
+	LiveType       string           `json:"field_type"`
+	Required       *json.RawMessage `json:"required"`
+	LiveRequired   *json.RawMessage `json:"field_required"`
+	Default        *json.RawMessage `json:"default"`
+	LiveDefault    *json.RawMessage `json:"field_default"`
+	Choices        []Choice         `json:"choices"`
+	LiveChoices    json.RawMessage  `json:"field_choice"`
+	Conditions     *rawConditionSet `json:"conditions_expression"`
+	Columns        []rawTableColumn `json:"columns"`
+	ScriptMultiple string           `json:"field_script_multiple"`
+	ChoiceSource   string           `json:"field_source"`
+	DictionaryID   json.RawMessage  `json:"field_source_dictionary"`
 }
 
 type rawTableColumn struct {
@@ -264,14 +269,24 @@ func normalizeLading(lading Lading) ([]Field, error) {
 			return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk lading metadata has an invalid required marker"}
 		}
 		field := Field{
-			BackendKey:  key,
-			StableID:    raw.StableID,
-			Name:        name,
-			Type:        fieldType,
-			Required:    required,
-			Choices:     nonNilChoices(raw.Choices),
-			Supported:   supportedFieldType(fieldType),
-			DisplayOnly: displayOnlyFieldType(fieldType),
+			BackendKey:     key,
+			StableID:       raw.StableID,
+			Name:           name,
+			Type:           fieldType,
+			Required:       required,
+			Choices:        nonNilChoices(raw.Choices),
+			Supported:      supportedFieldType(fieldType),
+			DisplayOnly:    displayOnlyFieldType(fieldType),
+			ScriptMultiple: raw.ScriptMultiple,
+		}
+		if raw.ChoiceSource == "dataDictionary" {
+			var id json.Number
+			if err := json.Unmarshal(raw.DictionaryID, &id); err == nil {
+				field.ChoiceDictionary, _ = strconv.Atoi(string(id))
+			}
+			if field.ChoiceDictionary <= 0 {
+				field.ChoiceDictionary = -1
+			}
 		}
 		defaultRaw, liveDefault := preferredRaw(raw.LiveDefault, raw.Default)
 		if defaultRaw != nil && string(*defaultRaw) != "null" {
@@ -354,6 +369,13 @@ func normalizeRequired(primary, fallback *json.RawMessage) (bool, error) {
 }
 
 func normalizeLiveChoices(data json.RawMessage) ([]Choice, error) {
+	var single map[string]json.RawMessage
+	if decodeMetadataJSON(data, &single) == nil && len(single) == 2 && len(single["key"]) != 0 && len(single["name"]) != 0 {
+		var choice rawLiveChoice
+		if decodeMetadataJSON(data, &choice) == nil && strings.TrimSpace(choice.Key) != "" && strings.TrimSpace(choice.Name) != "" {
+			return []Choice{{Label: choice.Name, Value: choice.Key}}, nil
+		}
+	}
 	entries, err := decodeLiveChoiceEntries(data, true)
 	if err != nil {
 		return nil, err

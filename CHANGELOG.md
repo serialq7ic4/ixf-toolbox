@@ -7,6 +7,12 @@
 - Added the public `pkg/servicedeskprofile` Go contract for ServiceDesk profile producers and consumers. It provides strict profile and Registry validation, deterministic encoding, read-only metadata and Registry clients, drift classification, and deterministic rebase with explicit unresolved customization.
 - Moved the `ixf` ServiceDesk profile runtime onto the shared contract without changing CLI JSON or cache fallback behavior. The public package does not read local credentials, environment configuration, or caches, and does not expose ticket instance or write operations.
 
+## 3.34.0 - 2026-11-26
+
+- Added the built-in ServiceDesk `server-repair` profile for the server hardware repair branch of service 463. It checks the live form before preparing a ticket. `ixf servicedesk profile list` and `show` now describe the built-in catalog. Creating a ticket requires a built-in profile. Form URLs still support inspection and create dry-run.
+- Fixed create readback when ServiceDesk returns a different detail record ID, workflow instance ID, or business scope. Verified results include the browser detail URL. Uncertain writes retain reconciliation information and require checking submitted tickets before retrying.
+- Fixed withdrawal for tickets whose detail record ID differs from their workflow instance ID. The CLI rechecks the ticket identity and reports success after reading back `WITHDRAWN`.
+
 ## 3.33.0 - 2026-11-26
 
 - Added ServiceDesk support for live branch conditions, single-value checkbox fields, and platform-resolved personnel and script fields. Service 463 can now pass dry-run preflight for the server hardware repair branch when its required routing values are supplied.

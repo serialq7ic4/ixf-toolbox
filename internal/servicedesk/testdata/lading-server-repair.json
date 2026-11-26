@@ -1,0 +1,13 @@
+{
+  "catalog-key": {"name":"Catalog","type":"single_checkbox","required":true,"field_unique_Identifier":"FUWUMULU20250704161620433","field_choice":{"GUZHANGBAOXIULEI20260416204401815":"Repair"}},
+  "branch-key": {"name":"Branch","type":"single_checkbox","required":true,"field_unique_Identifier":"GUZHANGBAOXIULEILIEBIAO20250704174956781","field_choice":{"FUWUQIBAOXIU20250704162135675":"Server","network":"Network"}},
+  "title-key": {"name":"Title","type":"input","required":true,"field_unique_Identifier":"title"},
+  "details-key": {"name":"Details","type":"tui_editor","required":true,"field_unique_Identifier":"FUWUQIBAOXIUXUQIUMINGXI20250704164905466","conditions_expression":{"hide":true,"field_display":true,"group_condition_relation":"and","condition_groups_list_all_dict":{"1":{"condition_relation":"and","condition_fields_list_all_dict":{"1":{"key":"branch-key","relation":"!=","value":"FUWUQIBAOXIU20250704162135675"}}}}}},
+  "unit-key": {"name":"Business unit","type":"single_select","required":true,"field_unique_Identifier":"SUOSHUBGBU20250625154051508","field_choice":{"key":"storage","name":"Storage"}},
+  "room-key": {"name":"Site","type":"single_select","required":true,"field_unique_Identifier":"MUBIAOJIFANG20250702092613639","field_choice":{"key":"room","name":"Room"}},
+  "owner-key": {"name":"Device user","type":"single_personnel","required":true,"field_unique_Identifier":"SHEBEISHIYONGREN20250625154344112"},
+  "line-key": {"name":"Business line","type":"script_field","required":true,"field_unique_Identifier":"SUOSHUYEWUXIAN20250625154131108","field_script_multiple":"single"},
+  "count-key": {"name":"Count","type":"number","required":true,"field_unique_Identifier":"SHEBEISHULIANG20250702092713813"},
+  "time-key": {"name":"Expected completion","type":"time","required":true,"field_unique_Identifier":"QIWANGWANCHENGSHIJIAN20250702092603252"},
+  "network-key": {"name":"Network details","type":"tui_editor","required":true,"field_unique_Identifier":"networkDetails","conditions_expression":{"hide":true,"field_display":true,"group_condition_relation":"and","condition_groups_list_all_dict":{"1":{"condition_relation":"and","condition_fields_list_all_dict":{"1":{"key":"branch-key","relation":"!=","value":"network"}}}}}}
+}

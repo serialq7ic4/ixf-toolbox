@@ -75,14 +75,6 @@ func profileMetadataSource(client *Client) sdp.MetadataSource {
 	return client
 }
 
-func resolveProfileInputContract(fields []Field, overlay ResolvedOverlay) (InputContract, error) {
-	return sdp.ResolveProfileInputContract(fields, overlay)
-}
-
-func projectProfileDrift(report DriftReport, fields []Field, profile InputContract) (DriftReport, error) {
-	return sdp.ProjectProfileDrift(report, fields, profile)
-}
-
 func tableFieldType(fieldType string) bool  { return sdp.IsTableFieldType(fieldType) }
 func preferredFieldName(field Field) string { return sdp.PreferredFieldName(field) }
 

@@ -40,11 +40,13 @@ Use this skill only when the user expresses a ticket action such as creating/sub
 5. Write a strict JSON input file containing only public contract field names. Keep it outside the repository when it contains private operational data.
 6. Run:
    `ixf servicedesk create --profile <name> --input <file> --dry-run --json`
-7. Stop on field issues, destructive drift, stale Registry, unsupported conditions, unsupported service key, or `apply.blocked:true`.
+7. Stop on field issues, destructive drift, unsupported conditions, unsupported service key, or `apply.blocked:true`.
 8. Show the user the service name, title and business facts, provided/defaulted field counts, table row count, drift status, and whether apply is blocked. Ask for explicit confirmation for this exact ticket.
 9. After confirmation, use the same profile and input file with:
    `ixf servicedesk create --profile <name> --input <file> --apply --json`
 10. Claim success only when the result reports `applied:true`, a ticket ID/detail URL, and readable-state verification. For `outcome:"unknown"` or a readback failure, do not retry; report the safe ticket reference and inspect it first.
+
+The built-in `server-repair` profile selects the server repair branch of service 463. Use the ServiceDesk username for `deviceUser` and the business-line value confirmed by the user for `businessLine`. If no built-in profile fits the request, state which ticket type needs to be added to Toolbox.
 
 ## Withdraw Workflow
 

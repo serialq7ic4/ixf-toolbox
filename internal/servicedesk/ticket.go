@@ -45,7 +45,7 @@ func GetTicket(ctx context.Context, client *Client, target DetailTarget) (Ticket
 	if err != nil {
 		return Ticket{}, ClassifyError("get", err)
 	}
-	return normalizeTicket(raw), nil
+	return normalizeDetailTicket(raw, target), nil
 }
 
 type WithdrawRequest struct {
@@ -88,9 +88,13 @@ func WithdrawTicket(ctx context.Context, client *Client, request WithdrawRequest
 	if err != nil {
 		return result, ClassifyError("withdraw", err)
 	}
-	candidate := normalizeTicket(raw)
+	candidate := normalizeDetailTicket(raw, request.Target)
 	if err := validateWithdrawCandidate(userinfo.Username, candidate); err != nil {
 		return result, err
+	}
+	withdrawID := raw.detailRecordID()
+	if request.Target.TicketID != withdrawID && request.Target.TicketID != raw.InstanceID {
+		return result, &DomainError{Code: "readback_mismatch", Message: "ServiceDesk returned a different ticket", Action: "check the ticket detail URL"}
 	}
 	result.Ticket, result.BeforeState = candidate, candidate.State
 	if !request.Apply {
@@ -106,12 +110,15 @@ func WithdrawTicket(ctx context.Context, client *Client, request WithdrawRequest
 	if err != nil {
 		return result, ClassifyError("withdraw", err)
 	}
-	candidate = normalizeTicket(raw)
+	candidate = normalizeDetailTicket(raw, request.Target)
 	if err := validateWithdrawCandidate(userinfo.Username, candidate); err != nil {
 		return result, err
 	}
+	if candidate.InstanceID != result.Ticket.InstanceID || candidate.BusinessID != result.Ticket.BusinessID || raw.detailRecordID() != withdrawID {
+		return result, &DomainError{Code: "readback_mismatch", Message: "ServiceDesk ticket identity changed before withdrawal", Action: "check the ticket detail URL"}
+	}
 	result.Ticket, result.BeforeState = candidate, candidate.State
-	if err := client.Withdraw(ctx, request.Target.BusinessID, WithdrawPayload{InstanceID: candidate.InstanceID, Message: reason}); err != nil {
+	if err := client.Withdraw(ctx, request.Target.BusinessID, WithdrawPayload{InstanceID: withdrawID, Message: reason}); err != nil {
 		return result, ClassifyError("withdraw", err)
 	}
 	result.Applied = true
@@ -119,10 +126,10 @@ func WithdrawTicket(ctx context.Context, client *Client, request WithdrawRequest
 	if err != nil {
 		return result, ClassifyError("withdraw", err)
 	}
-	verified := normalizeTicket(verifiedRaw)
+	verified := normalizeDetailTicket(verifiedRaw, request.Target)
 	result.AfterState = verified.State
 	result.Ticket = verified
-	if verified.State != "WITHDRAWN" {
+	if verified.State != "WITHDRAWN" || verified.InstanceID != candidate.InstanceID || verified.BusinessID != candidate.BusinessID {
 		return result, &DomainError{Code: "readback_mismatch", Message: "ServiceDesk ticket was not read back as WITHDRAWN", Action: "verify the ticket state before retrying"}
 	}
 	result.Verify.StateWithdrawn = true
@@ -141,6 +148,12 @@ func validateWithdrawCandidate(username string, ticket Ticket) *DomainError {
 
 func normalizeTicket(raw TicketResponse) Ticket {
 	return Ticket{BusinessID: raw.BusinessID, InstanceID: raw.InstanceID, Name: raw.Name, Title: raw.Title, ServiceID: raw.ServiceID, ServiceName: raw.ServiceName, State: raw.State, StateCategory: CategorizeState(raw.State), Step: raw.Step, Creator: raw.Creator, CurrentProcessors: raw.CurrentProcessors, CreatedTime: raw.CreatedTime, UpdateTime: raw.UpdateTime, FinishTime: raw.FinishTime, DetailURL: serviceDeskDetailURL(raw.BusinessID, raw.InstanceID)}
+}
+
+func normalizeDetailTicket(raw TicketResponse, target DetailTarget) Ticket {
+	ticket := normalizeTicket(raw)
+	ticket.DetailURL = serviceDeskDetailURL(target.BusinessID, raw.detailRecordID())
+	return ticket
 }
 
 func parseTicketTime(value string) time.Time {

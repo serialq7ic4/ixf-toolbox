@@ -171,7 +171,7 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --dry-run --json` | 规划发送消息，不启动浏览器、不回显完整消息正文 |
 | `ixf messenger send --to <target> --mode person\|conversation --message <text> --apply --json` | 发送确认消息，并通过 fresh-session 复核后报告成功 |
 | `ixf servicedesk doctor [--business-id <id>] --json` | 只读检查 ServiceDesk API Key 和 userinfo 探测状态，默认自动发现可访问业务域 |
-| `ixf servicedesk profile list\|show <name> --json` | 列出或查看共享的 ServiceDesk 业务语义 profile |
+| `ixf servicedesk profile list\|show <name> --json` | 列出或查看当前版本内置的 ServiceDesk 工单模板 |
 | `ixf servicedesk template inspect --profile <name> --json` | 读取当前 ServiceDesk 表单的实时输入契约 |
 | `ixf servicedesk create --profile <name> --input row.json --dry-run\|--apply --json` | 规划或确认后创建 ServiceDesk 工单，并在 apply 后回读 |
 | `ixf servicedesk list --mine --role todo [--business-id <id>] --json` | 查询当前流程待本人处理的工单 |
@@ -187,6 +187,10 @@ v3.1 起仓库已删除 Python runtime/package 和 Python 测试 harness，只�
 | `ixf update self --json` | 规划或执行 Toolbox 自升级 |
 
 ServiceDesk 的 `doctor`、`list` 和 `search` 只要求 API Key：CLI 默认调用无 `businessId` header 的 userinfo 自动发现当前用户可访问的业务域，再以各业务域的实际 ID 查询列表。`--business-id`、`IXF_SERVICEDESK_BUSINESS_ID` 和 `~/.config/ixf-toolbox/servicedesk-business-id` 仅保留为兼容和诊断覆盖，不是安装或使用前置配置，Agent 不应要求用户提供一个入口 business ID。
+
+内置模板 `server-repair` 支持 `463` 的服务器报修，固定「故障报修类」和「服务器报修」。用 `template inspect --profile server-repair --json` 查实时可选项。填入标题、故障描述、所属 BGBU、所属业务线、目标机房、设备使用人账号、设备数量和期望完成时间后执行 dry-run。所属业务线和账号使用用户在 ServiceDesk 中确认的值。
+
+新增工单类型需要修改 Toolbox 源码并随版本发布。填写页 URL 支持只读检查和调试 dry-run。正式提交使用内置模板。
 
 ### 当前运行边界
 

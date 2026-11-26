@@ -71,7 +71,7 @@ type queryScope struct {
 
 type queryScopeOutcome struct {
 	Scope   ScopeResult
-	Tickets []queryTicketCandidate
+	Tickets []TicketResponse
 }
 
 type queryTicketCandidate struct {
@@ -139,11 +139,11 @@ func QueryTickets(ctx context.Context, client *Client, request QueryRequest) (Qu
 			scopes = append(scopes, queryScope{Business: business, Role: QueryRoleTodo, FlowType: "wait"})
 		}
 	}
-	outcomes := queryServiceDeskScopes(ctx, client, scopes)
+	outcomes := queryServiceDeskScopes(ctx, client, scopes, nil)
 	all := make(map[string]mergedQueryTicket)
 	completedScopeCount := 0
 	recoveredTicketCount := 0
-	for _, outcome := range outcomes {
+	for index, outcome := range outcomes {
 		result.Scopes = append(result.Scopes, outcome.Scope)
 		if !outcome.Scope.Complete {
 			result.Complete = false
@@ -152,11 +152,12 @@ func QueryTickets(ctx context.Context, client *Client, request QueryRequest) (Qu
 			completedScopeCount++
 		}
 		recoveredTicketCount += len(outcome.Tickets)
-		for _, candidate := range outcome.Tickets {
-			ticket := candidate.Ticket
+		for _, raw := range outcome.Tickets {
+			ticket := normalizeTicket(raw)
 			if ticket.InstanceID == "" || ticket.BusinessID <= 0 {
 				continue
 			}
+			candidate := queryTicketCandidate{Ticket: ticket, ScopeBusinessID: outcome.Scope.BusinessID, Role: scopes[index].Role, FlowType: outcome.Scope.FlowType}
 			key := fmt.Sprintf("%d:%s", ticket.BusinessID, ticket.InstanceID)
 			merged, exists := all[key]
 			if !exists {
@@ -252,7 +253,7 @@ func preferQueryCandidate(candidate, current queryTicketCandidate) bool {
 	return candidate.ScopeBusinessID < current.ScopeBusinessID
 }
 
-func queryServiceDeskScopes(ctx context.Context, client *Client, scopes []queryScope) []queryScopeOutcome {
+func queryServiceDeskScopes(ctx context.Context, client *Client, scopes []queryScope, match func(TicketResponse) bool) []queryScopeOutcome {
 	outcomes := make([]queryScopeOutcome, len(scopes))
 	if len(scopes) == 0 {
 		return outcomes
@@ -268,7 +269,7 @@ func queryServiceDeskScopes(ctx context.Context, client *Client, scopes []queryS
 		go func() {
 			defer workers.Done()
 			for index := range jobs {
-				outcomes[index] = queryServiceDeskScope(ctx, client, scopes[index])
+				outcomes[index] = queryServiceDeskScope(ctx, client, scopes[index], match)
 			}
 		}()
 	}
@@ -280,7 +281,7 @@ func queryServiceDeskScopes(ctx context.Context, client *Client, scopes []queryS
 	return outcomes
 }
 
-func queryServiceDeskScope(ctx context.Context, client *Client, scope queryScope) queryScopeOutcome {
+func queryServiceDeskScope(ctx context.Context, client *Client, scope queryScope, match func(TicketResponse) bool) queryScopeOutcome {
 	outcome := queryScopeOutcome{Scope: ScopeResult{BusinessID: scope.Business.BusinessID, Name: scope.Business.Name, FlowType: scope.FlowType, Complete: true}}
 	offset := 0
 	for {
@@ -291,12 +292,12 @@ func queryServiceDeskScope(ctx context.Context, client *Client, scope queryScope
 			return outcome
 		}
 		for _, raw := range page.Data {
-			outcome.Tickets = append(outcome.Tickets, queryTicketCandidate{
-				Ticket:          normalizeTicket(raw),
-				ScopeBusinessID: scope.Business.BusinessID,
-				Role:            scope.Role,
-				FlowType:        scope.FlowType,
-			})
+			if match == nil {
+				raw.Inputs = nil
+			} else if !match(raw) {
+				continue
+			}
+			outcome.Tickets = append(outcome.Tickets, raw)
 		}
 		outcome.Scope.TicketCount += len(page.Data)
 		if page.Meta.Next == nil || strings.TrimSpace(*page.Meta.Next) == "" {

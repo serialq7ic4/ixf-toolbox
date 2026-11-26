@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -26,15 +25,12 @@ var serviceDeskClientLoader = loadServiceDeskClient
 var serviceDeskClientForCredential = func(credential ixfsd.Credential) *ixfsd.Client {
 	return ixfsd.NewClient(credential, ixfsd.ClientOptions{})
 }
-var serviceDeskRegistryLoader = func() ixfsd.RegistryLoader {
-	return ixfsd.RegistryLoader{}
-}
 
 func runServiceDesk(args []string, stdout, stderr io.Writer) int {
 	rows := [][2]string{
 		{"doctor", "Inspect ServiceDesk credential and API readiness."},
 		{"template", "Inspect a live ServiceDesk form contract."},
-		{"profile", "Discover, validate, list, or show semantic profiles."},
+		{"profile", "List or show built-in ticket profiles."},
 		{"create", "Dry-run or apply a validated ticket creation."},
 		{"list", "List the current user's todo or submitted tickets."},
 		{"search", "Search the current user's ticket candidates."},
@@ -185,22 +181,17 @@ func runServiceDeskTemplate(args []string, stdout, stderr io.Writer) int {
 	if domainErr != nil {
 		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_template_inspect", nil, domainErr)
 	}
-	request := ixfsd.InspectRequest{}
+	var result ixfsd.ResolvedContract
+	var err error
 	if *urlValue != "" {
-		target, err := ixfsd.ParseEditURL(*urlValue)
-		if err != nil {
-			return serviceDeskUsageError(stderr, err)
+		target, parseErr := ixfsd.ParseEditURL(*urlValue)
+		if parseErr != nil {
+			return serviceDeskUsageError(stderr, parseErr)
 		}
-		request.Target = target
+		result, err = ixfsd.Inspect(context.Background(), client, ixfsd.InspectRequest{Target: target})
 	} else {
-		overlay, status, err := serviceDeskRegistryLoader().Show(context.Background(), *profile)
-		if err != nil {
-			return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_template_inspect", nil, ixfsd.ClassifyError("registry", err))
-		}
-		request.Target = ixfsd.EditTarget{BusinessID: overlay.Target.BusinessID, ServiceID: overlay.Target.ServiceID}
-		request.Profile = &ixfsd.ProfileContext{Overlay: overlay, Source: status.Source, Stale: status.Stale}
+		result, err = ixfsd.InspectBuiltinProfile(context.Background(), client, *profile)
 	}
-	result, err := ixfsd.Inspect(context.Background(), client, request)
 	if err != nil {
 		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_template_inspect", nil, ixfsd.ClassifyError("inspect", err))
 	}
@@ -208,7 +199,7 @@ func runServiceDeskTemplate(args []string, stdout, stderr io.Writer) int {
 }
 
 func runServiceDeskProfile(args []string, stdout, stderr io.Writer) int {
-	rows := [][2]string{{"discover", "Generate a local overlay draft."}, {"validate", "Validate an overlay against live metadata."}, {"list", "List shared semantic profiles."}, {"show", "Show one shared semantic profile."}}
+	rows := [][2]string{{"list", "List profiles built into ixf."}, {"show", "Show one built-in profile."}}
 	if len(args) == 0 {
 		printCommandHelp(stderr, "ixf servicedesk profile", rows)
 		return 2
@@ -229,11 +220,7 @@ func runServiceDeskProfile(args []string, stdout, stderr io.Writer) int {
 		if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
 			return 2
 		}
-		values, status, err := serviceDeskRegistryLoader().List(context.Background())
-		if err != nil {
-			return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_list", nil, ixfsd.ClassifyError("registry", err))
-		}
-		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_list", map[string]any{"profiles": values, "registry": status}, nil)
+		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_list", map[string]any{"profiles": ixfsd.BuiltinProfiles(), "source": "builtin"}, nil)
 	case "show":
 		if hasHelpArg(args[1:]) {
 			printUsageHelp(stdout, "ixf servicedesk profile show NAME [--json]", nil)
@@ -265,104 +252,20 @@ func runServiceDeskProfile(args []string, stdout, stderr io.Writer) int {
 		if !ixfsd.IsValidProfileName(name) {
 			return serviceDeskUsageError(stderr, fmt.Errorf("profile name must be a lowercase hyphenated slug of at most 64 characters"))
 		}
-		value, status, err := serviceDeskRegistryLoader().Show(context.Background(), name)
+		value, err := ixfsd.BuiltinProfile(name)
 		if err != nil {
-			return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_show", nil, ixfsd.ClassifyError("registry", err))
+			return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_show", nil, err)
 		}
-		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_show", map[string]any{"profile": value, "registry": status}, nil)
-	case "discover":
-		return runServiceDeskProfileDiscover(args[1:], stdout, stderr)
-	case "validate":
-		return runServiceDeskProfileValidate(args[1:], stdout, stderr)
+		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_show", map[string]any{"profile": value, "source": "builtin"}, nil)
 	default:
 		fmt.Fprintln(stderr, "ERROR unsupported servicedesk profile subcommand")
 		return 2
 	}
 }
 
-func runServiceDeskProfileDiscover(args []string, stdout, stderr io.Writer) int {
-	if hasHelpArg(args) {
-		printUsageHelp(stdout, "ixf servicedesk profile discover --url URL --name NAME --out FILE [--json]", nil)
-		return 0
-	}
-	flags := flag.NewFlagSet("profile discover", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	urlValue := flags.String("url", "", "")
-	name := flags.String("name", "", "")
-	out := flags.String("out", "", "")
-	apiKeyFile, asJSON := serviceDeskCommonFlags(flags)
-	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
-		return 2
-	}
-	if *urlValue == "" || *name == "" || *out == "" {
-		fmt.Fprintln(stderr, "ERROR --url, --name, and --out are required")
-		return 2
-	}
-	target, err := ixfsd.ParseEditURL(*urlValue)
-	if err != nil {
-		return serviceDeskUsageError(stderr, err)
-	}
-	client, de := serviceDeskClientLoader(*apiKeyFile)
-	if de != nil {
-		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_discover", nil, de)
-	}
-	template, err := ixfsd.LoadTemplate(context.Background(), client, target)
-	if err != nil {
-		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_discover", nil, ixfsd.ClassifyError("inspect", err))
-	}
-	overlay := ixfsd.DiscoverOverlay(template, *name)
-	encoded, err := json.MarshalIndent(overlay, "", "  ")
-	if err != nil {
-		return 1
-	}
-	encoded = append(encoded, '\n')
-	if err := os.WriteFile(*out, encoded, 0600); err != nil {
-		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_discover", nil, &ixfsd.DomainError{Code: "output_error", Message: "could not write profile draft", Action: "choose a writable output path"})
-	}
-	return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_discover", map[string]any{"path": *out, "profile": overlay}, nil)
-}
-
-func runServiceDeskProfileValidate(args []string, stdout, stderr io.Writer) int {
-	if hasHelpArg(args) {
-		printUsageHelp(stdout, "ixf servicedesk profile validate --input FILE [--json]", nil)
-		return 0
-	}
-	flags := flag.NewFlagSet("profile validate", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	input := flags.String("input", "", "")
-	apiKeyFile, asJSON := serviceDeskCommonFlags(flags)
-	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
-		return 2
-	}
-	if *input == "" {
-		return serviceDeskUsageError(stderr, fmt.Errorf("--input is required"))
-	}
-	raw, err := os.ReadFile(*input)
-	if err != nil {
-		return serviceDeskUsageError(stderr, err)
-	}
-	overlay, err := ixfsd.DecodeOverlay(raw)
-	if err != nil {
-		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_validate", nil, ixfsd.ClassifyError("validate", err))
-	}
-	client, de := serviceDeskClientLoader(*apiKeyFile)
-	if de != nil {
-		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_validate", nil, de)
-	}
-	template, err := ixfsd.LoadTemplate(context.Background(), client, ixfsd.EditTarget{BusinessID: overlay.Target.BusinessID, ServiceID: overlay.Target.ServiceID})
-	if err != nil {
-		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_validate", nil, ixfsd.ClassifyError("validate", err))
-	}
-	resolved, err := ixfsd.ValidateOverlay(template, overlay)
-	if err != nil {
-		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_validate", nil, ixfsd.ClassifyError("validate", err))
-	}
-	return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_profile_validate", resolved, nil)
-}
-
 func runServiceDeskCreate(args []string, stdout, stderr io.Writer) int {
 	if hasHelpArg(args) {
-		printUsageHelp(stdout, "ixf servicedesk create (--url URL|--profile NAME) --input FILE [--dry-run|--apply] [--json]", nil)
+		printUsageHelp(stdout, "ixf servicedesk create --profile NAME --input FILE [--dry-run|--apply] [--json]\nixf servicedesk create --url URL --input FILE --dry-run [--json]", nil)
 		return 0
 	}
 	flags := flag.NewFlagSet("servicedesk create", flag.ContinueOnError)
@@ -378,6 +281,12 @@ func runServiceDeskCreate(args []string, stdout, stderr io.Writer) int {
 	}
 	if (*urlValue == "") == (*profile == "") || *input == "" || *apply && *dryRun {
 		return serviceDeskUsageError(stderr, fmt.Errorf("exactly one target, --input, and only one mode are required"))
+	}
+	if *apply && *urlValue != "" {
+		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_create", nil, &ixfsd.DomainError{
+			Code: "profile_required", Message: "Creating a ServiceDesk ticket requires a built-in profile",
+			Action: "run ixf servicedesk profile list --json",
+		})
 	}
 	raw, err := os.ReadFile(*input)
 	if err != nil {
@@ -399,7 +308,7 @@ func runServiceDeskCreate(args []string, stdout, stderr io.Writer) int {
 	if de != nil {
 		return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_create", nil, de)
 	}
-	result, de := ixfsd.Create(context.Background(), ixfsd.Dependencies{Client: client, Registry: serviceDeskRegistryLoader()}, request)
+	result, de := ixfsd.Create(context.Background(), ixfsd.Dependencies{Client: client}, request)
 	return writeServiceDeskResult(stdout, stderr, *asJSON, "servicedesk_create", result, de)
 }
 

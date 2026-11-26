@@ -62,6 +62,49 @@ type StartPayload struct {
 type StartResponse struct {
 	InstanceID string `json:"instance_id"`
 	Name       string `json:"name"`
+	BusinessID int    `json:"business_id,omitempty"`
+	detailID   string
+}
+
+func (response *StartResponse) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		ID         json.RawMessage `json:"id"`
+		InstanceID json.RawMessage `json:"instance_id"`
+		BusinessID json.RawMessage `json:"business_id"`
+		Name       string          `json:"name"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	var instanceID int
+	var detailID string
+	for index, raw := range []json.RawMessage{wire.ID, wire.InstanceID} {
+		if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			continue
+		}
+		value, err := decodeTicketInstanceID(raw)
+		if err != nil {
+			return err
+		}
+		id, err := parsePositiveID(value)
+		if err != nil {
+			return err
+		}
+		if instanceID != 0 && instanceID != id {
+			return errors.New("ServiceDesk returned conflicting ticket IDs")
+		}
+		if index == 0 {
+			detailID = strconv.Itoa(id)
+		}
+		instanceID = id
+	}
+	if instanceID == 0 {
+		return errors.New("ServiceDesk did not return a ticket ID")
+	}
+	business, _ := decodeTicketInstanceID(wire.BusinessID)
+	businessID, _ := parsePositiveID(business)
+	*response = StartResponse{InstanceID: strconv.Itoa(instanceID), Name: wire.Name, BusinessID: businessID, detailID: detailID}
+	return nil
 }
 
 type ListQuery struct {
@@ -80,6 +123,7 @@ type PageMeta struct {
 
 type TicketResponse struct {
 	BusinessID        int            `json:"business_id"`
+	DetailID          string         `json:"id,omitempty"`
 	InstanceID        string         `json:"instance_id"`
 	Name              string         `json:"name"`
 	Title             string         `json:"title"`
@@ -100,6 +144,7 @@ func (response *TicketResponse) UnmarshalJSON(data []byte) error {
 	type ticketResponseAlias TicketResponse
 	var wire struct {
 		ticketResponseAlias
+		DetailID   json.RawMessage `json:"id"`
 		InstanceID json.RawMessage `json:"instance_id"`
 		Step       json.RawMessage `json:"step"`
 	}
@@ -110,14 +155,34 @@ func (response *TicketResponse) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("decode ServiceDesk ticket instance_id: %w", err)
 	}
+	var detailID string
+	if len(wire.DetailID) != 0 {
+		value, err := decodeTicketInstanceID(wire.DetailID)
+		if err != nil {
+			return fmt.Errorf("decode ServiceDesk ticket id: %w", err)
+		}
+		id, err := parsePositiveID(value)
+		if err != nil {
+			return fmt.Errorf("decode ServiceDesk ticket id: %w", err)
+		}
+		detailID = strconv.Itoa(id)
+	}
 	step, err := decodeTicketStep(wire.Step)
 	if err != nil {
 		return fmt.Errorf("decode ServiceDesk ticket step: %w", err)
 	}
 	*response = TicketResponse(wire.ticketResponseAlias)
+	response.DetailID = detailID
 	response.InstanceID = instanceID
 	response.Step = step
 	return nil
+}
+
+func (response TicketResponse) detailRecordID() string {
+	if response.DetailID != "" {
+		return response.DetailID
+	}
+	return response.InstanceID
 }
 
 func decodeTicketInstanceID(raw json.RawMessage) (string, error) {
@@ -248,6 +313,30 @@ func (c *Client) Lading(ctx context.Context, target EditTarget, snapshotID strin
 	return c.metadata.Lading(ctx, target, snapshotID)
 }
 
+func (c *Client) dictionaryChoices(ctx context.Context, businessID, dictionaryID int) ([]Choice, error) {
+	var response struct {
+		Children []struct {
+			Key  string `json:"key"`
+			Name string `json:"name"`
+		} `json:"children"`
+	}
+	path := "/api/workflow/v3/sys_dict/" + strconv.Itoa(dictionaryID) + "/"
+	if err := c.do(ctx, http.MethodGet, path, nil, businessID, nil, &response, nil, true); err != nil {
+		return nil, err
+	}
+	choices := make([]Choice, 0, len(response.Children))
+	for _, entry := range response.Children {
+		if strings.TrimSpace(entry.Key) == "" || strings.TrimSpace(entry.Name) == "" {
+			return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk dictionary returned an incomplete option"}
+		}
+		choices = append(choices, Choice{Label: entry.Name, Value: entry.Key})
+	}
+	if len(choices) == 0 {
+		return nil, &APIError{Code: "invalid_response", Message: "ServiceDesk dictionary returned no options"}
+	}
+	return choices, nil
+}
+
 func (c *Client) Start(ctx context.Context, businessID int, payload StartPayload) (StartResponse, error) {
 	var response StartResponse
 	err := c.do(ctx, http.MethodPost, "/api/tasktmpl3/v3/start/", nil, businessID, payload, &response, nil, false)
@@ -288,12 +377,7 @@ func (c *Client) List(ctx context.Context, businessID int, query ListQuery) (Tic
 }
 
 func (c *Client) Get(ctx context.Context, target DetailTarget) (TicketResponse, error) {
-	var response TicketResponse
-	if _, err := parsePositiveID(target.TicketID); err != nil {
-		return response, invalidRequest("ServiceDesk ticket ID must be a positive integer")
-	}
-	path := "/api/taskflow3/v3/taskflow/" + target.TicketID + "/"
-	err := c.do(ctx, http.MethodGet, path, nil, target.BusinessID, nil, &response, nil, true)
+	response, err := c.getTicketDetail(ctx, target)
 	if err == nil {
 		return response, nil
 	}
@@ -312,6 +396,16 @@ func (c *Client) Get(ctx context.Context, target DetailTarget) (TicketResponse, 
 	return response, err
 }
 
+func (c *Client) getTicketDetail(ctx context.Context, target DetailTarget) (TicketResponse, error) {
+	var response TicketResponse
+	if _, err := parsePositiveID(target.TicketID); err != nil {
+		return response, invalidRequest("ServiceDesk ticket ID must be a positive integer")
+	}
+	path := "/api/taskflow3/v3/taskflow/" + target.TicketID + "/"
+	err := c.do(ctx, http.MethodGet, path, nil, target.BusinessID, nil, &response, nil, true)
+	return response, err
+}
+
 func (c *Client) findVisibleTicket(ctx context.Context, target DetailTarget) (TicketResponse, bool, error) {
 	for _, flowType := range []string{"apply", "wait"} {
 		offset := 0
@@ -321,6 +415,10 @@ func (c *Client) findVisibleTicket(ctx context.Context, target DetailTarget) (Ti
 				return TicketResponse{}, false, err
 			}
 			for _, ticket := range page.Data {
+				// The detail route uses a record ID from the requested list scope.
+				if ticket.DetailID == target.TicketID {
+					return ticket, true, nil
+				}
 				if ticket.BusinessID == target.BusinessID && ticket.InstanceID == target.TicketID {
 					return ticket, true, nil
 				}

@@ -308,6 +308,12 @@ func normalizeValue(value any, field Field, view fieldView, rowIndex int) (any, 
 	}
 	typeName := strings.ToLower(field.Type)
 	switch typeName {
+	case "single_personnel", "script_field":
+		text, ok := value.(string)
+		if !ok || strings.TrimSpace(text) == "" || strings.TrimSpace(text) != text {
+			issue("invalid_type", "field requires a non-empty string selected in ServiceDesk")
+			return nil, issues
+		}
 	case "input", "multi_input", "textarea":
 		if _, ok := value.(string); !ok {
 			issue("invalid_type", "field requires a string")

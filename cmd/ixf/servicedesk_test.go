@@ -2,9 +2,7 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -44,42 +42,9 @@ func TestServiceDeskProfileLeafHelpReturnsSuccess(t *testing.T) {
 }
 
 func TestServiceDeskProfileShowAcceptsJSONFlagBeforeOrAfterName(t *testing.T) {
-	profilePath := filepath.Join("..", "..", "internal", "servicedesk", "testdata", "profile-4003.json")
-	profile, err := os.ReadFile(profilePath)
-	if err != nil {
-		t.Fatalf("read profile fixture: %v", err)
-	}
-	digest := sha256.Sum256(profile)
-	index := []byte(fmt.Sprintf(`{"schemaVersion":1,"updatedAt":"2026-11-23T00:00:00Z","profiles":[{"name":"fixture-server-hardware-repair","path":"profiles/fixture-server-hardware-repair.json","sha256":"%x"}]}`, digest))
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch request.URL.Path {
-		case "/files/ixf-toolbox/servicedesk/v1/index.json":
-			_, _ = w.Write(index)
-		case "/files/ixf-toolbox/servicedesk/v1/profiles/fixture-server-hardware-repair.json":
-			_, _ = w.Write(profile)
-		default:
-			http.NotFound(w, request)
-		}
-	}))
-	defer server.Close()
-	cacheDir, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatalf("resolve cache directory: %v", err)
-	}
-
-	original := serviceDeskRegistryLoader
-	serviceDeskRegistryLoader = func() ixfsd.RegistryLoader {
-		return ixfsd.RegistryLoader{
-			HTTPClient: &http.Client{Transport: serviceDeskRewriteTransport(server.URL)},
-			CacheDir:   cacheDir,
-		}
-	}
-	t.Cleanup(func() { serviceDeskRegistryLoader = original })
-
 	for _, args := range [][]string{
-		{"servicedesk", "profile", "show", "fixture-server-hardware-repair", "--json"},
-		{"servicedesk", "profile", "show", "--json", "fixture-server-hardware-repair"},
+		{"servicedesk", "profile", "show", "server-repair", "--json"},
+		{"servicedesk", "profile", "show", "--json", "server-repair"},
 	} {
 		stdout, stderr, code := runCLITest(t, args...)
 		if code != 0 {
@@ -95,14 +60,7 @@ func TestServiceDeskProfileShowAcceptsJSONFlagBeforeOrAfterName(t *testing.T) {
 	}
 }
 
-func TestServiceDeskProfileShowRejectsInvalidArgumentsBeforeRegistryLookup(t *testing.T) {
-	original := serviceDeskRegistryLoader
-	serviceDeskRegistryLoader = func() ixfsd.RegistryLoader {
-		t.Fatal("registry loader called for invalid profile show arguments")
-		return ixfsd.RegistryLoader{}
-	}
-	t.Cleanup(func() { serviceDeskRegistryLoader = original })
-
+func TestServiceDeskProfileShowRejectsInvalidArguments(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string

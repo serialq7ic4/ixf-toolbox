@@ -46,6 +46,51 @@ func TestWithdrawApplyRechecksStateAndIdentity(t *testing.T) {
 	}
 }
 
+func TestWithdrawUsesDetailIDFromVerifiedTicket(t *testing.T) {
+	t.Parallel()
+	var submittedID string
+	client := NewClient(Credential{APIKey: testAPIKey}, ClientOptions{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/api/user/v3/userinfo/":
+			return fixtureHTTPResponse(mustReadFixture(t, "userinfo.json")), nil
+		case "/api/taskflow3/v3/taskflow/3463001/":
+			state := "RUNNING"
+			if submittedID == "3463001" {
+				state = "WITHDRAWN"
+			}
+			return fixtureHTTPResponse([]byte(`{"result":true,"data":{"id":3463001,"instance_id":3463015,"business_id":9,"creator":"fixture.user","state":"` + state + `"}}`)), nil
+		case "/api/tasktmpl3/v3/withdraw/":
+			var payload WithdrawPayload
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			submittedID = payload.InstanceID
+			return fixtureHTTPResponse(mustReadFixture(t, "withdraw.json")), nil
+		default:
+			return nil, io.EOF
+		}
+	})})
+	result, domainErr := WithdrawTicket(context.Background(), client, WithdrawRequest{
+		Target: DetailTarget{BusinessID: 1, TicketID: "3463001"}, Reason: "fixture reason", Apply: true,
+	})
+	if domainErr != nil || !result.Verify.StateWithdrawn || submittedID != "3463001" {
+		t.Fatalf("withdraw sent ID %q, verified=%v, error=%v", submittedID, result.Verify.StateWithdrawn, domainErr)
+	}
+}
+
+func TestWithdrawRejectsMalformedDetailID(t *testing.T) {
+	t.Parallel()
+	var withdrawCalls atomic.Int32
+	ticket := bytes.Replace(mustReadFixture(t, "ticket-running.json"), []byte(`"instance_id":`), []byte(`"id":"bad","instance_id":`), 1)
+	client := newTicketFixtureClientWithTicket(t, ticket, nil, &withdrawCalls, nil, true)
+	_, domainErr := WithdrawTicket(context.Background(), client, WithdrawRequest{
+		Target: DetailTarget{BusinessID: 15, TicketID: "3463015"}, Reason: "fixture reason", Apply: true,
+	})
+	if domainErr == nil || domainErr.Code != "invalid_response" || withdrawCalls.Load() != 0 {
+		t.Fatalf("withdraw error=%v, calls=%d", domainErr, withdrawCalls.Load())
+	}
+}
+
 func TestWithdrawRejectsOtherCreatorTerminalAndInvalidReason(t *testing.T) {
 	t.Parallel()
 	other := bytes.Replace(mustReadFixture(t, "ticket-running.json"), []byte(`"creator": "fixture.user"`), []byte(`"creator": "other.user"`), 1)

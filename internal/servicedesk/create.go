@@ -59,11 +59,12 @@ type CreateVerification struct {
 }
 
 type CreateResult struct {
-	Plan    CreatePlan          `json:"plan"`
-	Applied bool                `json:"applied"`
-	Ticket  *TicketResponse     `json:"ticket,omitempty"`
-	Verify  *CreateVerification `json:"verify,omitempty"`
-	Outcome string              `json:"outcome"`
+	Plan      CreatePlan          `json:"plan"`
+	Applied   bool                `json:"applied"`
+	Ticket    *TicketResponse     `json:"ticket,omitempty"`
+	DetailURL string              `json:"detailUrl,omitempty"`
+	Verify    *CreateVerification `json:"verify,omitempty"`
+	Outcome   string              `json:"outcome"`
 }
 
 type TicketReference struct {
@@ -77,9 +78,8 @@ type TicketReference struct {
 }
 
 type Dependencies struct {
-	Client   *Client
-	Registry RegistryLoader
-	Now      func() time.Time
+	Client *Client
+	Now    func() time.Time
 }
 
 type DomainError struct {
@@ -109,6 +109,10 @@ func Create(ctx context.Context, deps Dependencies, request CreateRequest) (Crea
 	if request.Target == nil && strings.TrimSpace(request.Profile) == "" || request.Target != nil && strings.TrimSpace(request.Profile) != "" {
 		return result, &DomainError{Code: "invalid_request", Message: "exactly one ServiceDesk target or profile is required"}
 	}
+	if request.Apply && request.Target != nil {
+		result.Plan.Apply = ApplyPlan{Blocked: true, BlockReason: "profile_required"}
+		return result, &DomainError{Code: "profile_required", Message: "Creating a ServiceDesk ticket requires a built-in profile", Action: actionForCode("profile_required")}
+	}
 	if request.Apply {
 		preflightRequest := request
 		preflightRequest.Apply = false
@@ -123,13 +127,13 @@ func Create(ctx context.Context, deps Dependencies, request CreateRequest) (Crea
 		if second.Plan.Apply.Blocked {
 			return second, &DomainError{Code: second.Plan.Apply.BlockReason, Message: "ServiceDesk create apply is blocked by preflight", Action: actionForCode(second.Plan.Apply.BlockReason)}
 		}
-		return applyCreate(ctx, deps, request, second)
+		return applyCreate(ctx, deps, second)
 	}
-	var overlay *ResolvedOverlay
 	var profileSource string
-	var profileStale bool
 	var target EditTarget
 	var template Template
+	input := request.Input
+	var inputIssues []FieldIssue
 	if request.Target != nil {
 		target = *request.Target
 		var err error
@@ -138,38 +142,28 @@ func Create(ctx context.Context, deps Dependencies, request CreateRequest) (Crea
 			return result, domainFromAPIError(err)
 		}
 	} else {
-		profile, status, err := deps.Registry.Show(ctx, request.Profile)
-		if err != nil {
-			return result, &DomainError{Code: "registry_error", Message: "ServiceDesk profile could not be loaded"}
+		profile, profileErr := findBuiltinProfile(request.Profile)
+		if profileErr != nil {
+			return result, profileErr
 		}
-		profileSource = status.Source
-		profileStale = status.Stale
-		target = EditTarget{BusinessID: profile.Target.BusinessID, ServiceID: profile.Target.ServiceID}
-		template, err = LoadTemplate(ctx, deps.Client, target)
+		profileSource = builtinProfileSource
+		target = EditTarget(profile.Target)
+		var fixed map[string]string
+		var err error
+		template, fixed, err = profile.load(ctx, deps.Client)
 		if err != nil {
-			return result, domainFromAPIError(err)
+			if de, ok := err.(*DomainError); ok && de.Code == "destructive_drift" {
+				result.Plan.TemplateDrift = true
+				result.Plan.DriftClassification = driftDestructive
+				result.Plan.Apply = ApplyPlan{Blocked: true, BlockReason: de.Code, ProfileSource: profileSource}
+			}
+			return result, ClassifyError("inspect", err)
 		}
-		resolved, err := ResolveOverlay(profile, template)
-		if err != nil {
-			return result, &DomainError{Code: "profile_invalid", Message: "ServiceDesk profile does not match the live template"}
-		}
-		overlay = &resolved
-		profileContract, err := resolveProfileInputContract(template.Fields, resolved)
-		if err != nil {
-			return result, &DomainError{Code: "profile_invalid", Message: "ServiceDesk profile could not produce a public input contract"}
-		}
-		projectedDrift, err := projectProfileDrift(resolved.Drift, template.Fields, profileContract)
-		if err != nil {
-			return result, &DomainError{Code: "profile_invalid", Message: "ServiceDesk profile drift could not be projected safely"}
-		}
-		overlay.Drift = projectedDrift
+		input, inputIssues = prepareBuiltinInput(template, fixed, request.Input)
 	}
-	if overlay == nil && request.Profile != "" {
-		return result, &DomainError{Code: "profile_invalid", Message: "ServiceDesk profile could not be resolved"}
-	}
-	normalized, fieldIssues := NormalizeInput(template, overlay, request.Input)
+	normalized, fieldIssues := NormalizeInput(template, nil, input)
 	conditions := EvaluateConditions(template, normalized)
-	issues := append([]FieldIssue{}, fieldIssues...)
+	issues := append(inputIssues, fieldIssues...)
 	issues = append(issues, conditions.Blocking...)
 	missingRequired := 0
 	for _, issue := range issues {
@@ -187,15 +181,6 @@ func Create(ctx context.Context, deps Dependencies, request CreateRequest) (Crea
 		ProfileSource:   profileSource,
 		Issues:          append([]FieldIssue(nil), issues...),
 	}
-	if overlay != nil {
-		plan.TemplateDrift = overlay.Drift.Changed
-		plan.DriftClassification = overlay.Drift.Classification
-		plan.DriftChanges = append([]DriftChange(nil), overlay.Drift.Changes...)
-		if overlay.Drift.ApplyBlocked {
-			plan.Apply.Blocked = true
-			plan.Apply.BlockReason = "destructive_drift"
-		}
-	}
 	privateInputs := cloneInputs(normalized.Inputs)
 	privateInputs["retry"] = "true"
 	privateInputs["_loop"] = json.Number("0")
@@ -205,9 +190,9 @@ func Create(ctx context.Context, deps Dependencies, request CreateRequest) (Crea
 		plan.Apply.Blocked = true
 		plan.Apply.BlockReason = "unsupported_service_key"
 	}
-	if profileStale {
+	if request.Target != nil && !plan.Apply.Blocked && len(issues) == 0 {
 		plan.Apply.Blocked = true
-		plan.Apply.BlockReason = "stale_registry"
+		plan.Apply.BlockReason = "profile_required"
 	}
 	if len(issues) > 0 && !plan.Apply.Blocked {
 		plan.Apply.Blocked = true
@@ -220,53 +205,108 @@ func Create(ctx context.Context, deps Dependencies, request CreateRequest) (Crea
 	return result, nil
 }
 
-func applyCreate(ctx context.Context, deps Dependencies, request CreateRequest, planResult CreateResult) (CreateResult, *DomainError) {
+func applyCreate(ctx context.Context, deps Dependencies, planResult CreateResult) (CreateResult, *DomainError) {
 	startedAt := time.Now()
 	if deps.Now != nil {
 		startedAt = deps.Now()
 	}
-	start, err := deps.Client.Start(ctx, planResult.Plan.Target.BusinessID, planResult.Plan.privatePayload)
+	plan := planResult.Plan
+	ref := &TicketReference{
+		Title: plan.expectedTitle, ServiceID: plan.Target.ServiceID, ServiceName: plan.Target.ServiceName,
+		RequestStartedAt: startedAt.UTC().Format(time.RFC3339Nano),
+	}
+	start, err := deps.Client.Start(ctx, plan.Target.BusinessID, plan.privatePayload)
 	if err != nil {
 		classified := ClassifyError("create", err)
 		if classified.Code == "unknown_outcome" {
 			planResult.Outcome = "unknown"
-			classified.Ticket = &TicketReference{Title: planResult.Plan.expectedTitle, ServiceID: planResult.Plan.Target.ServiceID, ServiceName: planResult.Plan.Target.ServiceName, RequestStartedAt: startedAt.UTC().Format(time.RFC3339Nano)}
-			return planResult, classified
+			classified.Ticket = ref
 		}
 		return planResult, classified
 	}
-	if strings.TrimSpace(start.InstanceID) == "" {
-		return planResult, &DomainError{Code: "malformed_start_response", Message: "ServiceDesk did not return a ticket ID", Action: "inspect ServiceDesk before retrying", Retryable: false}
+	ticket, readbackErr := readCreatedTicket(ctx, deps.Client, start, plan)
+	if readbackErr != nil {
+		ref.InstanceID = start.InstanceID
+		ref.Name = start.Name
+		planResult.Outcome = "created_unverified"
+		planResult.Ticket = &TicketResponse{
+			InstanceID: ref.InstanceID, Name: ref.Name, Title: ref.Title,
+			ServiceID: ref.ServiceID, ServiceName: ref.ServiceName,
+		}
+		readbackErr.Action = "check the ticket in your submitted tickets before retrying"
+		readbackErr.Ticket = ref
+		readbackErr.Outcome = planResult.Outcome
+		return planResult, readbackErr
 	}
-	if _, err := parsePositiveID(start.InstanceID); err != nil {
-		return planResult, &DomainError{Code: "malformed_start_response", Message: "ServiceDesk returned an invalid ticket ID", Action: "inspect ServiceDesk before retrying", Retryable: false}
-	}
-	detailURL := serviceDeskDetailURL(planResult.Plan.Target.BusinessID, start.InstanceID)
-	ref := &TicketReference{InstanceID: start.InstanceID, Name: start.Name, Title: planResult.Plan.expectedTitle, ServiceID: planResult.Plan.Target.ServiceID, ServiceName: planResult.Plan.Target.ServiceName, DetailURL: detailURL}
-	ticket, err := deps.Client.Get(ctx, DetailTarget{BusinessID: planResult.Plan.Target.BusinessID, TicketID: start.InstanceID})
-	if err != nil {
-		planResult.Ticket = &TicketResponse{BusinessID: planResult.Plan.Target.BusinessID, InstanceID: start.InstanceID, Name: start.Name, Title: planResult.Plan.expectedTitle, ServiceID: planResult.Plan.Target.ServiceID, ServiceName: planResult.Plan.Target.ServiceName, ResourceURI: detailURL}
-		classified := ClassifyError("readback", err)
-		classified.Code = "readback_failed"
-		classified.Message = "ServiceDesk ticket was created but readback failed"
-		classified.Action = "open the ticket detail URL and verify its state before retrying"
-		classified.Ticket = ref
-		return planResult, classified
-	}
-	if ticket.InstanceID == "" {
-		ticket.InstanceID = start.InstanceID
-	}
+	planResult.DetailURL = serviceDeskDetailURL(plan.Target.BusinessID, ticket.detailRecordID())
 	if ticket.ResourceURI == "" {
-		ticket.ResourceURI = detailURL
+		ticket.ResourceURI = planResult.DetailURL
 	}
 	planResult.Ticket = &ticket
-	if ticket.InstanceID != start.InstanceID || ticket.ServiceID != planResult.Plan.Target.ServiceID || ticket.State == "" || planResult.Plan.expectedTitle != "" && ticket.Title != planResult.Plan.expectedTitle {
-		return planResult, &DomainError{Code: "readback_mismatch", Message: "ServiceDesk readback did not match the created ticket", Action: "open the ticket detail URL and verify it before retrying", Ticket: ref}
-	}
 	planResult.Applied = true
 	planResult.Outcome = "applied"
 	planResult.Verify = &CreateVerification{StateReadable: true}
 	return planResult, nil
+}
+
+func readCreatedTicket(ctx context.Context, client *Client, start StartResponse, plan CreatePlan) (TicketResponse, *DomainError) {
+	match := func(ticket TicketResponse) bool {
+		if _, err := parsePositiveID(ticket.InstanceID); err != nil || ticket.BusinessID <= 0 ||
+			ticket.ServiceID != plan.Target.ServiceID || strings.TrimSpace(ticket.State) == "" {
+			return false
+		}
+		if plan.expectedTitle != "" && plan.expectedTitle != ticket.Title {
+			return false
+		}
+		if start.Name != "" && ticket.Name != "" && start.Name != ticket.Name {
+			return false
+		}
+		idMatches := ticket.InstanceID == start.InstanceID
+		if start.detailID != "" && ticket.DetailID != "" {
+			idMatches = start.detailID == ticket.DetailID
+		}
+		return idMatches ||
+			(plan.expectedTitle != "" && start.Name != "" && start.Name == ticket.Name)
+	}
+	businessID := start.BusinessID
+	if businessID == 0 {
+		businessID = plan.Target.BusinessID
+	}
+	ticket, detailErr := client.getTicketDetail(ctx, DetailTarget{BusinessID: businessID, TicketID: start.InstanceID})
+	if detailErr == nil && match(ticket) {
+		return ticket, nil
+	}
+	if plan.expectedTitle != "" {
+		// The submitted view can include tickets whose business differs from the form's.
+		ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
+		defer cancel()
+		if user, err := client.UserInfo(ctx, 0); err == nil {
+			scopes := make([]queryScope, 0, len(user.Business))
+			for _, business := range user.Business {
+				if business.BusinessID > 0 {
+					scopes = append(scopes, queryScope{Business: business, Role: QueryRoleSubmitted, FlowType: "apply"})
+				}
+			}
+			var found TicketResponse
+			for _, outcome := range queryServiceDeskScopes(ctx, client, scopes, match) {
+				for _, candidate := range outcome.Tickets {
+					if found.BusinessID != 0 && (found.BusinessID != candidate.BusinessID || found.InstanceID != candidate.InstanceID) {
+						return TicketResponse{}, &DomainError{Code: "readback_mismatch", Message: "ServiceDesk returned multiple matching tickets"}
+					}
+					if found.BusinessID == 0 || parseTicketTime(candidate.UpdateTime).After(parseTicketTime(found.UpdateTime)) {
+						found = candidate
+					}
+				}
+			}
+			if found.BusinessID > 0 {
+				return found, nil
+			}
+		}
+	}
+	if detailErr == nil {
+		return TicketResponse{}, &DomainError{Code: "readback_mismatch", Message: "ServiceDesk readback did not match the created ticket"}
+	}
+	return TicketResponse{}, &DomainError{Code: "readback_failed", Message: "ServiceDesk ticket was created but readback failed"}
 }
 
 func expectedTitle(template Template, normalized NormalizedInput) string {

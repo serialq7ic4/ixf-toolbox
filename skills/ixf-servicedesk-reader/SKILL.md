@@ -1,11 +1,11 @@
 ---
 name: ixf-servicedesk-reader
-description: Use when listing supported ServiceDesk ticket types, inspecting a live ticket form, validating a shared profile, listing the current user's todo or submitted tickets, searching contextual ticket candidates, or checking a ticket's current status without creating or withdrawing it.
+description: Use when listing built-in ServiceDesk ticket types, inspecting a live ticket form, listing the current user's todo or submitted tickets, searching contextual ticket candidates, or checking a ticket's current status.
 ---
 
 # ixf ServiceDesk Reader
 
-Use `ixf servicedesk` through the local Toolbox CLI. This skill is read-only. It can read the shared semantic Registry and the live ServiceDesk API, but it never creates or withdraws a ticket. ServiceDesk writes require the writer skill and explicit confirmation.
+Use `ixf servicedesk` through the local Toolbox CLI. This skill reads built-in profiles and uses the live ServiceDesk API for form and ticket queries. ServiceDesk writes require the writer skill and explicit confirmation.
 
 ## Runtime Boundary
 

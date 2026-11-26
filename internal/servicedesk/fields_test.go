@@ -113,6 +113,28 @@ func TestNormalizeSupportedFieldTypes(t *testing.T) {
 	_ = html.EscapeString
 }
 
+func TestNormalizeInputSupportsSingleCheckboxAndAutoResolvedFields(t *testing.T) {
+	t.Parallel()
+	template := Template{Fields: []Field{
+		{BackendKey: "category", StableID: "category", Name: "Category", Type: "single_checkbox", Required: true, Supported: true, Choices: []Choice{{Label: "Server", Value: "server"}}},
+		{BackendKey: "owner", StableID: "owner", Name: "Owner", Type: "single_personnel", Required: true, Supported: true},
+		{BackendKey: "line", StableID: "line", Name: "Business line", Type: "script_field", Required: true, Supported: true},
+	}}
+	normalized, issues := NormalizeInput(template, nil, TicketInput{"category": "Server"})
+	if len(issues) != 0 {
+		t.Fatalf("normalization issues = %#v", issues)
+	}
+	if got := normalized.Inputs["category"]; got != "server" {
+		t.Fatalf("checkbox value = %#v, want server", got)
+	}
+	if _, ok := normalized.Inputs["owner"]; ok {
+		t.Fatal("auto-resolved personnel field was submitted")
+	}
+	if _, ok := normalized.Inputs["line"]; ok {
+		t.Fatal("auto-resolved script field was submitted")
+	}
+}
+
 func TestNormalizeInputReportsStablePublicFieldMetadata(t *testing.T) {
 	t.Parallel()
 

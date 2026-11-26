@@ -78,6 +78,19 @@ func TestWithdrawUsesDetailIDFromVerifiedTicket(t *testing.T) {
 	}
 }
 
+func TestWithdrawRejectsMalformedDetailID(t *testing.T) {
+	t.Parallel()
+	var withdrawCalls atomic.Int32
+	ticket := bytes.Replace(mustReadFixture(t, "ticket-running.json"), []byte(`"instance_id":`), []byte(`"id":"bad","instance_id":`), 1)
+	client := newTicketFixtureClientWithTicket(t, ticket, nil, &withdrawCalls, nil, true)
+	_, domainErr := WithdrawTicket(context.Background(), client, WithdrawRequest{
+		Target: DetailTarget{BusinessID: 15, TicketID: "3463015"}, Reason: "fixture reason", Apply: true,
+	})
+	if domainErr == nil || domainErr.Code != "invalid_response" || withdrawCalls.Load() != 0 {
+		t.Fatalf("withdraw error=%v, calls=%d", domainErr, withdrawCalls.Load())
+	}
+}
+
 func TestWithdrawRejectsOtherCreatorTerminalAndInvalidReason(t *testing.T) {
 	t.Parallel()
 	other := bytes.Replace(mustReadFixture(t, "ticket-running.json"), []byte(`"creator": "fixture.user"`), []byte(`"creator": "other.user"`), 1)

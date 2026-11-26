@@ -369,6 +369,33 @@ func TestClientGetFallsBackToVisibleSubmittedTicketWhenDetailIsForbidden(t *test
 	}
 }
 
+func TestGetDetailURLFallbackMatchesRecordIDInRequestedScope(t *testing.T) {
+	t.Parallel()
+	client := newFixedHostTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("businessId") != "1" {
+			t.Errorf("businessId = %q, want 1", request.Header.Get("businessId"))
+		}
+		switch request.URL.Path {
+		case "/api/taskflow3/v3/taskflow/3463001/":
+			w.WriteHeader(http.StatusForbidden)
+		case "/api/taskflow3/v3/taskflow/":
+			_, _ = io.WriteString(w, `{"result":true,"data":[{"id":3463001,"instance_id":3463015,"business_id":9,"name":"REQ123","state":"RUNNING"}],"meta":{"limit":100,"offset":0}}`)
+		default:
+			t.Errorf("unexpected request %s", request.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	const detailURL = "https://servicedesk.iflytek.com/#/order/order-detail/1?id=3463001"
+	target, err := ParseDetailURL(detailURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket, domainErr := GetTicket(context.Background(), client, target)
+	if domainErr != nil || ticket.DetailURL != detailURL || ticket.BusinessID != 9 || ticket.InstanceID != "3463015" {
+		t.Fatalf("ticket=%+v, error=%v", ticket, domainErr)
+	}
+}
+
 func TestClientGetFallbackPaginatesAndSearchesTodoTickets(t *testing.T) {
 	t.Parallel()
 	var waitOffsets []string

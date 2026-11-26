@@ -63,6 +63,7 @@ type StartResponse struct {
 	InstanceID string `json:"instance_id"`
 	Name       string `json:"name"`
 	BusinessID int    `json:"business_id,omitempty"`
+	detailID   string
 }
 
 func (response *StartResponse) UnmarshalJSON(data []byte) error {
@@ -76,7 +77,8 @@ func (response *StartResponse) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	var instanceID int
-	for _, raw := range []json.RawMessage{wire.ID, wire.InstanceID} {
+	var detailID string
+	for index, raw := range []json.RawMessage{wire.ID, wire.InstanceID} {
 		if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 			continue
 		}
@@ -91,6 +93,9 @@ func (response *StartResponse) UnmarshalJSON(data []byte) error {
 		if instanceID != 0 && instanceID != id {
 			return errors.New("ServiceDesk returned conflicting ticket IDs")
 		}
+		if index == 0 {
+			detailID = strconv.Itoa(id)
+		}
 		instanceID = id
 	}
 	if instanceID == 0 {
@@ -98,7 +103,7 @@ func (response *StartResponse) UnmarshalJSON(data []byte) error {
 	}
 	business, _ := decodeTicketInstanceID(wire.BusinessID)
 	businessID, _ := parsePositiveID(business)
-	*response = StartResponse{InstanceID: strconv.Itoa(instanceID), Name: wire.Name, BusinessID: businessID}
+	*response = StartResponse{InstanceID: strconv.Itoa(instanceID), Name: wire.Name, BusinessID: businessID, detailID: detailID}
 	return nil
 }
 
@@ -150,12 +155,24 @@ func (response *TicketResponse) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("decode ServiceDesk ticket instance_id: %w", err)
 	}
+	var detailID string
+	if len(wire.DetailID) != 0 {
+		value, err := decodeTicketInstanceID(wire.DetailID)
+		if err != nil {
+			return fmt.Errorf("decode ServiceDesk ticket id: %w", err)
+		}
+		id, err := parsePositiveID(value)
+		if err != nil {
+			return fmt.Errorf("decode ServiceDesk ticket id: %w", err)
+		}
+		detailID = strconv.Itoa(id)
+	}
 	step, err := decodeTicketStep(wire.Step)
 	if err != nil {
 		return fmt.Errorf("decode ServiceDesk ticket step: %w", err)
 	}
 	*response = TicketResponse(wire.ticketResponseAlias)
-	response.DetailID, _ = decodeTicketInstanceID(wire.DetailID)
+	response.DetailID = detailID
 	response.InstanceID = instanceID
 	response.Step = step
 	return nil
@@ -398,6 +415,10 @@ func (c *Client) findVisibleTicket(ctx context.Context, target DetailTarget) (Ti
 				return TicketResponse{}, false, err
 			}
 			for _, ticket := range page.Data {
+				// The detail route uses a record ID from the requested list scope.
+				if ticket.DetailID == target.TicketID {
+					return ticket, true, nil
+				}
 				if ticket.BusinessID == target.BusinessID && ticket.InstanceID == target.TicketID {
 					return ticket, true, nil
 				}

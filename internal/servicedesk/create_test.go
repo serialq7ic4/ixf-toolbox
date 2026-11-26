@@ -141,6 +141,7 @@ func TestCreateApplyReadsBackFrontendTicketID(t *testing.T) {
 	const wrongService = `{"instance_id":3463015,"business_id":9,"service_id":4003,"title":"Fixture repair","state":"RUNNING"}`
 	const wrongID = `{"instance_id":3463016,"business_id":9,"service_id":463,"title":"Fixture repair","state":"RUNNING"}`
 	const canonical = `{"id":3463001,"instance_id":3463016,"business_id":9,"service_id":463,"name":"REQ123","title":"Fixture repair","state":"RUNNING"}`
+	const matchingDetailID = `{"id":3463015,"instance_id":3463016,"business_id":9,"service_id":463,"title":"Fixture repair","state":"RUNNING"}`
 	const wrongName = `{"instance_id":3463016,"business_id":9,"service_id":463,"name":"REQ456","title":"Fixture repair","state":"RUNNING"}`
 	const duplicateName = `{"instance_id":3463017,"business_id":9,"service_id":463,"name":"REQ123","title":"Fixture repair","state":"RUNNING"}`
 	const startWithName = `{"id":3463015,"name":"REQ123"}`
@@ -151,6 +152,7 @@ func TestCreateApplyReadsBackFrontendTicketID(t *testing.T) {
 		submittedRows   string
 		wantDetailScope string
 		wantInstanceID  string
+		wantDetailID    string
 		wantCode        string
 	}{
 		{name: "explicit instance business", startData: `{"id":3463015,"business_id":9}`, wantDetailScope: "9"},
@@ -158,6 +160,7 @@ func TestCreateApplyReadsBackFrontendTicketID(t *testing.T) {
 		{name: "response business points to form", startData: `{"id":3463015,"business_id":1}`, submittedRows: matching, wantDetailScope: "1"},
 		{name: "both ID fields agree", startData: `{"id":3463015,"instance_id":"3463015"}`, submittedRows: matching, wantDetailScope: "1"},
 		{name: "detail resolves canonical ID", startData: startWithName, detailData: canonical, wantDetailScope: "1", wantInstanceID: "3463016"},
+		{name: "detail ID without ticket number", startData: `{"id":3463015}`, detailData: matchingDetailID, wantDetailScope: "1", wantInstanceID: "3463016", wantDetailID: "3463015"},
 		{name: "submitted list resolves canonical ID", startData: startWithName, submittedRows: canonical, wantDetailScope: "1", wantInstanceID: "3463016"},
 		{name: "canonical ID requires matching ticket number", startData: startWithName, detailData: wrongName, wantDetailScope: "1", wantCode: "readback_mismatch"},
 		{name: "duplicate ticket number", startData: startWithName, submittedRows: canonical + "," + duplicateName, wantDetailScope: "1", wantCode: "readback_mismatch"},
@@ -224,6 +227,9 @@ func TestCreateApplyReadsBackFrontendTicketID(t *testing.T) {
 				if wantID == "" {
 					wantID = "3463015"
 					wantDetailID = "3463015"
+				}
+				if tt.wantDetailID != "" {
+					wantDetailID = tt.wantDetailID
 				}
 				if domainErr != nil || !result.Applied || result.Outcome != "applied" || result.Verify == nil || !result.Verify.StateReadable ||
 					result.Ticket == nil || result.Ticket.BusinessID != 9 || result.Ticket.InstanceID != wantID ||

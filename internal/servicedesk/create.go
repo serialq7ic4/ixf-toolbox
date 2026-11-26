@@ -261,8 +261,11 @@ func readCreatedTicket(ctx context.Context, client *Client, start StartResponse,
 		if start.Name != "" && ticket.Name != "" && start.Name != ticket.Name {
 			return false
 		}
-		// The ID returned by start can resolve to a different canonical instance ID.
-		return ticket.InstanceID == start.InstanceID ||
+		idMatches := ticket.InstanceID == start.InstanceID
+		if start.detailID != "" && ticket.DetailID != "" {
+			idMatches = start.detailID == ticket.DetailID
+		}
+		return idMatches ||
 			(plan.expectedTitle != "" && start.Name != "" && start.Name == ticket.Name)
 	}
 	businessID := start.BusinessID
